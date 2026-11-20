@@ -1,0 +1,13 @@
+id: repo-configuration
+summary: >
+  Each repository has a configuration controlling allowed model types, object
+  types and relation types. Runtime validation must use GET configuration;
+  methodology pack rules are advisory when stricter or when config is unavailable.
+api:
+  get: GET /api/v1/repositories/{repositoryId}/configuration
+  templates: GET /api/v1/configuration-templates
+guidance:
+  - Reject writes that use object/model types not allowed by configuration
+  - Surface configViolations in tool responses
+sources:
+  - https://support.2c8.com/hc/sv/articles/6776629838109-Hur-g%C3%B6r-jag-en-validering

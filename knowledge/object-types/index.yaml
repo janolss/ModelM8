@@ -1,0 +1,101 @@
+source: https://support.2c8.com/hc/sv/articles/6336377323421-Vilket-objekt-ska-jag-anv%C3%A4nda-i-vilket-sammanhang
+objectTypes:
+  - id: process
+    apiObjectTypeHints: [process, Process]
+    title: { sv: Process, en: Process }
+    naming: "Infinitive verb + noun, e.g. 'Bygga bilar', 'Vårda patient'"
+    usage: Repetitive, measurable, often cross-functional work that performs a task. Used from high-level maps down to detailed levels.
+    phase1: true
+
+  - id: activity
+    apiObjectTypeHints: [activity, Activity, aktivitet]
+    title: { sv: Aktivitet, en: Activity }
+    naming: "Infinitive verb + noun, e.g. 'Registrera order', 'Upprätta ansökan'"
+    usage: Planned event within a process. Always has a performer. Inherits input from its process and always creates a result.
+    requiresPerformer: true
+    phase1: true
+
+  - id: project
+    apiObjectTypeHints: [project, Project]
+    title: { sv: Projekt, en: Project }
+    naming: Use the organisation's project name
+    usage: Work with defined start/end, measurable goal and budget.
+    phase1: false
+
+  - id: stakeholder
+    apiObjectTypeHints: [stakeholder, Stakeholder, intressent]
+    title: { sv: Intressent, en: Stakeholder }
+    naming: Official name or group name, e.g. 'Leverantör', 'Socialstyrelsen'
+    usage: External party with bidirectional requirements; may act as external performer in a process model.
+    phase1: true
+
+  - id: forum
+    apiObjectTypeHints: [forum, Forum]
+    title: { sv: Forum, en: Forum }
+    naming: Purpose-based name, e.g. 'Ledningsgrupp', 'Styrgrupp'
+    usage: Group of people with a predetermined purpose (decide, follow up, communicate).
+    phase1: false
+
+  - id: businessObject
+    apiObjectTypeHints: [businessobject, BusinessObject, verksamhetsobjekt]
+    title: { sv: Verksamhetsobjekt, en: Business object }
+    naming: "Noun, often with status adverb, e.g. 'Registrerad order'"
+    usage: Resource, substance or information package; used as process input/output.
+    specializations: [document, message, tool]
+    phase1: true
+
+  - id: document
+    apiObjectTypeHints: [document, Document]
+    title: { sv: Dokument, en: Document }
+    naming: Noun naming the document artefact
+    usage: Specialisation of business object for documents such as price lists or schedules. Distinct from document *links* attached to symbols.
+    phase1: true
+
+  - id: message
+    apiObjectTypeHints: [message, Message]
+    title: { sv: Meddelande, en: Message }
+    naming: Noun for the electronic message
+    usage: Electronic message specialisation of business object.
+    phase1: true
+
+  - id: tool
+    apiObjectTypeHints: [tool, Tool, verktyg]
+    title: { sv: Verktyg, en: Tool }
+    naming: Noun for the resource/equipment
+    usage: Physical or software resource used by a process/activity.
+    phase1: false
+
+  - id: requirement
+    apiObjectTypeHints: [requirement, Requirement, krav]
+    title: { sv: Krav, en: Requirement }
+    naming: "Imperative verb + direction, e.g. 'Förbättra leveransprecisionen'"
+    usage: Specific property demanded of a process, business object or role.
+    phase1: false
+
+  - id: goal
+    apiObjectTypeHints: [goal, Goal, mål]
+    title: { sv: Mål, en: Goal }
+    naming: SMART formulation of desired future state
+    usage: Desired short- or long-term state for organisation, process or individual.
+    phase1: false
+
+  - id: organisation
+    apiObjectTypeHints: [organisation, organization, Organisation]
+    title: { sv: Organisation, en: Organisation }
+    naming: Official organisational unit name
+    usage: Used for responsibility and as swimlane owner.
+    phase1: true
+
+  - id: position
+    apiObjectTypeHints: [position, Position, befattning]
+    title: { sv: Befattning, en: Position }
+    naming: Job title as used in the organisation
+    usage: Responsibility / performer for activities; swimlane owner.
+    phase1: true
+
+  - id: role
+    apiObjectTypeHints: [role, Role, roll]
+    title: { sv: Roll, en: Role }
+    naming: Role name as used in the organisation
+    usage: Responsibility / performer for activities; swimlane owner.
+    phase1: true

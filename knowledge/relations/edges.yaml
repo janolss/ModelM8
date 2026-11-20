@@ -1,0 +1,12 @@
+summary: >
+  Canvas edges connect vertices and represent process flow, responsibility and
+  other relation types defined by the repository configuration.
+guidance:
+  - Prefer orthogonal flow left-to-right for process readability
+  - Center-center (diagonal) edges require repository configuration enabling them
+  - Edge type must be allowed by repository configuration for the model type
+api:
+  create: POST /api/v1/repositories/{repositoryId}/models/{modelId}/canvas/edges
+  delete: DELETE /api/v1/repositories/{repositoryId}/models/{modelId}/canvas/edges/{edgeId}
+sources:
+  - https://support.2c8.com/hc/sv/articles/8040043115421-Hur-skapar-jag-center-center-relationer

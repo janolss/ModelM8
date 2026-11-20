@@ -1,0 +1,12 @@
+summary: >
+  Document roots define a shared base path (network folder or web location).
+  Individual document links store paths relative to the root so relocating
+  documents only requires updating the root.
+api:
+  list: GET /api/v1/repositories/{repositoryId}/document-roots
+  create: POST /api/v1/repositories/{repositoryId}/document-roots
+  get: GET /api/v1/repositories/{repositoryId}/document-roots/{documentRootId}
+  update: PATCH /api/v1/repositories/{repositoryId}/document-roots/{documentRootId}
+  delete: DELETE /api/v1/repositories/{repositoryId}/document-roots/{documentRootId}
+sources:
+  - https://support.2c8.com/hc/sv/articles/7293306730397-Vad-%C3%A4r-dokumentr%C3%B6tter-och-vad-anv%C3%A4nds-de-till

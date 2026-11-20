@@ -1,0 +1,24 @@
+id: process
+apiModelTypeHints:
+  - process
+  - Process
+  - processmodel
+title:
+  sv: Processmodell
+  en: Process model
+summary: >
+  A process model describes a chain of connected activities that transform an
+  input (need) into a refined output (result). It answers why, what, who and how.
+principles:
+  - Visual understanding of complex business processes
+  - Clarify relations via flows, activities and IT systems
+  - Shared communication base across the organisation
+  - Ownership: who is responsible for governing the process
+modelingGuidance:
+  - Always include one or more inputs and the expected process result
+  - Output of one activity is typically input to the next
+  - Use roles and positions to show who is responsible for each activity
+  - Prefer reuse of existing symbols before creating duplicates
+phase1: true
+sources:
+  - https://support.2c8.com/hc/sv/articles/7185436499741-Processmodell

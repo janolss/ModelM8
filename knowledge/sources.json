@@ -1,0 +1,149 @@
+{
+  "fetchedAt": "2026-11-20",
+  "category": {
+    "title": "2c8 Modeling Tool",
+    "url": "https://support.2c8.com/hc/sv/categories/4906383560093-2c8-Modeling-Tool"
+  },
+  "articles": [
+    {
+      "id": "7185436499741",
+      "title": "Processmodell",
+      "url": "https://support.2c8.com/hc/sv/articles/7185436499741-Processmodell",
+      "priority": "P0",
+      "usedIn": ["model-types/process.yaml", "rules/process-flow.yaml"]
+    },
+    {
+      "id": "7185635540381",
+      "title": "Simbanemodell",
+      "url": "https://support.2c8.com/hc/sv/articles/7185635540381-Simbanemodell",
+      "priority": "P0",
+      "usedIn": ["model-types/swimlane.yaml", "relations/swimlane.yaml"]
+    },
+    {
+      "id": "6336377323421",
+      "title": "Vilket objekt ska jag använda i vilket sammanhang?",
+      "url": "https://support.2c8.com/hc/sv/articles/6336377323421-Vilket-objekt-ska-jag-anv%C3%A4nda-i-vilket-sammanhang",
+      "priority": "P0",
+      "usedIn": ["object-types/*.yaml", "rules/naming.yaml"]
+    },
+    {
+      "id": "5260639864605",
+      "title": "Hur skapar jag en dokumentlänk?",
+      "url": "https://support.2c8.com/hc/sv/articles/5260639864605-Hur-skapar-jag-en-dokumentl%C3%A4nk",
+      "priority": "P0",
+      "usedIn": ["documents/document-links.yaml"]
+    },
+    {
+      "id": "5261473191581",
+      "title": "Hur kopplar jag ett dokument på ett objekt eller en modell?",
+      "url": "https://support.2c8.com/hc/sv/articles/5261473191581-Hur-kopplar-jag-ett-dokument-p%C3%A5-ett-objekt-eller-en-modell",
+      "priority": "P0",
+      "usedIn": ["documents/document-links.yaml"]
+    },
+    {
+      "id": "7293306730397",
+      "title": "Vad är dokumentrötter och vad används de till?",
+      "url": "https://support.2c8.com/hc/sv/articles/7293306730397-Vad-%C3%A4r-dokumentr%C3%B6tter-och-vad-anv%C3%A4nds-de-till",
+      "priority": "P0",
+      "usedIn": ["documents/document-roots.yaml"]
+    },
+    {
+      "id": "22991602830493",
+      "title": "Hur använder jag dokumenttyper?",
+      "url": "https://support.2c8.com/hc/sv/articles/22991602830493-Hur-anv%C3%A4nder-jag-dokumenttyper",
+      "priority": "P0",
+      "usedIn": ["documents/document-types.yaml"]
+    },
+    {
+      "id": "5260682580637",
+      "title": "Hur skapar jag en nedbrytning?",
+      "url": "https://support.2c8.com/hc/sv/articles/5260682580637-Hur-skapar-jag-en-nedbrytning",
+      "priority": "P0",
+      "usedIn": ["structure/breakdowns.yaml"]
+    },
+    {
+      "id": "8397172904221",
+      "title": "Vad innebär Återanvänd och Skapa dubblett av objekt?",
+      "url": "https://support.2c8.com/hc/sv/articles/8397172904221-Vad-inneb%C3%A4r-%C3%85teranv%C3%A4nd-och-Skapa-dubblett-av-objekt",
+      "priority": "P0",
+      "usedIn": ["structure/reuse.yaml", "rules/reuse-first.yaml"]
+    },
+    {
+      "id": "5716373852445",
+      "title": "Vad innebär det att återanvända objekt?",
+      "url": "https://support.2c8.com/hc/sv/articles/5716373852445-Vad-inneb%C3%A4r-det-att-%C3%A5teranv%C3%A4nda-objekt",
+      "priority": "P0",
+      "usedIn": ["structure/reuse.yaml"]
+    },
+    {
+      "id": "6776629838109",
+      "title": "Hur gör jag en validering?",
+      "url": "https://support.2c8.com/hc/sv/articles/6776629838109-Hur-g%C3%B6r-jag-en-validering",
+      "priority": "P0",
+      "usedIn": ["rules/repo-configuration.yaml"]
+    },
+    {
+      "id": "9810478659101",
+      "title": "Hur fungerar lager?",
+      "url": "https://support.2c8.com/hc/sv/articles/9810478659101-Hur-fungerar-lager",
+      "priority": "P1",
+      "usedIn": ["structure/layers.yaml"]
+    },
+    {
+      "id": "8040043115421",
+      "title": "Hur skapar jag center-center relationer?",
+      "url": "https://support.2c8.com/hc/sv/articles/8040043115421-Hur-skapar-jag-center-center-relationer",
+      "priority": "P1",
+      "usedIn": ["relations/edges.yaml"]
+    },
+    {
+      "id": "5612820972573",
+      "title": "Hur fungerar listor?",
+      "url": "https://support.2c8.com/hc/sv/articles/5612820972573-Hur-fungerar-listor",
+      "priority": "P1",
+      "usedIn": []
+    },
+    {
+      "id": "5615895636765",
+      "title": "Hur fungerar matriser?",
+      "url": "https://support.2c8.com/hc/sv/articles/5615895636765-Hur-fungerar-matriser",
+      "priority": "P1",
+      "usedIn": []
+    },
+    {
+      "id": "7185490429981",
+      "title": "Organisationsmodell",
+      "url": "https://support.2c8.com/hc/sv/articles/7185490429981-Organisationsmodell",
+      "priority": "P1",
+      "usedIn": ["model-types/stubs.yaml"]
+    },
+    {
+      "id": "7185781321885",
+      "title": "BPMN-modell",
+      "url": "https://support.2c8.com/hc/sv/articles/7185781321885-BPMN-modell",
+      "priority": "P1",
+      "usedIn": ["model-types/stubs.yaml"]
+    },
+    {
+      "id": "7185719048349",
+      "title": "Informationsmodell",
+      "url": "https://support.2c8.com/hc/sv/articles/7185719048349-Informationsmodell",
+      "priority": "P1",
+      "usedIn": ["model-types/stubs.yaml"]
+    },
+    {
+      "id": "7185774685469",
+      "title": "Begreppsmodell",
+      "url": "https://support.2c8.com/hc/sv/articles/7185774685469-Begreppsmodell",
+      "priority": "P1",
+      "usedIn": ["model-types/stubs.yaml"]
+    },
+    {
+      "id": "7185639591325",
+      "title": "Relationsmodell",
+      "url": "https://support.2c8.com/hc/sv/articles/7185639591325-Relationsmodell",
+      "priority": "P1",
+      "usedIn": ["model-types/stubs.yaml"]
+    }
+  ]
+}

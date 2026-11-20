@@ -1,0 +1,46 @@
+# Phase 1 stubs — full tools for these model types come in later phases.
+modelTypes:
+  - id: organisation
+    title: { sv: Organisationsmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185490429981-Organisationsmodell
+  - id: bpmn
+    title: { sv: BPMN-modell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185781321885-BPMN-modell
+  - id: information
+    title: { sv: Informationsmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185719048349-Informationsmodell
+  - id: concept
+    title: { sv: Begreppsmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185774685469-Begreppsmodell
+  - id: relation
+    title: { sv: Relationsmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185639591325-Relationsmodell
+  - id: stakeholder
+    title: { sv: Intressentmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185593313821-Intressentmodell
+  - id: product
+    title: { sv: Produktmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185575849885-Produktmodell
+  - id: project
+    title: { sv: Projektmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185693651485-Projektmodell
+  - id: application
+    title: { sv: Applikationsmodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/7185857029021-Applikationsmodell
+  - id: capability
+    title: { sv: Förmågemodell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/10850429691037-F%C3%B6rm%C3%A5gemodell
+  - id: general
+    title: { sv: Generell modell }
+    phase1: false
+    source: https://support.2c8.com/hc/sv/articles/13077617139741-Generell-modell

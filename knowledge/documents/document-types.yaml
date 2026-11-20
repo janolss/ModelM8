@@ -1,0 +1,11 @@
+summary: >
+  Document types categorise document links (e.g. checklist, template) for
+  structure, list columns and filtering.
+api:
+  list: GET /api/v1/repositories/{repositoryId}/document-types
+  create: POST /api/v1/repositories/{repositoryId}/document-types
+  get: GET /api/v1/repositories/{repositoryId}/document-types/{documentTypeId}
+  update: PATCH /api/v1/repositories/{repositoryId}/document-types/{documentTypeId}
+  delete: DELETE /api/v1/repositories/{repositoryId}/document-types/{documentTypeId}
+sources:
+  - https://support.2c8.com/hc/sv/articles/22991602830493-Hur-anv%C3%A4nder-jag-dokumenttyper

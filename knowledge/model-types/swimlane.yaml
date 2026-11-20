@@ -1,0 +1,19 @@
+id: swimlane
+apiModelTypeHints:
+  - swimlane
+  - Swimlane
+  - simbane
+title:
+  sv: Simbanemodell
+  en: Swimlane model
+summary: >
+  Visualises responsibility by letting the flow travel between swimlanes that
+  represent organisational units, positions or roles. Objects placed in a lane
+  get a relation to the lane owner (performer).
+modelingGuidance:
+  - Use swimlanes to clarify handovers and responsibility
+  - Lane objects are typically organisation, position or role
+  - Activities inside a lane inherit the lane as performer
+phase1: true
+sources:
+  - https://support.2c8.com/hc/sv/articles/7185635540381-Simbanemodell

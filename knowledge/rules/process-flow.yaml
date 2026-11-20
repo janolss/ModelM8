@@ -1,0 +1,18 @@
+id: process-flow
+appliesToModelTypes: [process, swimlane]
+rules:
+  - id: require-input-output
+    severity: warning
+    description: Process models should include explicit input(s) and output/result.
+  - id: activity-has-performer
+    severity: warning
+    description: Activities should have a performer (role, position or organisation).
+  - id: chain-io
+    severity: info
+    description: Prefer linking activity output as input to the next activity.
+  - id: naming-verb-noun
+    severity: warning
+    description: Process and activity titles should use infinitive verb + noun.
+sources:
+  - https://support.2c8.com/hc/sv/articles/7185436499741-Processmodell
+  - https://support.2c8.com/hc/sv/articles/6336377323421-Vilket-objekt-ska-jag-anv%C3%A4nda-i-vilket-sammanhang

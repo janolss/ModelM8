@@ -1,0 +1,16 @@
+id: reuse-first
+rules:
+  - id: search-before-create
+    severity: error
+    description: >
+      Before creating a symbol, search the repository for an existing symbol with
+      the same objectType and similar title. Reuse the existing UUID when it
+      represents the same business concept.
+  - id: prefer-reuse-over-duplicate
+    severity: warning
+    description: Prefer reuse (shared UUID) over duplicate titles with different IDs.
+agentPolicy: >
+  Always call search_symbols (or equivalent) before create. If candidates exist,
+  return them as reuseCandidates and ask before creating a new symbol.
+sources:
+  - https://support.2c8.com/hc/sv/articles/8397172904221-Vad-inneb%C3%A4r-%C3%85teranv%C3%A4nd-och-Skapa-dubblett-av-objekt

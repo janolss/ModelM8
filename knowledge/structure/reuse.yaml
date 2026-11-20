@@ -1,0 +1,11 @@
+summary: >
+  When placing an object with a title that already exists, choose reuse (same ID
+  across models) or duplicate (same title, new ID). Prefer reuse for shared
+  business concepts so updates propagate.
+guidance:
+  - Always search for existing symbols before creating new ones
+  - Same UUID means reused; different UUID means duplicate
+  - Changing data on a reused object affects all models that use it
+sources:
+  - https://support.2c8.com/hc/sv/articles/8397172904221-Vad-inneb%C3%A4r-%C3%85teranv%C3%A4nd-och-Skapa-dubblett-av-objekt
+  - https://support.2c8.com/hc/sv/articles/5716373852445-Vad-inneb%C3%A4r-det-att-%C3%A5teranv%C3%A4nda-objekt

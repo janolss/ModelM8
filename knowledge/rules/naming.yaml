@@ -1,0 +1,25 @@
+id: naming
+patterns:
+  process:
+    regex: '^\S+\s+.+'
+    hint: Infinitive verb + noun (e.g. 'Hantera order')
+  activity:
+    regex: '^\S+\s+.+'
+    hint: Infinitive verb + noun (e.g. 'Registrera order')
+  businessObject:
+    hint: Noun, optionally with status (e.g. 'Registrerad order')
+  requirement:
+    hint: Imperative + direction (e.g. 'Förbättra leveransprecisionen')
+swedishInfinitiveExamples:
+  - Hantera
+  - Registrera
+  - Upprätta
+  - Godkänna
+  - Skicka
+  - Granska
+  - Besluta
+  - Leverera
+  - Beställa
+  - Kontrollera
+sources:
+  - https://support.2c8.com/hc/sv/articles/6336377323421-Vilket-objekt-ska-jag-anv%C3%A4nda-i-vilket-sammanhang

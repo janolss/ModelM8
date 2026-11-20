@@ -1,0 +1,11 @@
+summary: >
+  In swimlane models, placing an object inside a lane creates a responsibility
+  relation to the lane owner (organisation, position or role).
+guidance:
+  - Lane owners are performers for activities in the lane
+  - Use swimlanes to visualise handovers between responsibilities
+apiHints:
+  - Canvas swimlaneSettings
+  - MtbSwimlaneRelationDto
+sources:
+  - https://support.2c8.com/hc/sv/articles/7185635540381-Simbanemodell

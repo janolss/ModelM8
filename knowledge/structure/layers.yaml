@@ -1,0 +1,10 @@
+summary: >
+  Layers control which object types are visible in a model type. Layer rules can
+  apply to a single model or all models of that type.
+api:
+  listOnModel: GET /api/v1/repositories/{repositoryId}/models/{modelId}/layers
+  createOnModel: POST /api/v1/repositories/{repositoryId}/models/{modelId}/layers
+  deleteOnModel: DELETE /api/v1/repositories/{repositoryId}/models/{modelId}/layers/{layerTypeId}
+  layerTypes: GET /api/v1/repositories/{repositoryId}/layer-types
+sources:
+  - https://support.2c8.com/hc/sv/articles/9810478659101-Hur-fungerar-lager

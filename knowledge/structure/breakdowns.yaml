@@ -1,0 +1,13 @@
+summary: >
+  A breakdown describes an object or relation further in another model, enabling
+  navigation from high-level process maps down to activity detail.
+guidance:
+  - Create new breakdown model or link to an existing one
+  - Multiple breakdowns from the same object/relation are allowed
+  - Use breakdowns for process → sub-process → activity hierarchy
+api:
+  list: GET /api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from
+  create: POST /api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from
+  delete: DELETE /api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from/{breakdownId}
+sources:
+  - https://support.2c8.com/hc/sv/articles/5260682580637-Hur-skapar-jag-en-nedbrytning

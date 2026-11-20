@@ -1,0 +1,24 @@
+summary: >
+  Document links point to files or URLs stored outside or inside 2c8. They can be
+  attached to models and symbols so published material exposes the right documents.
+kinds:
+  - id: link
+    description: Link to an existing file path or web URL accessible to end users
+  - id: mtDocument
+    description: Document authored and stored inside 2c8 Apps (MT document)
+attachment:
+  ui: Drag from Documents panel onto object/model, or Properties > Documents
+  api: Symbol documents array on MtbSymbolDto (PATCH symbol); create via POST/PATCH mt-documents
+guidance:
+  - Prefer document roots for shared base paths so moves do not break every link
+  - Tag links with document types for filtering in lists and publications
+  - Linked files must be reachable by publication end users
+api:
+  sources: GET /api/v1/repositories/{repositoryId}/documents/sources
+  listKeys: GET /api/v1/repositories/{repositoryId}/documents/sources/{sourceId}/documents
+  resolve: POST /api/v1/repositories/{repositoryId}/documents/sources/{sourceId}/documents/resolve
+  createMt: POST /api/v1/repositories/{repositoryId}/mt-documents
+  updateMt: PATCH /api/v1/repositories/{repositoryId}/mt-documents/{documentId}
+sources:
+  - https://support.2c8.com/hc/sv/articles/5260639864605-Hur-skapar-jag-en-dokumentl%C3%A4nk
+  - https://support.2c8.com/hc/sv/articles/5261473191581-Hur-kopplar-jag-ett-dokument-p%C3%A5-ett-objekt-eller-en-modell
