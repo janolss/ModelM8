@@ -10,6 +10,10 @@ import type {
   SymbolView,
   VertexView,
 } from "../api/types.js";
+import {
+  extractQuickdrawDistance,
+  loadRepoConfiguration,
+} from "../methodology/rules-engine.js";
 import { pickTitle, titleMatches } from "../util/titles.js";
 import {
   GATEWAY_SEARCH_HINT,
@@ -17,6 +21,7 @@ import {
   isGatewayAlias,
   matchesObjectTypeFilter,
 } from "../util/object-types.js";
+import { reviewProcessCanvas } from "./process-review.js";
 
 const PROCESS_TYPE_HINTS = ["process", "swimlane", "simbane"];
 
@@ -607,16 +612,38 @@ export class ProcessReader {
         ),
     );
 
-    // End outputs: produced by an activity and not feeding another activity
-    const processOutputs = businessObjects.filter((bo) => {
+    /** FLOW peer that continues the value stream (not a terminal leaf). */
+    const continuesFlow = (o: { objectType?: string }) => {
+      const t = normType(o.objectType);
+      return (
+        ACTIVITY_TYPES.has(t) ||
+        DECISION_TYPES.has(t) ||
+        BUSINESS_OBJECT_TYPES.has(t) ||
+        PROCESS_OBJECT_TYPES.has(t)
+      );
+    };
+
+    // Terminal leafs: produced by activity, no further FLOW to activity/decision/BO
+    // (BOs that only feed a vägval must NOT count as process outputs).
+    const terminalOutputs = businessObjects.filter((bo) => {
       const fromActivity = (bo.inputs ?? []).some((i) =>
         ACTIVITY_TYPES.has(normType(i.objectType)),
       );
-      const noFurtherActivity = !(bo.outputs ?? []).some((o) =>
-        ACTIVITY_TYPES.has(normType(o.objectType)),
-      );
-      return fromActivity && noFurtherActivity;
+      const noFurther = !(bo.outputs ?? []).some((o) => continuesFlow(o));
+      return fromActivity && noFurther;
     });
+
+    // Primary = rightmost terminal(s); branch/side terminals are secondary
+    const sortedTerminals = terminalOutputs
+      .slice()
+      .sort((a, b) => (b.x ?? 0) - (a.x ?? 0) || (a.y ?? 0) - (b.y ?? 0));
+    const primaryX = sortedTerminals[0]?.x ?? 0;
+    const processOutputs = sortedTerminals.filter(
+      (bo) => Math.abs((bo.x ?? 0) - primaryX) < 40,
+    );
+    const secondaryOutputs = sortedTerminals.filter(
+      (bo) => Math.abs((bo.x ?? 0) - primaryX) >= 40,
+    );
 
     const narrativeSteps = activities
       .slice()
@@ -701,6 +728,11 @@ export class ProcessReader {
         `Slutresultat: ${processOutputs.map((o) => o.title).filter(Boolean).join("; ")}.`,
       );
     }
+    if (secondaryOutputs.length) {
+      summaryLines.push(
+        `Sidogren-resultat: ${secondaryOutputs.map((o) => o.title).filter(Boolean).join("; ")}.`,
+      );
+    }
 
     return {
       overview: {
@@ -725,12 +757,19 @@ export class ProcessReader {
         symbolId: s.symbolId,
         vertexId: s.vertexId,
       })),
+      secondaryOutputs: secondaryOutputs.map((s) => ({
+        title: s.title,
+        objectType: s.objectType,
+        symbolId: s.symbolId,
+        vertexId: s.vertexId,
+      })),
       summaryText: summaryLines.join("\n"),
       steps,
       methodologyNotes: [
         "Prefer describe_process for human-readable process narratives.",
         "Edge types FLOW / RACI_RESPONSIBLE / IS_USED_BY are grouped into inputs, outputs, responsible, applications.",
         "Vägval/gateways (Regel Eller) appear under decisions; branch answers belong on FLOW edge labels. Join is never used.",
+        "outputs = primary (rightmost) terminal BOs; secondaryOutputs = other branch/side terminals. Overview handoffs use primary only.",
       ],
       nextSuggestedTools:
         activities.length === 0 &&
@@ -742,6 +781,108 @@ export class ProcessReader {
         steps.some((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)))
           ? "process-map-candidate"
           : "activity-process",
+    };
+  }
+
+  /**
+   * Post-create QA: methodology + visual layout for end-user readability.
+   * Call after apply_model_proposal / create_process_map before considering done.
+   */
+  async reviewProcessModel(args: {
+    repositoryId: string;
+    modelId: string;
+    detailModelIds?: string[];
+  }): Promise<Record<string, unknown>> {
+    const [flow, canvas, repoConfig] = await Promise.all([
+      this.getFlow({ ...args, includeDocuments: true }),
+      this.client.request<CanvasDto>({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+        pathParams: {
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+        },
+      }),
+      loadRepoConfiguration(this.client, args.repositoryId),
+    ]);
+
+    const activities = flow.steps.filter((s) =>
+      ACTIVITY_TYPES.has(normType(s.objectType)),
+    );
+    const processes = flow.steps.filter((s) =>
+      PROCESS_OBJECT_TYPES.has(normType(s.objectType)),
+    );
+    const modelKind =
+      activities.length === 0 && processes.length > 0
+        ? "process-map"
+        : activities.length > 0
+          ? "process"
+          : "unknown";
+
+    const base = reviewProcessCanvas({
+      steps: flow.steps,
+      canvas,
+      distance: extractQuickdrawDistance(repoConfig),
+      modelKind,
+    });
+
+    let scopeFindings: Array<Record<string, unknown>> = [];
+    if (args.detailModelIds?.length && modelKind === "process-map") {
+      const map = await this.describeProcessMap({
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        detailModelIds: args.detailModelIds,
+      });
+      const violations = (map.scopeViolations as string[]) ?? [];
+      scopeFindings = violations.map((message) => ({
+        id: "overview-scope-mismatch",
+        severity: "error",
+        category: "methodology",
+        message,
+        suggestion:
+          "Fix detail I/O handoffs or rebuild with create_process_map(detailModelIds).",
+      }));
+    }
+
+    const findings = [...base.findings, ...scopeFindings];
+    const errorCount = findings.filter((f) => f.severity === "error").length;
+    const warningCount = findings.filter((f) => f.severity === "warning").length;
+    const infoCount = findings.filter((f) => f.severity === "info").length;
+    const ok = errorCount === 0;
+
+    const summaryLines = [
+      `${flow.modelTitle ?? "Modell"} — granskning (${modelKind}):`,
+      `${errorCount} error(s), ${warningCount} warning(s), ${infoCount} info.`,
+      ...findings
+        .slice(0, 50)
+        .map((f) => `- [${f.severity}/${f.category}] ${f.message}`),
+    ];
+    if (findings.length > 50) {
+      summaryLines.push(`… och ${findings.length - 50} till.`);
+    }
+
+    return {
+      modelId: args.modelId,
+      modelTitle: flow.modelTitle,
+      modelKind,
+      ok,
+      summary: { errorCount, warningCount, infoCount, ok },
+      findings,
+      summaryText: summaryLines.join("\n"),
+      methodologyNotes: [
+        "review_process_model checks methodology (BO in/out, performers, no join/gateway, no role fan-out) and layout (overlap, spine alignment, spacing, FLOW sides, crossings, multi-I/O stacking).",
+        "Text-to-model / create flows should end with this review; fix errors before considering the model done.",
+        "Visual goal: readable for end users — straight baselines, orthogonal FLOW, no spaghetti.",
+      ],
+      nextSuggestedTools: ok
+        ? ["describe_process", "describe_process_map"]
+        : [
+            "delete_canvas_edge",
+            "move_canvas_vertices",
+            "update_canvas_edges",
+            "set_activity_performer",
+            "set_step_io",
+            "create_canvas_edge",
+          ],
     };
   }
 
@@ -772,28 +913,60 @@ export class ProcessReader {
       BUSINESS_OBJECT_TYPES.has(normType(s.objectType)),
     );
 
+    // Spine midY from BOs (stable) — never average in side-loop processes
+    const boMids = businessObjects.map(
+      (b) => (b.y ?? 0) + (b.height ?? 18) / 2,
+    );
     const spineMidY =
-      processes.length > 0
-        ? processes.reduce((s, p) => s + (p.y ?? 0) + (p.height ?? 50) / 2, 0) /
-          processes.length
-        : 178;
+      boMids.length > 0
+        ? boMids.reduce((s, m) => s + m, 0) / boMids.length
+        : processes.length > 0
+          ? Math.min(
+              ...processes.map((p) => (p.y ?? 0) + (p.height ?? 50) / 2),
+            )
+          : 178;
 
-    const mainProcesses = processes.filter(
-      (p) => Math.abs((p.y ?? 0) + (p.height ?? 50) / 2 - spineMidY) < 80,
-    );
+    const mainProcesses = processes.filter((p) => {
+      // Corner title icon
+      if ((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1) {
+        return false;
+      }
+      return Math.abs((p.y ?? 0) + (p.height ?? 50) / 2 - spineMidY) < 55;
+    });
     const sideLoops = processes.filter(
-      (p) => !mainProcesses.some((m) => m.vertexId === p.vertexId),
+      (p) =>
+        !mainProcesses.some((m) => m.vertexId === p.vertexId) &&
+        !((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1),
     );
 
-    // Order main chain left-to-right mixing BO and process by x
-    const spine = [...businessObjects, ...mainProcesses]
-      .filter((s) => {
-        if (PROCESS_OBJECT_TYPES.has(normType(s.objectType))) return true;
-        // BO on spine: near midline
-        const mid = (s.y ?? 0) + (s.height ?? 18) / 2;
-        return Math.abs(mid - spineMidY) < 80;
-      })
-      .sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+    // Spine BOs: one primary per X-column (closest to midY). Stacked extras
+    // share X below primary and must NOT become left/right neighbors in SCOPE.
+    const boNearBand = businessObjects.filter((s) => {
+      const mid = (s.y ?? 0) + (s.height ?? 18) / 2;
+      return Math.abs(mid - spineMidY) < 120;
+    });
+    const primaryBosByColumn: typeof businessObjects = [];
+    const byCol = new Map<number, typeof businessObjects>();
+    for (const bo of boNearBand) {
+      const col = Math.round((bo.x ?? 0) / 8) * 8;
+      const list = byCol.get(col) ?? [];
+      list.push(bo);
+      byCol.set(col, list);
+    }
+    for (const list of byCol.values()) {
+      list.sort(
+        (a, b) =>
+          Math.abs((a.y ?? 0) + (a.height ?? 18) / 2 - spineMidY) -
+          Math.abs((b.y ?? 0) + (b.height ?? 18) / 2 - spineMidY),
+      );
+      const primary = list[0];
+      if (primary) primaryBosByColumn.push(primary);
+    }
+
+    // Order main chain left-to-right mixing primary BO and process by x
+    const spine = [...primaryBosByColumn, ...mainProcesses].sort(
+      (a, b) => (a.x ?? 0) - (b.x ?? 0),
+    );
 
     const chainNarrative = spine.map((s) => ({
       kind: PROCESS_OBJECT_TYPES.has(normType(s.objectType))
@@ -821,8 +994,32 @@ export class ProcessReader {
       };
     });
 
-    // Breakdowns on this overview model (broken-down-from is on detail — also list per process via find if empty)
-    const breakdowns = breakdownsResult.breakdowns;
+    // Breakdowns live on DETAIL models (POST broken-down-from). Resolve via detailModelIds.
+    let breakdowns = breakdownsResult.breakdowns;
+    if (
+      args.detailModelIds?.length &&
+      (!Array.isArray(breakdowns) ||
+        (breakdowns as unknown[]).length === 0)
+    ) {
+      const resolved: unknown[] = [];
+      for (const detailId of args.detailModelIds) {
+        try {
+          const page = await this.getBreakdowns({
+            repositoryId: args.repositoryId,
+            modelId: detailId,
+          });
+          const list = Array.isArray(page.breakdowns)
+            ? page.breakdowns
+            : [];
+          for (const b of list as unknown[]) {
+            resolved.push({ detailModelId: detailId, breakdown: b });
+          }
+        } catch {
+          /* ignore missing */
+        }
+      }
+      breakdowns = resolved;
+    }
 
     const modelTitle =
       flow.modelTitle ?? (overview.title as string) ?? "Processkarta";
@@ -1029,7 +1226,10 @@ export class ProcessReader {
     processTitle: string;
     processSymbolId?: string;
     inputs: Array<{ title: string; symbolId?: string }>;
+    /** Primary (main-path) outputs — use for overview spine / handoffs. */
     outputs: Array<{ title: string; symbolId?: string }>;
+    /** Branch/side terminal BOs — optional stacked extras, not handoff spine. */
+    secondaryOutputs: Array<{ title: string; symbolId?: string }>;
     rule: string;
     methodologyNotes: string[];
     nextSuggestedTools: string[];
@@ -1038,6 +1238,7 @@ export class ProcessReader {
       overview?: { title?: string };
       inputs?: Array<{ title?: string; symbolId?: string }>;
       outputs?: Array<{ title?: string; symbolId?: string }>;
+      secondaryOutputs?: Array<{ title?: string; symbolId?: string }>;
       steps?: Array<{
         objectType?: string;
         title?: string;
@@ -1061,6 +1262,9 @@ export class ProcessReader {
     const outputs = (described.outputs ?? [])
       .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
       .map((o) => ({ title: o.title, symbolId: o.symbolId }));
+    const secondaryOutputs = (described.secondaryOutputs ?? [])
+      .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
+      .map((o) => ({ title: o.title, symbolId: o.symbolId }));
 
     return {
       modelId: args.modelId,
@@ -1068,13 +1272,18 @@ export class ProcessReader {
       processSymbolId: processChevron?.symbolId,
       inputs,
       outputs,
+      secondaryOutputs,
       rule:
-        "On an overview, this process chevron MUST have the same input(s) and output(s) " +
-        "as listed here (same symbol UUID). Do not invent different BOs for the map.",
+        "On an overview, this process chevron MUST have the same primary input(s) and output(s) " +
+        "as listed here (same symbol UUID). secondaryOutputs are branch terminals — stack, do not use as handoffs.",
       methodologyNotes: [
         "Detail scope defines overview scope — overview is composition, not a new value stream.",
         `Process "${processTitle}": inputs=[${inputs.map((i) => i.title).join(", ") || "—"}]; ` +
-          `outputs=[${outputs.map((o) => o.title).join(", ") || "—"}].`,
+          `outputs(primary)=[${outputs.map((o) => o.title).join(", ") || "—"}]` +
+          (secondaryOutputs.length
+            ? `; secondaryOutputs=[${secondaryOutputs.map((o) => o.title).join(", ")}]`
+            : "") +
+          ".",
         "Prefer create_process_map(detailModelIds=…) so BO chain is derived from these scopes.",
       ],
       nextSuggestedTools: [
@@ -1493,8 +1702,9 @@ export class ProcessReader {
       checks,
       errors,
       methodologyNotes: [
-        "SCOPE RULE: each overview process has the same input(s)/output(s) as its breakdown detail model.",
-        "HANDOFF RULE: BO between A and B = A's detail OUTPUT ∩ B's detail INPUT (same symbol UUID).",
+        "SCOPE RULE: each overview process has the same primary input(s)/output(s) as its breakdown detail model.",
+        "HANDOFF RULE: BO between A and B = A's detail primary OUTPUT ∩ B's detail INPUT (same symbol UUID).",
+        "secondaryOutputs (branch terminals) may be stacked under the process — they are not spine handoffs.",
         "Never invent overview-only business objects. Call get_detail_process_scope first, or create_process_map(detailModelIds).",
       ],
     };
@@ -1671,6 +1881,7 @@ export class ProcessReader {
       return {
         total: 0,
         symbols: [],
+        items: [],
         methodologyNotes: [
           "Join/förbinda is forbidden — do not search or create it. Use objectType=gateway (vägval) for exclusive choice.",
           GATEWAY_SEARCH_HINT,
@@ -1720,9 +1931,11 @@ export class ProcessReader {
       return {
         total: symbols.length,
         symbols,
+        items: symbols, // alias — agents often expect items
         scopedToModelId: args.modelId,
         methodologyNotes: [
           "Results limited to symbols placed on the given model canvas.",
+          "Response: symbols (also as items). Search param: query (title alias OK).",
           ...gatewayNotes,
         ],
         nextSuggestedTools: ["resolve_symbols", "reuse_symbol"],
@@ -1757,18 +1970,21 @@ export class ProcessReader {
       symbols = symbols.filter((s) => titleMatches(s.titles, query!));
     }
 
+    const mapped = symbols.map((s) => ({
+      uuid: s.uuid,
+      objectType: s.objectType,
+      title: pickTitle(s.titles),
+      titles: s.titles,
+      documents: s.documents,
+    }));
     return {
-      total: symbols.length,
-      symbols: symbols.map((s) => ({
-        uuid: s.uuid,
-        objectType: s.objectType,
-        title: pickTitle(s.titles),
-        titles: s.titles,
-        documents: s.documents,
-      })),
+      total: mapped.length,
+      symbols: mapped,
+      items: mapped, // alias — agents often expect items
       methodologyNotes: [
         "Prefer reusing an existing symbol UUID over creating a duplicate with the same title.",
         "Pass modelId to search only symbols used on a specific model.",
+        "Response: symbols (also as items). Search param: query (title alias OK).",
         ...gatewayNotes,
       ],
       nextSuggestedTools: ["reuse_symbol", "add_process_step", "find_symbol_usage"],

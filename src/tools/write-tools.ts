@@ -109,6 +109,82 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
+    "move_canvas_vertices",
+    {
+      description:
+        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. Use after review flags spacing / left-margin / misalignment. Then update_canvas_edges with reorthogonalize for attached FLOW.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        vertices: z
+          .array(
+            z.object({
+              vertexId: uuid,
+              x: z.number(),
+              y: z.number(),
+              width: z.number().optional(),
+              height: z.number().optional(),
+            }),
+          )
+          .min(1),
+      },
+    },
+    async (args) => runTool(() => writer.moveCanvasVertices(args)),
+  );
+
+  server.registerTool(
+    "update_canvas_edges",
+    {
+      description:
+        "Update edge routing on the canvas (PATCH /canvas). Prefer edges[{ edgeId, reorthogonalize: true }] after move_canvas_vertices. Or pass explicit points[].",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        edges: z
+          .array(
+            z.object({
+              edgeId: uuid,
+              reorthogonalize: z.boolean().optional(),
+              points: z
+                .array(z.object({ x: z.number(), y: z.number() }))
+                .optional(),
+            }),
+          )
+          .min(1),
+      },
+    },
+    async (args) => runTool(() => writer.updateCanvasEdges(args)),
+  );
+
+  server.registerTool(
+    "delete_canvas_edge",
+    {
+      description:
+        "Delete canvas edge(s) by edgeId (corrective edit). Use to remove illegal activity→activity / BO→BO FLOW or wrong relations. edgeId from describe_process outgoing[].edgeId. Does NOT require TWO_C8_ALLOW_DELETES.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        edgeIds: z.array(uuid).min(1).describe("One or more edge UUIDs"),
+      },
+    },
+    async (args) => runTool(() => writer.deleteCanvasEdges(args)),
+  );
+
+  server.registerTool(
+    "delete_canvas_vertex",
+    {
+      description:
+        "Remove vertex/vertices from the model canvas (symbol stays in repo). Delete attached edges first if needed. Corrective edit — not the same as delete_model.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        vertexIds: z.array(uuid).min(1),
+      },
+    },
+    async (args) => runTool(() => writer.deleteCanvasVertices(args)),
+  );
+
+  server.registerTool(
     "accept_draft_model",
     {
       description:
@@ -325,7 +401,33 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
               placement: z.enum(["below"]).optional(),
             }),
           )
-          .optional(),
+          .optional()
+          .describe("Supporting processes stacked under a state BO (never left of the BO)"),
+        parallelTracks: z
+          .array(
+            z.object({
+              fromBoTitle: z
+                .string()
+                .min(1)
+                .describe("Shared state BO that fans into variant processes"),
+              label: z.string().optional(),
+              processes: z
+                .array(
+                  z.object({
+                    processTitle: z.string().min(1),
+                    symbolId: uuid.optional(),
+                    detailModelId: uuid.optional(),
+                    outputBoTitle: z.string().optional(),
+                    outputSymbolId: uuid.optional(),
+                  }),
+                )
+                .min(1),
+            }),
+          )
+          .optional()
+          .describe(
+            "Peer variant processes as columns to the RIGHT of a shared BO (prefer over sideLoops for sales/delivery types)",
+          ),
         permissionGroup: permissionGroupHeader,
         owner: uuid.optional(),
         group: uuid.optional(),
@@ -394,6 +496,40 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           nextSuggestedTools: ["get_object_documents"],
         };
       }),
+  );
+
+  server.registerTool(
+    "update_titles",
+    {
+      description:
+        "Update model/symbol titles (translations). Writes title + rawTitle and sets translated:false (clears the GUI 'needs review' marker). Prefer items[] to batch many symbols in ONE call.",
+      inputSchema: {
+        repositoryId,
+        languageId: languageId.optional().describe("Default language for single or items without per-item languageId"),
+        title: z.string().min(1).optional().describe("Title for single-target update"),
+        modelId: uuid.optional(),
+        symbolId: uuid.optional(),
+        titles: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Optional extra languageId → title entries in the same call"),
+        items: z
+          .array(
+            z.object({
+              modelId: uuid.optional(),
+              symbolId: uuid.optional(),
+              title: z.string().min(1),
+              languageId: languageId.optional(),
+              titles: z.record(z.string(), z.string()).optional(),
+            }),
+          )
+          .optional()
+          .describe(
+            "Batch: [{ symbolId, title }] or [{ modelId, title }] — one tool call for all translations",
+          ),
+      },
+    },
+    async (args) => runTool(() => writer.updateTitles(args)),
   );
 
   server.registerTool(

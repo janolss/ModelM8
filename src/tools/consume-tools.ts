@@ -129,6 +129,25 @@ export function registerConsumeTools(
   );
 
   server.registerTool(
+    "review_process_model",
+    {
+      description:
+        "Post-create QA for a model: 2c8 methodology (activity/process BO in/out, performers, no join/gateway, no role fan-out) + visual layout (overlap, spine alignment, spacing, FLOW left-in/right-out, edge crossings, multi-I/O stacking). Call after apply_model_proposal / create_process_map before considering the work done. Optional detailModelIds for overview scope checks.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid.describe("Model UUID to review"),
+        detailModelIds: z
+          .array(uuid)
+          .optional()
+          .describe(
+            "For process maps: detail model UUIDs left→right to include scopeViolations",
+          ),
+      },
+    },
+    async (args) => runTool(() => ctx.reader.reviewProcessModel(args)),
+  );
+
+  server.registerTool(
     "describe_process_map",
     {
       description:
@@ -349,7 +368,7 @@ export function registerConsumeTools(
     "search_symbols",
     {
       description:
-        "Search symbols (reuse-first). VÄGVAL: objectType=or|vägval|decision (Regel Eller). Call resolve_branching_object_type first — 2c8 has no gateway create type. NEVER join.",
+        "Search symbols in THIS repository only (reuse-first; UUIDs are not valid across repos). Returns { total, symbols, items } — items is an alias for symbols. Param: query (title alias accepted). VÄGVAL: objectType=or|vägval|decision. NEVER join.",
       inputSchema: {
         repositoryId,
         query: z
@@ -358,6 +377,10 @@ export function registerConsumeTools(
           .describe(
             "Title substring — or type alias or/vägval/gateway/decision (auto objectType filter)",
           ),
+        title: z
+          .string()
+          .optional()
+          .describe("Alias for query (same title substring search)"),
         objectType: z
           .string()
           .optional()
@@ -371,7 +394,17 @@ export function registerConsumeTools(
         maxResults: pagination.maxResults,
       },
     },
-    async (args) => runTool(() => ctx.reader.searchSymbols(args)),
+    async (args) =>
+      runTool(() =>
+        ctx.reader.searchSymbols({
+          repositoryId: args.repositoryId,
+          query: args.query ?? args.title,
+          objectType: args.objectType,
+          modelId: args.modelId,
+          startAt: args.startAt,
+          maxResults: args.maxResults,
+        }),
+      ),
   );
 
   server.registerTool(

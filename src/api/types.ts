@@ -10,6 +10,11 @@ export interface Page<T> {
 export interface LocalizedTitle {
   title?: string;
   rawTitle?: string;
+  /**
+   * When true on the default language after create: auto-copied text awaiting review.
+   * Explicit MCP edits set false to clear the review marker.
+   */
+  translated?: boolean;
   [key: string]: unknown;
 }
 

@@ -5,7 +5,7 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 - Create or edit processes via text-to-model, talk-to-model, and document-to-model — following 2c8 methodology.
 
 ## Mandatory agent policies
-1. Reuse-first: ALWAYS call search_symbols before creating symbols. Reuse existing UUID when the business concept matches. Never create silent duplicates.
+1. Reuse-first **within the target repository only**: ALWAYS call search_symbols(repositoryId=target) before creating symbols. Reuse existing UUID when the business concept matches. Never create silent duplicates. Do NOT search other repositories for UUIDs to reuse — symbols are repo-scoped. Other repos may inspire naming, but never copy UUIDs across repos and do not clone/describe gold models unless the user asks.
 2. Draft-first when writes are enabled: prefer create_process_model (draft mode) then accept_draft_model. Sandbox repos may use direct write mode.
 3. Process models should have explicit input(s) and output/result as business objects on the FLOW spine (not only activities).
 4. FLOW business objects name value created (artefact, capability, refined need) — value-stream thinking. Never use status echoes of the activity (e.g. activity "Godkänna vinstandel" → BO "Godkänd vinstandel", or "Dokumenterad X" after "Dokumentera X"). The BO should explain why the activity exists.
@@ -13,11 +13,11 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 6. Role on multiple activities: place the role **under each** activity with its own RACI edge. Reuse the symbol UUID, but NEVER one canvas vertex with edges to several activities. Prefer set_activity_performer per activity.
 7. FLOW on process/activity: enter left edge, leave right edge — never top/bottom. RACI/CONTROLS/IS_USED_BY may use top/bottom to satellites.
 8. Naming: process/activity titles use infinitive verb + noun (e.g. "Registrera order").
-9. Call get_methodology / validate_against_methodology / list_allowed_types before large writes.
+9. Before large writes: call get_methodology for relevant topics (process, naming, business-objects). Use validate_against_methodology for specific symbol checks. Do NOT call list_allowed_types unless you need to confirm an unfamiliar type id — it is large; prefer methodology + validate.
 10. Prefer domain tools (describe_process, describe_process_map, describe_role, propose_model_from_text, create_process_map, …) over inventing raw canvas payloads.
 11. Steering docs use CONTROLS; apps/templates use IS_USED_BY. Do not invent role→checklist CONTROLS.
 12. After propose_model_from_text: fix failing businessObject namingChecks before apply — rewrite status-like BOs into value/artefact titles.
-13. Process maps / overviews: use process chevrons + business objects on FLOW (not activities). Prefer create_process_map(detailModelIds) + breakdowns. Reuse process symbol UUIDs. Side loops attach under a state BO.
+13. Process maps / overviews: use process chevrons + business objects on FLOW (not activities). Prefer create_process_map(detailModelIds) + breakdowns. Reuse process symbol UUIDs. Side loops stack under a state BO (never left of it). Peer variants (sales/delivery types) use parallelTracks — not sideLoops and not a false linear chain.
 14. OVERVIEW SCOPE (critical — do not invent I/O):
     - A process on the overview MUST have the same input(s) and output(s) as its breakdown detail model (same symbol UUIDs).
     - Workflow: get_detail_process_scope for each detail → create_process_map({ detailModelIds: [...] }) so the server derives the BO chain. Never invent overview-only business objects.
@@ -33,14 +33,22 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
     - Prefixed propose: "Vägval: Finns X?" / "Ja: …" / "Nej: …" then apply with objectType or.
     - search_symbols: objectType=or (aliases vägval/decision also match).
 18. NEVER use Join / Förbinda.
-19. delete_model exists only when TWO_C8_ALLOW_DELETES=true — irreversible.
+19. delete_model exists only when TWO_C8_ALLOW_DELETES=true — irreversible. Failed apply/create_process_map rolls back empty model shells automatically.
+19b. Corrective canvas edits (always when writes enabled): **delete_canvas_edge** (remove bad FLOW/RACI), **move_canvas_vertices**, **update_canvas_edges** (reorthogonalize after move), **delete_canvas_vertex** (canvas only; symbol remains). Use these to fix review findings — do not stop at reporting errors.
+20. After creating/editing a model (especially text-to-model): always call **review_process_model** before considering the work done. Fix methodology/layout errors (missing BO I/O, performers, overlaps, spaghetti FLOW, misalignment) with the edit tools above. Do not stop at describe_process alone.
+21. Translations: use **update_titles** with items[] to batch all symbols in ONE call (target languageId). Sets title + rawTitle and clears translated (review) flag. Do not recreate symbols; do not N× single update_titles.
+22. get_detail_process_scope outputs = primary (main-path) terminals; secondaryOutputs = branch ends. Overview handoffs use primary only. Side loops need FLOW in from a state BO, not full spine I/O.
+23. Vägval layout: Ja continues on spine; Nej/side targets are placed BELOW the or — never draw or→activity edges that cross through spine objects. Never BO→BO; never BO→activity while that BO also feeds a vägval.
+24. Languages: call list_languages once; any languageId works for writes — the server also writes label bounds/titles for the repo default language. Prefer the language that matches the text you are writing (e.g. Swedish text → Swedish languageId).
 
 ## Suggested workflows
 - Consume process: find_models → describe_process (primary; decisions/vägval under decisions). Overviews: describe_process_map.
 - Role / onboarding: describe_role_introduction (primary) → get_document_content on formalIntroduction docs.
-- Text-to-model: propose_model_from_text → fix BO namingChecks → **resolve_branching_object_type** if any choice → search_symbols objectType=or → apply_model_proposal → describe_process
+- Text-to-model: list_repositories → list_languages → propose_model_from_text → fix BO namingChecks → search_symbols in **target repo only** → apply_model_proposal → **check businessObjectCount > 0** (if 0, proposal/chain lacked BOs — fix and re-apply) → describe_process → **review_process_model** → fix with delete_canvas_edge / move_canvas_vertices / update_canvas_edges / set_step_io → re-review until ok
+- Fix review findings: delete illegal activity→activity edges via delete_canvas_edge(edgeIds); add missing BOs with set_step_io; widen spine with move_canvas_vertices; then update_canvas_edges({ reorthogonalize: true })
+- apply_model_proposal: chain MUST alternate BO↔activity. Putting BO names only in steps.inputs/outputs used to be ignored when chain was activity-only — server now weaves them in, but still verify businessObjectCount in the response. Never report done if businessObjectCount is 0 or review fails.
 - Any "gateway" request: resolve_branching_object_type("gateway") → use returned useObjectType ("or") in add_process_step / apply
-- Process map: get_methodology process-map → get_detail_process_scope (each detail) → create_process_map({ detailModelIds }) → describe_process_map(detailModelIds) and fix scopeViolations
+- Process map: get_methodology process-map → get_detail_process_scope → create_process_map({ detailModelIds }) → describe_process_map(detailModelIds) → **review_process_model(detailModelIds)** before done
 - Document-to-model: propose_model_from_document → same path
 - New sandbox repo: create_repository → list_languages → text-to-model
 
@@ -48,7 +56,7 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 - get_process_flow includes titles and grouped relations — do not N+1 fetch for titles.
 - find_symbol_usage / describe_role replace scanning many models with get_roles_and_responsibilities.
 - describe_role_introduction keeps RACI vs formal HR intro vs support hints labeled.
-- search_symbols: for vägval use objectType=or|vägval|decision — not title "vägval".
+- search_symbols: for vägval use objectType=or|vägval|decision — not title "vägval". Scope is always the given repositoryId.
 - Only attribute activities to a role when RACI_RESPONSIBLE links exist.
 
 ## Resources

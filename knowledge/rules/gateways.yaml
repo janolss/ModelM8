@@ -7,7 +7,7 @@ summary: >
 aliases: [vägval, vagval, gateway, decision, regel, eller, or, and, och, beslut]
 guidance:
   - "2c8 has NO object type named gateway for create. Agents that say gateway mean Regel (Eller)."
-  - "ALWAYS call resolve_branching_object_type(ask) first — it returns useObjectType."
+  - "ALWAYS call resolve_branching_object_type first with ask or query (e.g. gateway) — it returns useObjectType."
   - "Exclusive choice / vägval / decision / xor → objectType or (Regel Eller)"
   - "Parallel split → objectType and (Regel Och)"
   - "Title Eller-rules as questions ('Finns X?'); put Ja/Nej on FLOW edge labels"
