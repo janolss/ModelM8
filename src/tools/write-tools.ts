@@ -140,7 +140,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "retarget_vertex_symbol",
     {
       description:
-        "Replace the symbol on a canvas vertex while keeping position and recreating edges. Use when renaming/consolidating aliases (e.g. HRM → HR-system). API cannot PATCH vertex.symbol.",
+        "Replace the symbol on a canvas vertex while keeping position and recreating edges. Sends label bounds (incl. default language) on create — avoids 400 Label bounds must be provided. Use when consolidating aliases (e.g. HRM → HR-system). API cannot PATCH vertex.symbol.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -341,6 +341,56 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) => runTool(() => writer.setActivityPerformer(args)),
+  );
+
+  server.registerTool(
+    "set_activity_used_by",
+    {
+      description:
+        "Link an application or step-specific mall/blankett to one activity (IS_USED_BY). Places a vertex under the activity (shared symbol UUID OK, never one vertex fan-out). Prefer this over create_canvas_edge. Process-wide docs → link_document on the process symbol.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        activityVertexId: uuid,
+        usedBySymbolId: uuid,
+        languageId,
+        usedByTitle: z.string().optional(),
+        objectTypeHint: z
+          .string()
+          .optional()
+          .describe("e.g. application | core_document — layout size; defaults from symbol"),
+        edgeType: z
+          .string()
+          .optional()
+          .describe("Defaults to isusedby"),
+        x: z.number().optional(),
+        y: z.number().optional(),
+      },
+    },
+    async (args) => runTool(() => writer.setActivityUsedBy(args)),
+  );
+
+  server.registerTool(
+    "set_activity_controls",
+    {
+      description:
+        "Link a step-specific controlling document above one activity (CONTROLS). Prefer this over create_canvas_edge. Do NOT fan out process-wide policies — those belong on the process via link_document.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        activityVertexId: uuid,
+        controlsSymbolId: uuid,
+        languageId,
+        controlsTitle: z.string().optional(),
+        edgeType: z
+          .string()
+          .optional()
+          .describe("Defaults to controls"),
+        x: z.number().optional(),
+        y: z.number().optional(),
+      },
+    },
+    async (args) => runTool(() => writer.setActivityControls(args)),
   );
 
   server.registerTool(

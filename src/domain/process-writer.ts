@@ -17,6 +17,7 @@ import {
   type ModelProposal,
 } from "./proposals.js";
 import { ProcessReader } from "./process-reader.js";
+import { pickTitle } from "../util/titles.js";
 
 const DEFAULT_WIDTH = 75;
 const DEFAULT_HEIGHT = 50;
@@ -2925,21 +2926,42 @@ export class ProcessWriter {
       },
     });
 
-    const created = (await this.client.request({
-      method: "POST",
-      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas/vertices",
+    // POST /canvas/vertices requires label bounds (default language included).
+    // Raw body without labels → 400 "Label bounds must be provided".
+    const newSymbol = (await this.client.request({
+      path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
       pathParams: {
         repositoryId: args.repositoryId,
-        modelId: args.modelId,
+        symbolId: args.newSymbolId,
       },
-      body: {
-        x: vertex.x ?? 0,
-        y: vertex.y ?? 0,
-        width: vertex.width ?? DEFAULT_WIDTH,
-        height: vertex.height ?? DEFAULT_HEIGHT,
-        symbol: args.newSymbolId,
-      },
-    })) as { uuid?: string };
+      query: { projection: "ALL" },
+    })) as {
+      objectType?: string;
+      titles?: Record<string, { title?: string }>;
+    };
+    const objectType = newSymbol.objectType ?? "role";
+    const title =
+      pickTitle(newSymbol.titles as never, args.languageId) ??
+      pickTitle(newSymbol.titles as never) ??
+      "Symbol";
+    const repoConfig = await this.getRepoConfig(args.repositoryId);
+    const preferred = this.sizeFor(repoConfig, objectType);
+    const width = vertex.width ?? preferred.width;
+    const height = vertex.height ?? preferred.height;
+
+    const created = await this.placeVertex({
+      repositoryId: args.repositoryId,
+      modelId: args.modelId,
+      symbolId: args.newSymbolId,
+      languageId: args.languageId,
+      title,
+      objectType,
+      x: vertex.x ?? 0,
+      y: vertex.y ?? 0,
+      width,
+      height,
+      allowOverlap: true,
+    });
 
     const newVertexId = created.uuid;
     if (!newVertexId) {
@@ -4338,6 +4360,197 @@ export class ProcessWriter {
     x?: number;
     y?: number;
   }) {
+    const result = await this.linkActivitySatellite({
+      repositoryId: args.repositoryId,
+      modelId: args.modelId,
+      activityVertexId: args.activityVertexId,
+      satelliteSymbolId: args.performerSymbolId,
+      languageId: args.languageId,
+      satelliteTitle: args.performerTitle,
+      objectType: "role",
+      edgeType: args.edgeType ?? "raciresponsible",
+      edgeTypeAliases: ["raciresponsible", "responsible"],
+      side: "bottom",
+      x: args.x,
+      y: args.y,
+      kind: "performer",
+    });
+    return {
+      data: {
+        performerVertex: result.data.satelliteVertex,
+        edge: result.data.edge,
+        alreadyLinked: result.data.alreadyLinked,
+      },
+      methodologyNotes: [
+        "Linked performer via RACI_RESPONSIBLE. Placement alone is not ownership.",
+        "Same role on multiple activities: place a vertex under each activity (shared symbol UUID, separate canvas placements). Never one role icon with edges to many activities.",
+        ...(result.data.alreadyLinked
+          ? ["Performer already RACI-linked to this activity; no new edge created."]
+          : []),
+      ],
+      nextSuggestedTools: ["get_roles_and_responsibilities", "describe_process"],
+    };
+  }
+
+  /**
+   * Place application/core_document under an activity and link with IS_USED_BY.
+   * One canvas vertex per activity (no fan-out), same pattern as set_activity_performer.
+   */
+  async setActivityUsedBy(args: {
+    repositoryId: string;
+    modelId: string;
+    activityVertexId: string;
+    usedBySymbolId: string;
+    languageId: string;
+    usedByTitle?: string;
+    objectTypeHint?: string;
+    edgeType?: string;
+    x?: number;
+    y?: number;
+  }) {
+    const objectType =
+      args.objectTypeHint ??
+      (await this.resolveSymbolObjectType(
+        args.repositoryId,
+        args.usedBySymbolId,
+      )) ??
+      "application";
+    const result = await this.linkActivitySatellite({
+      repositoryId: args.repositoryId,
+      modelId: args.modelId,
+      activityVertexId: args.activityVertexId,
+      satelliteSymbolId: args.usedBySymbolId,
+      languageId: args.languageId,
+      satelliteTitle: args.usedByTitle,
+      objectType,
+      edgeType: args.edgeType ?? "isusedby",
+      edgeTypeAliases: ["isusedby", "usedby"],
+      side: "bottom",
+      x: args.x,
+      y: args.y,
+      kind: "usedBy",
+    });
+    return {
+      data: {
+        usedByVertex: result.data.satelliteVertex,
+        edge: result.data.edge,
+        alreadyLinked: result.data.alreadyLinked,
+        objectType,
+      },
+      methodologyNotes: [
+        "Linked via IS_USED_BY (IT-stöd / mall / blankett for THIS step).",
+        "Process-wide documents belong on the process symbol (link_document), not fan-out on every activity.",
+        "Prefer set_activity_used_by over raw create_canvas_edge for satellites.",
+      ],
+      nextSuggestedTools: ["review_process_model", "describe_process"],
+    };
+  }
+
+  /**
+   * Place a step-specific controlling document above an activity (CONTROLS).
+   * Do not use for process-wide policies — those go on the process via link_document.
+   */
+  async setActivityControls(args: {
+    repositoryId: string;
+    modelId: string;
+    activityVertexId: string;
+    controlsSymbolId: string;
+    languageId: string;
+    controlsTitle?: string;
+    edgeType?: string;
+    x?: number;
+    y?: number;
+  }) {
+    const objectType =
+      (await this.resolveSymbolObjectType(
+        args.repositoryId,
+        args.controlsSymbolId,
+      )) ?? "core_document";
+    const result = await this.linkActivitySatellite({
+      repositoryId: args.repositoryId,
+      modelId: args.modelId,
+      activityVertexId: args.activityVertexId,
+      satelliteSymbolId: args.controlsSymbolId,
+      languageId: args.languageId,
+      satelliteTitle: args.controlsTitle,
+      objectType,
+      edgeType: args.edgeType ?? "controls",
+      edgeTypeAliases: ["controls", "control", "styr"],
+      side: "top",
+      x: args.x,
+      y: args.y,
+      kind: "controls",
+    });
+    return {
+      data: {
+        controlsVertex: result.data.satelliteVertex,
+        edge: result.data.edge,
+        alreadyLinked: result.data.alreadyLinked,
+        objectType,
+      },
+      methodologyNotes: [
+        "Linked via CONTROLS — use only for step-specific styrning (policy/riktlinje/checklista for THAT step).",
+        "Process-wide docs (Leveransrutin, Kvalitetspolicy, …): link_document on the process symbol, not set_activity_controls fan-out.",
+      ],
+      nextSuggestedTools: ["review_process_model", "get_controlling_documents"],
+    };
+  }
+
+  private async resolveSymbolObjectType(
+    repositoryId: string,
+    symbolId: string,
+  ): Promise<string | undefined> {
+    try {
+      const symbol = (await this.client.request({
+        path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+        pathParams: { repositoryId, symbolId },
+        query: { projection: "SIMPLE" },
+      })) as { objectType?: string };
+      return symbol.objectType;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async resolveSymbolTitle(
+    repositoryId: string,
+    symbolId: string,
+    languageId: string,
+  ): Promise<string | undefined> {
+    try {
+      const symbol = (await this.client.request({
+        path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+        pathParams: { repositoryId, symbolId },
+        query: { projection: "ALL" },
+      })) as { titles?: Record<string, { title?: string }> };
+      return (
+        pickTitle(symbol.titles as never, languageId) ??
+        pickTitle(symbol.titles as never)
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Shared RACI / CONTROLS / IS_USED_BY satellite placement under/above one activity.
+   * Never fans one canvas vertex to multiple activities.
+   */
+  private async linkActivitySatellite(args: {
+    repositoryId: string;
+    modelId: string;
+    activityVertexId: string;
+    satelliteSymbolId: string;
+    languageId: string;
+    satelliteTitle?: string;
+    objectType: string;
+    edgeType: string;
+    edgeTypeAliases: string[];
+    side: "top" | "bottom";
+    x?: number;
+    y?: number;
+    kind: string;
+  }) {
     const canvas = (await this.client.request({
       path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
       pathParams: {
@@ -4363,85 +4576,105 @@ export class ProcessWriter {
     const vertexId = (ref: string | { uuid?: string } | undefined): string =>
       typeof ref === "string" ? ref : String(ref?.uuid ?? "");
 
-    // Reuse a role vertex only if it is already RACI-linked to THIS activity.
-    // Never fan out one placement to multiple activities — place a copy below each.
+    const aliases = new Set(
+      args.edgeTypeAliases.map((a) => a.toLowerCase().replace(/[_\s-]/g, "")),
+    );
     const alreadyLinked = (canvas.edges ?? []).find((e) => {
       const et = (e.edgeType ?? "").toLowerCase().replace(/[_\s-]/g, "");
-      if (et !== "raciresponsible" && et !== "responsible") return false;
+      if (!aliases.has(et)) return false;
       if (vertexId(e.toVertex) !== args.activityVertexId) return false;
       const from = (canvas.vertices ?? []).find(
         (v) => v.uuid === vertexId(e.fromVertex),
       );
       const sid =
         typeof from?.symbol === "string" ? from.symbol : from?.symbol?.uuid;
-      return sid === args.performerSymbolId;
+      return sid === args.satelliteSymbolId;
     });
 
-    let performerVertex = alreadyLinked
-      ? (canvas.vertices ?? []).find(
-          (v) => v.uuid === vertexId(alreadyLinked.fromVertex),
-        )
-      : undefined;
-
-    if (performerVertex && alreadyLinked) {
+    if (alreadyLinked) {
+      const satelliteVertex = (canvas.vertices ?? []).find(
+        (v) => v.uuid === vertexId(alreadyLinked.fromVertex),
+      );
       return {
         data: {
-          performerVertex,
+          satelliteVertex,
           edge: alreadyLinked,
-          alreadyLinked: true,
+          alreadyLinked: true as const,
+          kind: args.kind,
         },
-        methodologyNotes: [
-          "Performer already RACI-linked to this activity; no new edge created.",
-          "Same role on multiple activities: place a vertex under each activity (shared symbol UUID, separate canvas placements).",
-        ],
-        nextSuggestedTools: ["get_roles_and_responsibilities", "describe_process"],
       };
     }
 
     const activity = (canvas.vertices ?? []).find(
       (v) => v.uuid === args.activityVertexId,
     );
+    if (!activity) {
+      throw new Error(`Unknown activityVertexId on canvas: ${args.activityVertexId}`);
+    }
+
     const repoConfig = await this.getRepoConfig(args.repositoryId);
-    const roleSize = this.sizeFor(repoConfig, "role");
+    const size = this.sizeFor(repoConfig, args.objectType);
     const { distance } = this.layoutGaps(repoConfig);
-    const gap = Math.max(distance.bottom, 12);
-    const actX = activity?.x ?? 80;
-    const actY = activity?.y ?? Y_BASE;
-    const actW = activity?.width ?? DEFAULT_WIDTH;
-    const actH = activity?.height ?? DEFAULT_HEIGHT;
-    performerVertex = await this.placeVertex({
+    const gap = Math.max(
+      args.side === "top" ? distance.top : distance.bottom,
+      12,
+    );
+    const actX = activity.x ?? 80;
+    const actY = activity.y ?? Y_BASE;
+    const actW = activity.width ?? DEFAULT_WIDTH;
+    const actH = activity.height ?? DEFAULT_HEIGHT;
+    const title =
+      args.satelliteTitle ??
+      (await this.resolveSymbolTitle(
+        args.repositoryId,
+        args.satelliteSymbolId,
+        args.languageId,
+      )) ??
+      args.kind;
+
+    const x =
+      args.x ??
+      Math.round(actX + Math.floor(actW / 2) - Math.floor(size.width / 2));
+    const y =
+      args.y ??
+      (args.side === "bottom"
+        ? Math.round(actY + actH + gap)
+        : Math.round(actY - gap - size.height));
+
+    // Satellite above → edge attaches on bottom; below → attach on top.
+    const edgeAttachSide: "top" | "bottom" =
+      args.side === "top" ? "bottom" : "top";
+
+    const satelliteVertex = await this.placeVertex({
       repositoryId: args.repositoryId,
       modelId: args.modelId,
-      symbolId: args.performerSymbolId,
+      symbolId: args.satelliteSymbolId,
       languageId: args.languageId,
-      title: args.performerTitle ?? "Performer",
-      objectType: "role",
-      x:
-        args.x ??
-        Math.round(actX + Math.floor(actW / 2) - Math.floor(roleSize.width / 2)),
-      y: args.y ?? Math.round(actY + actH + gap),
-      width: roleSize.width,
-      height: roleSize.height,
-      // Role sits below activity → edge attaches on top → label below
-      edgeAttachSide: "top",
+      title,
+      objectType: args.objectType,
+      x,
+      y,
+      width: size.width,
+      height: size.height,
+      edgeAttachSide,
     });
 
     const edge = await this.createCanvasEdge({
       repositoryId: args.repositoryId,
       modelId: args.modelId,
-      fromVertexId: String(performerVertex.uuid),
+      fromVertexId: String(satelliteVertex.uuid),
       toVertexId: args.activityVertexId,
-      edgeType: args.edgeType ?? "raciresponsible",
+      edgeType: args.edgeType,
       languageId: args.languageId,
     });
 
     return {
-      data: { performerVertex, edge: edge.data },
-      methodologyNotes: [
-        "Linked performer via RACI_RESPONSIBLE. Placement alone is not ownership.",
-        "Same role on multiple activities: place a vertex under each activity (shared symbol UUID, separate canvas placements). Never one role icon with edges to many activities.",
-      ],
-      nextSuggestedTools: ["get_roles_and_responsibilities", "describe_process"],
+      data: {
+        satelliteVertex,
+        edge: edge.data,
+        alreadyLinked: false as const,
+        kind: args.kind,
+      },
     };
   }
 

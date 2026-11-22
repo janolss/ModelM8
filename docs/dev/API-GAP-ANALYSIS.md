@@ -67,6 +67,11 @@ fortfarande medvetet utanför fas 1.
 - `move_canvas_vertices` auto-reorthogonalize; empty HTTP 200 → `{ ok: true }`
 - `get_breakdowns` 404→tom + pekar på navigation tree
 
+### Tillagt efter S1 (P0 write-helpers, 2026-11-22)
+- `set_activity_used_by` (IS_USED_BY under aktivitet)
+- `set_activity_controls` (CONTROLS ovanför aktivitet)
+- `retarget_vertex_symbol` skickar label bounds via `placeVertex` (fix 400 Label bounds)
+
 ### Relevanta men ofullständiga
 - Model/symbol/vertex **properties** (provider/key) — ej egna verktyg
 - Symbol **versions** list/get
