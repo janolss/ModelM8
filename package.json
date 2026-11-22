@@ -1,11 +1,11 @@
 {
-  "name": "2c8-mcp-server",
+  "name": "modelm8",
   "version": "1.2.0",
-  "description": "Methodology-driven MCP server for consuming and creating 2c8 process models",
+  "description": "ModelM8 — methodology-driven MCP server for consuming and creating 2c8 process models",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "2c8-mcp-server": "dist/index.js"
+    "modelm8": "dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -17,16 +17,17 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/janolss/2c8-mcp-server.git"
+    "url": "git+https://github.com/janolss/ModelM8.git"
   },
   "bugs": {
-    "url": "https://github.com/janolss/2c8-mcp-server/issues"
+    "url": "https://github.com/janolss/ModelM8/issues"
   },
-  "homepage": "https://github.com/janolss/2c8-mcp-server#readme",
+  "homepage": "https://github.com/janolss/ModelM8#readme",
   "author": "janolss",
   "keywords": [
     "mcp",
     "2c8",
+    "ModelM8",
     "modeling",
     "ai-agent"
   ],

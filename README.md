@@ -1,4 +1,4 @@
-# 2c8 MCP Server
+# ModelM8
 
 Methodology-driven MCP server for AI agents that **consume** and **create/edit**
 business processes in [2c8 Modeling Tool](https://www.2c8.com)
@@ -61,12 +61,12 @@ Health: `GET /health`
 ### Docker
 
 ```bash
-docker build -t 2c8-mcp-server .
+docker build -t modelm8 .
 docker run --rm -p 3000:3000 \
   -e TWO_C8_BASE_URL=https://host/mt-backend \
   -e TWO_C8_API_KEY=... \
   -e TWO_C8_ALLOW_WRITES=false \
-  2c8-mcp-server
+  modelm8
 ```
 
 ## Agent workflows
