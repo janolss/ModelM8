@@ -24,21 +24,32 @@
       "title": "Vilket objekt ska jag använda i vilket sammanhang?",
       "url": "https://support.2c8.com/hc/sv/articles/6336377323421-Vilket-objekt-ska-jag-anv%C3%A4nda-i-vilket-sammanhang",
       "priority": "P0",
-      "usedIn": ["object-types/*.yaml", "rules/naming.yaml"]
+      "usedIn": [
+        "object-types/*.yaml",
+        "rules/naming.yaml",
+        "rules/gateways.yaml",
+        "rules/process-flow.yaml"
+      ]
     },
     {
       "id": "5260639864605",
       "title": "Hur skapar jag en dokumentlänk?",
       "url": "https://support.2c8.com/hc/sv/articles/5260639864605-Hur-skapar-jag-en-dokumentl%C3%A4nk",
       "priority": "P0",
-      "usedIn": ["documents/document-links.yaml"]
+      "usedIn": [
+        "documents/document-links.yaml",
+        "rules/documents-on-process.yaml"
+      ]
     },
     {
       "id": "5261473191581",
       "title": "Hur kopplar jag ett dokument på ett objekt eller en modell?",
       "url": "https://support.2c8.com/hc/sv/articles/5261473191581-Hur-kopplar-jag-ett-dokument-p%C3%A5-ett-objekt-eller-en-modell",
       "priority": "P0",
-      "usedIn": ["documents/document-links.yaml"]
+      "usedIn": [
+        "documents/document-links.yaml",
+        "rules/documents-on-process.yaml"
+      ]
     },
     {
       "id": "7293306730397",
@@ -59,7 +70,14 @@
       "title": "Hur skapar jag en nedbrytning?",
       "url": "https://support.2c8.com/hc/sv/articles/5260682580637-Hur-skapar-jag-en-nedbrytning",
       "priority": "P0",
-      "usedIn": ["structure/breakdowns.yaml"]
+      "usedIn": ["structure/breakdowns.yaml", "model-types/process-map.yaml"]
+    },
+    {
+      "id": "20825108975773",
+      "title": "Huvudprocesskarta",
+      "url": "https://support.2c8.com/hc/sv/articles/20825108975773-Huvudprocesskarta",
+      "priority": "P1",
+      "usedIn": ["model-types/process-map.yaml"]
     },
     {
       "id": "8397172904221",

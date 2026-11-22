@@ -119,13 +119,64 @@ export function registerConsumeTools(
     "describe_process",
     {
       description:
-        "Primary tool for 'what happens in process X?': returns inputs → activities (with responsible + applications) → outputs, plus summaryText in Swedish. Prefer this over many raw flow/symbol calls.",
+        "Primary tool for activity-level processes: inputs → activities (responsible + applications) → outputs, plus summaryText. For process maps / overviews (process chevrons, no activities), use describe_process_map instead (this tool will hint kind=process-map-candidate).",
       inputSchema: {
         repositoryId,
         modelId: uuid.describe("Model UUID"),
       },
     },
     async (args) => runTool(() => ctx.reader.describeProcess(args)),
+  );
+
+  server.registerTool(
+    "review_process_model",
+    {
+      description:
+        "Post-create QA for a model: 2c8 methodology (activity/process BO in/out, performers, no join/gateway, no role fan-out) + visual layout (overlap, spine alignment, spacing, FLOW left-in/right-out, edge crossings, multi-I/O stacking). Call after apply_model_proposal / create_process_map before considering the work done. Optional detailModelIds for overview scope checks.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid.describe("Model UUID to review"),
+        detailModelIds: z
+          .array(uuid)
+          .optional()
+          .describe(
+            "For process maps: detail model UUIDs left→right to include scopeViolations",
+          ),
+      },
+    },
+    async (args) => runTool(() => ctx.reader.reviewProcessModel(args)),
+  );
+
+  server.registerTool(
+    "describe_process_map",
+    {
+      description:
+        "Describe a process map / overview: process chevrons + BOs on FLOW, side loops, breakdowns. Pass detailModelIds (left→right) to return scopeViolations when overview I/O ≠ detail I/O.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid.describe("Overview model UUID"),
+        detailModelIds: z
+          .array(uuid)
+          .optional()
+          .describe(
+            "Optional detail model UUIDs in main-chain order — enables scopeChecks/scopeViolations",
+          ),
+      },
+    },
+    async (args) => runTool(() => ctx.reader.describeProcessMap(args)),
+  );
+
+  server.registerTool(
+    "get_detail_process_scope",
+    {
+      description:
+        "Canonical inputs/outputs (with symbolIds) of a detail process model. REQUIRED before building an overview: the map must reuse these same BOs for that process — never invent different overview I/O.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid.describe("Detail process model UUID"),
+      },
+    },
+    async (args) => runTool(() => ctx.reader.getDetailProcessScope(args)),
   );
 
   server.registerTool(
@@ -304,10 +355,10 @@ export function registerConsumeTools(
     "get_breakdowns",
     {
       description:
-        "List breakdowns (nedbrytningar) for a model — navigation from high-level process to detail.",
+        "List broken-down-from links for a DETAIL model (parent overview symbol). Overview models often return empty/404 — use get_navigation_tree(repositoryId) for L0→… navigation and missing links.",
       inputSchema: {
         repositoryId,
-        modelId: uuid.describe("Model UUID"),
+        modelId: uuid.describe("Detail model UUID (not the overview)"),
       },
     },
     async (args) => runTool(() => ctx.reader.getBreakdowns(args)),
@@ -317,11 +368,25 @@ export function registerConsumeTools(
     "search_symbols",
     {
       description:
-        "Search reusable symbols by title and/or objectType. Pass modelId to search only symbols placed on that model. ALWAYS call before creating a new symbol (reuse-first).",
+        "Search symbols in THIS repository only (reuse-first; UUIDs are not valid across repos). Returns { total, symbols, items } — items is an alias for symbols. Param: query (title alias accepted). VÄGVAL: objectType=or|vägval|decision. NEVER join.",
       inputSchema: {
         repositoryId,
-        query: z.string().optional().describe("Title substring"),
-        objectType: z.string().optional().describe("Object type filter"),
+        query: z
+          .string()
+          .optional()
+          .describe(
+            "Title substring — or type alias or/vägval/gateway/decision (auto objectType filter)",
+          ),
+        title: z
+          .string()
+          .optional()
+          .describe("Alias for query (same title substring search)"),
+        objectType: z
+          .string()
+          .optional()
+          .describe(
+            "Filter: or|vägval|decision (exclusive), and (parallel), activity, businessObject, …",
+          ),
         modelId: uuid
           .optional()
           .describe("Limit search to symbols on this model canvas"),
@@ -329,7 +394,17 @@ export function registerConsumeTools(
         maxResults: pagination.maxResults,
       },
     },
-    async (args) => runTool(() => ctx.reader.searchSymbols(args)),
+    async (args) =>
+      runTool(() =>
+        ctx.reader.searchSymbols({
+          repositoryId: args.repositoryId,
+          query: args.query ?? args.title,
+          objectType: args.objectType,
+          modelId: args.modelId,
+          startAt: args.startAt,
+          maxResults: args.maxResults,
+        }),
+      ),
   );
 
   server.registerTool(

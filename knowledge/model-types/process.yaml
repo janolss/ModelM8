@@ -17,8 +17,16 @@ principles:
 modelingGuidance:
   - Always include one or more inputs and the expected process result
   - Output of one activity is typically input to the next
+  - Name FLOW business objects as value created (artefact / capability / refined need), not as "activity was done" status tags
   - Use roles and positions to show who is responsible for each activity
+  - Place the responsible role under each activity (reuse symbol UUID; never fan one icon to many activities)
+  - FLOW on activities: enter left, leave right (same as process chevrons)
   - Prefer reuse of existing symbols before creating duplicates
+  - Overview/process map canvases use process chevrons (not activities) — see process-map methodology topic
+  - Detail models under a process use activities with performers; link via breakdown
+  - Exclusive/parallel branching uses Regel (Eller/Och) only — NEVER Join/Förbinda. See topic gateways / resolve_branching_object_type; not on process maps
+  - Documents under activities must be step-specific (CONTROLS = styrning, IS_USED_BY = mall/stöd). Process-wide docs go on the process/model — see documents-on-process
+
 phase1: true
 sources:
   - https://support.2c8.com/hc/sv/articles/7185436499741-Processmodell

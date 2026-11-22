@@ -67,8 +67,10 @@ export class TwoC8Client {
       );
     }
 
+    // Empty HTTP 200/204 is success for many PATCH/DELETE endpoints.
+    // Returning undefined breaks MCP jsonResult (text: undefined → client validation error).
     if (!text) {
-      return undefined as T;
+      return { ok: true } as T;
     }
 
     try {

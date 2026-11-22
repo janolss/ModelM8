@@ -1,0 +1,610 @@
+import type { TwoC8Client } from "../api/twoc8-client.js";
+import { TwoC8ApiError } from "../api/twoc8-client.js";
+import type {
+  BreakdownView,
+  CanvasDto,
+  LocalizedTitle,
+  ModelView,
+  Page,
+  SymbolView,
+} from "../api/types.js";
+import { pickTitle } from "../util/titles.js";
+import type { ProcessReader } from "./process-reader.js";
+
+const SWEDISH_CHARS = /[åäöÅÄÖ]/;
+
+function symbolIdOfVertex(vertex: {
+  symbol?: string | { uuid?: string };
+}): string | undefined {
+  if (typeof vertex.symbol === "string") return vertex.symbol;
+  if (vertex.symbol && typeof vertex.symbol === "object") {
+    return vertex.symbol.uuid;
+  }
+  return undefined;
+}
+
+function breakdownSymbolId(b: BreakdownView): string | undefined {
+  const s = b.symbol;
+  if (typeof s === "string") return s;
+  if (s && typeof s === "object" && "uuid" in s) {
+    return (s as { uuid?: string }).uuid;
+  }
+  return undefined;
+}
+
+function titleForLang(
+  titles: Record<string, LocalizedTitle> | undefined,
+  languageId: string,
+): string | undefined {
+  const t = titles?.[languageId]?.title?.trim();
+  return t || undefined;
+}
+
+/**
+ * Quality / QA helpers used after large IMS builds (handoffs, translations,
+ * navigation tree, process-register coverage).
+ */
+export class QualityService {
+  constructor(
+    private readonly client: TwoC8Client,
+    private readonly reader: ProcessReader,
+  ) {}
+
+  /** Paginate all models in a repository (any modelType). */
+  async listAllModels(repositoryId: string): Promise<
+    Array<{
+      uuid: string;
+      title?: string;
+      modelType?: string;
+      titles?: Record<string, LocalizedTitle>;
+    }>
+  > {
+    const out: Array<{
+      uuid: string;
+      title?: string;
+      modelType?: string;
+      titles?: Record<string, LocalizedTitle>;
+    }> = [];
+    let startAt = 0;
+    const pageSize = 100;
+    for (;;) {
+      const page = await this.client.request<Page<ModelView>>({
+        path: "/api/v1/repositories/{repositoryId}/models",
+        pathParams: { repositoryId },
+        query: {
+          startAt: String(startAt),
+          maxResults: String(pageSize),
+          projection: "ALL",
+        },
+      });
+      const batch = page.data ?? [];
+      for (const m of batch) {
+        if (!m.uuid) continue;
+        out.push({
+          uuid: m.uuid,
+          title: pickTitle(m.titles),
+          modelType: m.modelType,
+          titles: m.titles,
+        });
+      }
+      startAt += batch.length;
+      if (batch.length === 0 || startAt >= (page.total ?? startAt)) break;
+    }
+    return out;
+  }
+
+  /**
+   * Symbols missing or not marked translated for a language.
+   * GUI globe ON when translated !== true (false or omitted on non-default).
+   * Reasons: missing title, not-marked (translated !== true), or same as
+   * compareLanguageId with Swedish characters (EN left as SV copy).
+   */
+  async listUntranslatedSymbols(args: {
+    repositoryId: string;
+    languageId: string;
+    compareLanguageId?: string;
+    objectType?: string;
+    maxResults?: number;
+  }) {
+    const max = args.maxResults ?? 500;
+    const items: Array<{
+      uuid: string;
+      objectType?: string;
+      title?: string;
+      reason: string;
+      titles?: Record<string, LocalizedTitle>;
+    }> = [];
+    let startAt = 0;
+    const pageSize = 100;
+
+    while (items.length < max) {
+      const page = await this.client.request<Page<SymbolView>>({
+        path: "/api/v1/repositories/{repositoryId}/symbols",
+        pathParams: { repositoryId: args.repositoryId },
+        query: {
+          startAt: String(startAt),
+          maxResults: String(pageSize),
+          projection: "ALL",
+        },
+      });
+      const batch = page.data ?? [];
+      if (batch.length === 0) break;
+
+      for (const s of batch) {
+        if (!s.uuid) continue;
+        if (
+          args.objectType &&
+          (s.objectType ?? "").toLowerCase() !== args.objectType.toLowerCase()
+        ) {
+          continue;
+        }
+        const entry = s.titles?.[args.languageId];
+        const title = entry?.title?.trim();
+        let reason: string | undefined;
+        if (!title) {
+          reason = "missing";
+        } else if (entry?.translated !== true) {
+          // false or omitted → GUI Translation status globe
+          reason = "not-marked";
+        } else if (args.compareLanguageId) {
+          const other = titleForLang(s.titles, args.compareLanguageId);
+          if (
+            other &&
+            title === other &&
+            SWEDISH_CHARS.test(title)
+          ) {
+            reason = "same-as-compare-with-swedish-chars";
+          }
+        }
+        if (reason) {
+          items.push({
+            uuid: s.uuid,
+            objectType: s.objectType,
+            title: pickTitle(s.titles),
+            reason,
+            titles: s.titles,
+          });
+          if (items.length >= max) break;
+        }
+      }
+
+      startAt += batch.length;
+      if (startAt >= (page.total ?? startAt)) break;
+    }
+
+    const byReason: Record<string, number> = {};
+    for (const i of items) {
+      byReason[i.reason] = (byReason[i.reason] ?? 0) + 1;
+    }
+
+    return {
+      data: {
+        languageId: args.languageId,
+        compareLanguageId: args.compareLanguageId,
+        total: items.length,
+        byReason,
+        symbols: items,
+      },
+      methodologyNotes: [
+        "translated:true = confirmed (globe OFF); translated:false/omitted = not translated (globe ON).",
+        "missing = no title; not-marked = title exists but translated !== true; same-as-compare-with-swedish-chars = EN left as SV.",
+        "Fix text with update_titles; fix flag only with confirm_translations.",
+      ],
+      nextSuggestedTools: [
+        "confirm_translations",
+        "update_titles",
+        "search_symbols",
+      ],
+    };
+  }
+
+  /**
+   * Verify handoff BOs appear on both producer and consumer models
+   * (same symbol UUID). Optionally checks FLOW I/O roles via detail scope.
+   */
+  async verifyHandoffs(args: {
+    repositoryId: string;
+    handoffs: Array<{
+      fromModelId: string;
+      toModelId: string;
+      symbolId?: string;
+      title?: string;
+      /** When true (default), require symbol as from-output and to-input. */
+      checkIo?: boolean;
+    }>;
+  }) {
+    const results: Array<Record<string, unknown>> = [];
+
+    for (const h of args.handoffs) {
+      let symbolId = h.symbolId;
+      let title = h.title;
+      if (!symbolId && title) {
+        const found = await this.reader.searchSymbols({
+          repositoryId: args.repositoryId,
+          query: title,
+          objectType: "businessObject",
+          maxResults: "20",
+        });
+        const symbols = (found.symbols ?? []) as Array<{
+          uuid?: string;
+          title?: string;
+        }>;
+        const exact = symbols.find(
+          (s) =>
+            (s.title ?? "").toLowerCase() === title!.trim().toLowerCase(),
+        );
+        symbolId = exact?.uuid ?? symbols[0]?.uuid;
+        title = exact?.title ?? symbols[0]?.title ?? title;
+      }
+      if (!symbolId) {
+        results.push({
+          ...h,
+          pass: false,
+          error: "Could not resolve symbolId or title",
+        });
+        continue;
+      }
+
+      const usage = (await this.reader.findSymbolUsage({
+        repositoryId: args.repositoryId,
+        symbolId,
+        enrich: "basic",
+      })) as {
+        usages?: Array<{ modelId?: string; title?: string }>;
+        symbol?: { title?: string };
+      };
+      const usageModelIds = new Set(
+        (usage.usages ?? []).map((u) => u.modelId).filter(Boolean),
+      );
+      const onFrom = usageModelIds.has(h.fromModelId);
+      const onTo = usageModelIds.has(h.toModelId);
+      const usageCount = usage.usages?.length ?? 0;
+
+      let ioOk: boolean | undefined;
+      let fromOutputs: string[] = [];
+      let toInputs: string[] = [];
+      if (h.checkIo !== false) {
+        try {
+          const fromScope = await this.reader.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId: h.fromModelId,
+          });
+          const toScope = await this.reader.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId: h.toModelId,
+          });
+          fromOutputs = [
+            ...fromScope.outputs,
+            ...fromScope.secondaryOutputs,
+          ]
+            .map((o) => o.symbolId)
+            .filter((x): x is string => Boolean(x));
+          toInputs = toScope.inputs
+            .map((i) => i.symbolId)
+            .filter((x): x is string => Boolean(x));
+          ioOk =
+            fromOutputs.includes(symbolId) && toInputs.includes(symbolId);
+        } catch (err) {
+          ioOk = undefined;
+          results.push({
+            fromModelId: h.fromModelId,
+            toModelId: h.toModelId,
+            symbolId,
+            title: title ?? usage.symbol?.title,
+            onFrom,
+            onTo,
+            usageCount,
+            pass: onFrom && onTo,
+            ioCheckError: err instanceof Error ? err.message : String(err),
+          });
+          continue;
+        }
+      }
+
+      const pass =
+        onFrom && onTo && (h.checkIo === false || ioOk === true);
+      results.push({
+        fromModelId: h.fromModelId,
+        toModelId: h.toModelId,
+        symbolId,
+        title: title ?? usage.symbol?.title,
+        onFrom,
+        onTo,
+        usageCount,
+        ioOk,
+        pass,
+      });
+    }
+
+    const passCount = results.filter((r) => r.pass).length;
+    return {
+      data: {
+        results,
+        passCount,
+        total: results.length,
+        allPass: passCount === results.length,
+      },
+      methodologyNotes: [
+        "Handoff = same business-object UUID on producer and consumer — never 'similar title'.",
+        "ioOk checks from-model primary/secondary outputs and to-model inputs via get_detail_process_scope.",
+      ],
+      nextSuggestedTools: [
+        "search_symbols",
+        "set_step_io",
+        "get_detail_process_scope",
+      ],
+    };
+  }
+
+  /**
+   * Build L0→… navigation from detail models' broken-down-from links.
+   * Marks models with no upward link (except optional roots).
+   */
+  async getNavigationTree(args: {
+    repositoryId: string;
+    rootModelId?: string;
+  }) {
+    const models = await this.listAllModels(args.repositoryId);
+
+    // symbolId → modelIds that place that symbol
+    const symbolToModels = new Map<string, string[]>();
+    const modelMeta = new Map(
+      models.map((m) => [m.uuid, m] as const),
+    );
+
+    // Load canvases in chunks to find which models host overview symbols
+    const concurrency = 6;
+    for (let i = 0; i < models.length; i += concurrency) {
+      const chunk = models.slice(i, i + concurrency);
+      await Promise.all(
+        chunk.map(async (m) => {
+          try {
+            const canvas = await this.client.request<CanvasDto>({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+              pathParams: {
+                repositoryId: args.repositoryId,
+                modelId: m.uuid,
+              },
+            });
+            for (const v of canvas.vertices ?? []) {
+              const sid = symbolIdOfVertex(v);
+              if (!sid) continue;
+              const list = symbolToModels.get(sid) ?? [];
+              list.push(m.uuid);
+              symbolToModels.set(sid, list);
+            }
+          } catch {
+            // ignore models without canvas
+          }
+        }),
+      );
+    }
+
+    type Link = {
+      modelId: string;
+      title?: string;
+      parentSymbolId?: string;
+      parentModelIds: string[];
+      breakdownId?: string;
+    };
+    const links: Link[] = [];
+    const missingUpward: Array<{ modelId: string; title?: string }> = [];
+
+    for (const m of models) {
+      let page: Page<BreakdownView> | undefined;
+      try {
+        page = await this.client.request<Page<BreakdownView>>({
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: m.uuid,
+          },
+        });
+      } catch (err) {
+        if (err instanceof TwoC8ApiError && err.status === 404) {
+          // Overview / models without breakdown endpoint
+          if (!args.rootModelId || m.uuid !== args.rootModelId) {
+            // defer missing classification until we know who is a parent
+          }
+          continue;
+        }
+        throw err;
+      }
+      const data = page.data ?? [];
+      if (data.length === 0) {
+        missingUpward.push({ modelId: m.uuid, title: m.title });
+        continue;
+      }
+      for (const b of data) {
+        const parentSymbolId = breakdownSymbolId(b);
+        const parentModelIds = parentSymbolId
+          ? [...new Set(symbolToModels.get(parentSymbolId) ?? [])].filter(
+              (id) => id !== m.uuid,
+            )
+          : [];
+        links.push({
+          modelId: m.uuid,
+          title: m.title,
+          parentSymbolId,
+          parentModelIds,
+          breakdownId: b.uuid,
+        });
+        if (parentModelIds.length === 0) {
+          missingUpward.push({
+            modelId: m.uuid,
+            title: m.title,
+          });
+        }
+      }
+    }
+
+    // Models that appear as parents but have no own parent link = roots/interiors
+    const childIds = new Set(links.map((l) => l.modelId));
+    const parentIds = new Set(links.flatMap((l) => l.parentModelIds));
+    const roots = models.filter(
+      (m) =>
+        parentIds.has(m.uuid) ||
+        (args.rootModelId ? m.uuid === args.rootModelId : false) ||
+        (!childIds.has(m.uuid) &&
+          (m.modelType ?? "").toLowerCase().includes("process")),
+    );
+
+    // Prefer explicit root when given
+    const rootIds = args.rootModelId
+      ? [args.rootModelId]
+      : roots.map((r) => r.uuid);
+
+    const childrenOf = new Map<string, Link[]>();
+    for (const l of links) {
+      for (const p of l.parentModelIds) {
+        const arr = childrenOf.get(p) ?? [];
+        arr.push(l);
+        childrenOf.set(p, arr);
+      }
+    }
+
+    type TreeNode = {
+      modelId: string;
+      title?: string;
+      modelType?: string;
+      children: TreeNode[];
+    };
+
+    const build = (modelId: string, seen: Set<string>): TreeNode => {
+      const meta = modelMeta.get(modelId);
+      const kids = (childrenOf.get(modelId) ?? []).filter(
+        (c) => !seen.has(c.modelId),
+      );
+      const nextSeen = new Set(seen);
+      nextSeen.add(modelId);
+      return {
+        modelId,
+        title: meta?.title,
+        modelType: meta?.modelType,
+        children: kids.map((c) => build(c.modelId, nextSeen)),
+      };
+    };
+
+    const tree = rootIds
+      .filter((id) => modelMeta.has(id))
+      .map((id) => build(id, new Set()));
+
+    // Dedupe missing: models that are children with empty parentModelIds, or
+    // process models that are neither roots nor linked (exclude known parents of others when they are roots)
+    const linkedAsChild = new Set(
+      links.filter((l) => l.parentModelIds.length > 0).map((l) => l.modelId),
+    );
+    const missingUnique = [
+      ...new Map(
+        missingUpward
+          .filter((m) => !linkedAsChild.has(m.modelId))
+          .filter((m) => !rootIds.includes(m.modelId))
+          .map((m) => [m.modelId, m]),
+      ).values(),
+    ];
+
+    return {
+      data: {
+        roots: tree,
+        links,
+        missingUpwardLinks: missingUnique,
+        modelCount: models.length,
+        linkCount: links.length,
+      },
+      methodologyNotes: [
+        "Breakdowns are stored on DETAIL models (GET …/broken-down-from). get_breakdowns(overview) is often empty/404 — use this tree instead.",
+        "Every model except L0 should have broken-down-from immediately after create (link_breakdown).",
+        "missingUpwardLinks = details with breakdown symbol not found on any parent canvas, or no breakdown at all.",
+      ],
+      nextSuggestedTools: ["link_breakdown", "find_models", "get_breakdowns"],
+    };
+  }
+
+  /**
+   * Map expected process codes/titles to models (generic process-register coverage).
+   */
+  async verifyProcessCoverage(args: {
+    repositoryId: string;
+    expected: Array<{
+      code?: string;
+      title?: string;
+      titleContains?: string;
+    }>;
+    /** When set, also require reachability from this root via navigation tree. */
+    rootModelId?: string;
+  }) {
+    const models = await this.listAllModels(args.repositoryId);
+    let reachable: Set<string> | undefined;
+    if (args.rootModelId) {
+      const nav = await this.getNavigationTree({
+        repositoryId: args.repositoryId,
+        rootModelId: args.rootModelId,
+      });
+      reachable = new Set<string>();
+      const walk = (nodes: Array<{ modelId: string; children: unknown[] }>) => {
+        for (const n of nodes) {
+          reachable!.add(n.modelId);
+          walk(n.children as Array<{ modelId: string; children: unknown[] }>);
+        }
+      };
+      walk(nav.data.roots as Array<{ modelId: string; children: unknown[] }>);
+    }
+
+    const rows = args.expected.map((exp) => {
+      const matches = models.filter((m) => {
+        const t = (m.title ?? "").toLowerCase();
+        if (exp.code) {
+          const c = exp.code.toLowerCase();
+          if (
+            t.includes(c) ||
+            Object.values(m.titles ?? {}).some((x) =>
+              (x.title ?? "").toLowerCase().includes(c),
+            )
+          ) {
+            return true;
+          }
+        }
+        if (exp.title) {
+          if (t === exp.title.toLowerCase()) return true;
+        }
+        if (exp.titleContains) {
+          if (t.includes(exp.titleContains.toLowerCase())) return true;
+        }
+        return false;
+      });
+      const covered = matches.length > 0;
+      const reachableOk =
+        !reachable || matches.some((m) => reachable!.has(m.uuid));
+      return {
+        expected: exp,
+        pass: covered && reachableOk,
+        covered,
+        reachableFromRoot: reachable ? reachableOk : undefined,
+        matches: matches.map((m) => ({
+          modelId: m.uuid,
+          title: m.title,
+          modelType: m.modelType,
+        })),
+      };
+    });
+
+    const passCount = rows.filter((r) => r.pass).length;
+    return {
+      data: {
+        rows,
+        passCount,
+        total: rows.length,
+        allPass: passCount === rows.length,
+      },
+      methodologyNotes: [
+        "Pass expected[] from your process register (code and/or titleContains). Does not parse documents.",
+        "Optional rootModelId checks navigation reachability via get_navigation_tree.",
+      ],
+      nextSuggestedTools: [
+        "get_navigation_tree",
+        "find_models",
+        "link_breakdown",
+      ],
+    };
+  }
+}

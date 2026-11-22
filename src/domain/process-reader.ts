@@ -10,7 +10,18 @@ import type {
   SymbolView,
   VertexView,
 } from "../api/types.js";
+import {
+  extractQuickdrawDistance,
+  loadRepoConfiguration,
+} from "../methodology/rules-engine.js";
 import { pickTitle, titleMatches } from "../util/titles.js";
+import {
+  GATEWAY_SEARCH_HINT,
+  isForbiddenJoinType,
+  isGatewayAlias,
+  matchesObjectTypeFilter,
+} from "../util/object-types.js";
+import { reviewProcessCanvas } from "./process-review.js";
 
 const PROCESS_TYPE_HINTS = ["process", "swimlane", "simbane"];
 
@@ -27,6 +38,22 @@ const RESPONSIBILITY_TYPES = new Set([
 
 /** Executable steps in a process model (excludes PROCESS map objects). */
 const ACTIVITY_TYPES = new Set(["activity", "aktivitet"]);
+
+/** Process chevrons on overview / process-map canvases. */
+const PROCESS_OBJECT_TYPES = new Set(["process"]);
+
+/** Vägval = Regel (Eller)=or; also and; legacy DECISION. */
+const DECISION_TYPES = new Set([
+  "decision",
+  "or",
+  "eller",
+  "and",
+  "och",
+  "gateway",
+  "regel",
+  "vägval",
+  "vagval",
+]);
 
 const APPLICATION_TYPES = new Set([
   "application",
@@ -372,6 +399,8 @@ export class ProcessReader {
         title: titleOf(v),
         x: v.x,
         y: v.y,
+        width: v.width,
+        height: v.height,
         hasDocument: v.hasDocument,
         inputs: [],
         outputs: [],
@@ -571,6 +600,9 @@ export class ProcessReader {
     const businessObjects = steps.filter((s) =>
       BUSINESS_OBJECT_TYPES.has(normType(s.objectType)),
     );
+    const decisions = steps.filter((s) =>
+      DECISION_TYPES.has(normType(s.objectType)),
+    );
 
     // Start inputs: business objects not produced by an in-model activity
     const processInputs = businessObjects.filter(
@@ -580,16 +612,38 @@ export class ProcessReader {
         ),
     );
 
-    // End outputs: produced by an activity and not feeding another activity
-    const processOutputs = businessObjects.filter((bo) => {
+    /** FLOW peer that continues the value stream (not a terminal leaf). */
+    const continuesFlow = (o: { objectType?: string }) => {
+      const t = normType(o.objectType);
+      return (
+        ACTIVITY_TYPES.has(t) ||
+        DECISION_TYPES.has(t) ||
+        BUSINESS_OBJECT_TYPES.has(t) ||
+        PROCESS_OBJECT_TYPES.has(t)
+      );
+    };
+
+    // Terminal leafs: produced by activity, no further FLOW to activity/decision/BO
+    // (BOs that only feed a vägval must NOT count as process outputs).
+    const terminalOutputs = businessObjects.filter((bo) => {
       const fromActivity = (bo.inputs ?? []).some((i) =>
         ACTIVITY_TYPES.has(normType(i.objectType)),
       );
-      const noFurtherActivity = !(bo.outputs ?? []).some((o) =>
-        ACTIVITY_TYPES.has(normType(o.objectType)),
-      );
-      return fromActivity && noFurtherActivity;
+      const noFurther = !(bo.outputs ?? []).some((o) => continuesFlow(o));
+      return fromActivity && noFurther;
     });
+
+    // Primary = rightmost terminal(s); branch/side terminals are secondary
+    const sortedTerminals = terminalOutputs
+      .slice()
+      .sort((a, b) => (b.x ?? 0) - (a.x ?? 0) || (a.y ?? 0) - (b.y ?? 0));
+    const primaryX = sortedTerminals[0]?.x ?? 0;
+    const processOutputs = sortedTerminals.filter(
+      (bo) => Math.abs((bo.x ?? 0) - primaryX) < 40,
+    );
+    const secondaryOutputs = sortedTerminals.filter(
+      (bo) => Math.abs((bo.x ?? 0) - primaryX) >= 40,
+    );
 
     const narrativeSteps = activities
       .slice()
@@ -621,6 +675,25 @@ export class ProcessReader {
         };
       });
 
+    const decisionNarrative = decisions
+      .slice()
+      .sort((a, b) => (a.x ?? 0) - (b.x ?? 0) || (a.y ?? 0) - (b.y ?? 0))
+      .map((d) => {
+        const branchOut = [
+          ...(d.outputs ?? []),
+          ...(d.otherRelations ?? []).filter((r) => r.direction === "out"),
+        ]
+          .map((o) => o.title)
+          .filter(Boolean);
+        return {
+          title: d.title,
+          objectType: d.objectType,
+          symbolId: d.symbolId,
+          vertexId: d.vertexId,
+          branches: branchOut,
+        };
+      });
+
     const summaryLines: string[] = [];
     const modelTitle = flow.modelTitle ?? (overview.title as string) ?? "Process";
     summaryLines.push(`${modelTitle}:`);
@@ -645,9 +718,19 @@ export class ProcessReader {
       }
       summaryLines.push(`- ${parts.join(" ")}`);
     }
+    for (const d of decisionNarrative) {
+      const branches =
+        d.branches.length > 0 ? ` → ${d.branches.join(" | ")}` : "";
+      summaryLines.push(`- Vägval: ${d.title ?? "(utan titel)"}${branches}`);
+    }
     if (processOutputs.length) {
       summaryLines.push(
         `Slutresultat: ${processOutputs.map((o) => o.title).filter(Boolean).join("; ")}.`,
+      );
+    }
+    if (secondaryOutputs.length) {
+      summaryLines.push(
+        `Sidogren-resultat: ${secondaryOutputs.map((o) => o.title).filter(Boolean).join("; ")}.`,
       );
     }
 
@@ -667,7 +750,14 @@ export class ProcessReader {
         vertexId: s.vertexId,
       })),
       activities: narrativeSteps,
+      decisions: decisionNarrative,
       outputs: processOutputs.map((s) => ({
+        title: s.title,
+        objectType: s.objectType,
+        symbolId: s.symbolId,
+        vertexId: s.vertexId,
+      })),
+      secondaryOutputs: secondaryOutputs.map((s) => ({
         title: s.title,
         objectType: s.objectType,
         symbolId: s.symbolId,
@@ -678,8 +768,379 @@ export class ProcessReader {
       methodologyNotes: [
         "Prefer describe_process for human-readable process narratives.",
         "Edge types FLOW / RACI_RESPONSIBLE / IS_USED_BY are grouped into inputs, outputs, responsible, applications.",
+        "Vägval/gateways (Regel Eller) appear under decisions; branch answers belong on FLOW edge labels. Join is never used.",
+        "outputs = primary (rightmost) terminal BOs; secondaryOutputs = other branch/side terminals. Overview handoffs use primary only.",
       ],
-      nextSuggestedTools: ["get_breakdowns", "get_object_documents"],
+      nextSuggestedTools:
+        activities.length === 0 &&
+        steps.some((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)))
+          ? ["describe_process_map", "get_breakdowns"]
+          : ["get_breakdowns", "get_object_documents"],
+      kind:
+        activities.length === 0 &&
+        steps.some((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)))
+          ? "process-map-candidate"
+          : "activity-process",
+    };
+  }
+
+  /**
+   * Post-create QA: methodology + visual layout for end-user readability.
+   * Call after apply_model_proposal / create_process_map before considering done.
+   */
+  async reviewProcessModel(args: {
+    repositoryId: string;
+    modelId: string;
+    detailModelIds?: string[];
+  }): Promise<Record<string, unknown>> {
+    const [flow, canvas, repoConfig] = await Promise.all([
+      this.getFlow({ ...args, includeDocuments: true }),
+      this.client.request<CanvasDto>({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+        pathParams: {
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+        },
+      }),
+      loadRepoConfiguration(this.client, args.repositoryId),
+    ]);
+
+    const activities = flow.steps.filter((s) =>
+      ACTIVITY_TYPES.has(normType(s.objectType)),
+    );
+    const processes = flow.steps.filter((s) =>
+      PROCESS_OBJECT_TYPES.has(normType(s.objectType)),
+    );
+    const modelKind =
+      activities.length === 0 && processes.length > 0
+        ? "process-map"
+        : activities.length > 0
+          ? "process"
+          : "unknown";
+
+    const base = reviewProcessCanvas({
+      steps: flow.steps,
+      canvas,
+      distance: extractQuickdrawDistance(repoConfig),
+      modelKind,
+    });
+
+    let scopeFindings: Array<Record<string, unknown>> = [];
+    if (args.detailModelIds?.length && modelKind === "process-map") {
+      const map = await this.describeProcessMap({
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        detailModelIds: args.detailModelIds,
+      });
+      const violations = (map.scopeViolations as string[]) ?? [];
+      scopeFindings = violations.map((message) => ({
+        id: "overview-scope-mismatch",
+        severity: "error",
+        category: "methodology",
+        message,
+        suggestion:
+          "Fix detail I/O handoffs or rebuild with create_process_map(detailModelIds).",
+      }));
+    }
+
+    const findings = [...base.findings, ...scopeFindings];
+    const errorCount = findings.filter((f) => f.severity === "error").length;
+    const warningCount = findings.filter((f) => f.severity === "warning").length;
+    const infoCount = findings.filter((f) => f.severity === "info").length;
+    const ok = errorCount === 0;
+
+    const summaryLines = [
+      `${flow.modelTitle ?? "Modell"} — granskning (${modelKind}):`,
+      `${errorCount} error(s), ${warningCount} warning(s), ${infoCount} info.`,
+      ...findings
+        .slice(0, 50)
+        .map((f) => `- [${f.severity}/${f.category}] ${f.message}`),
+    ];
+    if (findings.length > 50) {
+      summaryLines.push(`… och ${findings.length - 50} till.`);
+    }
+
+    return {
+      modelId: args.modelId,
+      modelTitle: flow.modelTitle,
+      modelKind,
+      ok,
+      summary: { errorCount, warningCount, infoCount, ok },
+      findings,
+      summaryText: summaryLines.join("\n"),
+      methodologyNotes: [
+        "review_process_model checks methodology (BO in/out, performers, no join/gateway, no role fan-out) and layout (overlap, spine alignment, spacing, FLOW sides, crossings, multi-I/O stacking).",
+        "Text-to-model / create flows should end with this review; fix errors before considering the model done.",
+        "Visual goal: readable for end users — straight baselines, orthogonal FLOW, no spaghetti.",
+      ],
+      nextSuggestedTools: ok
+        ? ["describe_process", "describe_process_map"]
+        : [
+            "delete_canvas_edge",
+            "move_canvas_vertices",
+            "update_canvas_edges",
+            "set_activity_performer",
+            "set_step_io",
+            "create_canvas_edge",
+          ],
+    };
+  }
+
+  /**
+   * Narrative for process maps / overviews (process chevrons + BO, not activities).
+   */
+  async describeProcessMap(args: {
+    repositoryId: string;
+    modelId: string;
+    /**
+     * Optional detail model UUIDs (same order as main-chain processes left→right)
+     * to verify overview I/O against detail scopes.
+     */
+    detailModelIds?: string[];
+  }): Promise<Record<string, unknown>> {
+    const [overview, flow, breakdownsResult] = await Promise.all([
+      this.getOverview(args),
+      this.getFlow({ ...args, includeDocuments: true }),
+      this.getBreakdowns(args).catch(() => ({ breakdowns: [] })),
+    ]);
+
+    const steps = flow.steps;
+    const processes = steps
+      .filter((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)))
+      .slice()
+      .sort((a, b) => (a.x ?? 0) - (b.x ?? 0) || (a.y ?? 0) - (b.y ?? 0));
+    const businessObjects = steps.filter((s) =>
+      BUSINESS_OBJECT_TYPES.has(normType(s.objectType)),
+    );
+
+    // Spine midY from BOs (stable) — never average in side-loop processes
+    const boMids = businessObjects.map(
+      (b) => (b.y ?? 0) + (b.height ?? 18) / 2,
+    );
+    const spineMidY =
+      boMids.length > 0
+        ? boMids.reduce((s, m) => s + m, 0) / boMids.length
+        : processes.length > 0
+          ? Math.min(
+              ...processes.map((p) => (p.y ?? 0) + (p.height ?? 50) / 2),
+            )
+          : 178;
+
+    const mainProcesses = processes.filter((p) => {
+      // Corner title icon
+      if ((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1) {
+        return false;
+      }
+      return Math.abs((p.y ?? 0) + (p.height ?? 50) / 2 - spineMidY) < 55;
+    });
+    const sideLoops = processes.filter(
+      (p) =>
+        !mainProcesses.some((m) => m.vertexId === p.vertexId) &&
+        !((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1),
+    );
+
+    // Spine BOs: one primary per X-column (closest to midY). Stacked extras
+    // share X below primary and must NOT become left/right neighbors in SCOPE.
+    const boNearBand = businessObjects.filter((s) => {
+      const mid = (s.y ?? 0) + (s.height ?? 18) / 2;
+      return Math.abs(mid - spineMidY) < 120;
+    });
+    const primaryBosByColumn: typeof businessObjects = [];
+    const byCol = new Map<number, typeof businessObjects>();
+    for (const bo of boNearBand) {
+      const col = Math.round((bo.x ?? 0) / 8) * 8;
+      const list = byCol.get(col) ?? [];
+      list.push(bo);
+      byCol.set(col, list);
+    }
+    for (const list of byCol.values()) {
+      list.sort(
+        (a, b) =>
+          Math.abs((a.y ?? 0) + (a.height ?? 18) / 2 - spineMidY) -
+          Math.abs((b.y ?? 0) + (b.height ?? 18) / 2 - spineMidY),
+      );
+      const primary = list[0];
+      if (primary) primaryBosByColumn.push(primary);
+    }
+
+    // Order main chain left-to-right mixing primary BO and process by x
+    const spine = [...primaryBosByColumn, ...mainProcesses].sort(
+      (a, b) => (a.x ?? 0) - (b.x ?? 0),
+    );
+
+    const chainNarrative = spine.map((s) => ({
+      kind: PROCESS_OBJECT_TYPES.has(normType(s.objectType))
+        ? "process"
+        : "businessObject",
+      title: s.title,
+      symbolId: s.symbolId,
+      vertexId: s.vertexId,
+      objectType: s.objectType,
+    }));
+
+    const sideLoopNarrative = sideLoops.map((p) => {
+      const linkedBos = [
+        ...(p.inputs ?? []),
+        ...(p.outputs ?? []),
+      ].filter((x) => BUSINESS_OBJECT_TYPES.has(normType(x.objectType)));
+      const boTitles = [
+        ...new Set(linkedBos.map((b) => b.title).filter(Boolean)),
+      ];
+      return {
+        title: p.title,
+        symbolId: p.symbolId,
+        vertexId: p.vertexId,
+        linkedBusinessObjects: boTitles,
+      };
+    });
+
+    // Breakdowns live on DETAIL models (POST broken-down-from). Resolve via detailModelIds.
+    let breakdowns = breakdownsResult.breakdowns;
+    if (
+      args.detailModelIds?.length &&
+      (!Array.isArray(breakdowns) ||
+        (breakdowns as unknown[]).length === 0)
+    ) {
+      const resolved: unknown[] = [];
+      for (const detailId of args.detailModelIds) {
+        try {
+          const page = await this.getBreakdowns({
+            repositoryId: args.repositoryId,
+            modelId: detailId,
+          });
+          const list = Array.isArray(page.breakdowns)
+            ? page.breakdowns
+            : [];
+          for (const b of list as unknown[]) {
+            resolved.push({ detailModelId: detailId, breakdown: b });
+          }
+        } catch {
+          /* ignore missing */
+        }
+      }
+      breakdowns = resolved;
+    }
+
+    const modelTitle =
+      flow.modelTitle ?? (overview.title as string) ?? "Processkarta";
+    const summaryLines: string[] = [`${modelTitle} (processkarta):`];
+    if (chainNarrative.length) {
+      summaryLines.push(
+        `Huvudkedja: ${chainNarrative.map((n) => n.title).join(" → ")}.`,
+      );
+    }
+    for (const p of mainProcesses) {
+      const inputs = (p.inputs ?? [])
+        .filter((i) => BUSINESS_OBJECT_TYPES.has(normType(i.objectType)))
+        .map((i) => i.title)
+        .filter(Boolean);
+      const outputs = (p.outputs ?? [])
+        .filter((o) => BUSINESS_OBJECT_TYPES.has(normType(o.objectType)))
+        .map((o) => o.title)
+        .filter(Boolean);
+      summaryLines.push(
+        `- ${p.title}${inputs.length ? ` ← ${inputs.join(", ")}` : ""}${outputs.length ? ` → ${outputs.join(", ")}` : ""}`,
+      );
+    }
+    for (const s of sideLoopNarrative) {
+      summaryLines.push(
+        `- Sidoloop: ${s.title}${s.linkedBusinessObjects.length ? ` (kopplad till ${s.linkedBusinessObjects.join(", ")})` : ""}`,
+      );
+    }
+
+    // Optional scope verification against detail models
+    let scopeViolations: string[] = [];
+    let scopeChecks: Array<Record<string, unknown>> = [];
+    if (args.detailModelIds?.length) {
+      const orderedProcesses = mainProcesses.slice().sort(
+        (a, b) => (a.x ?? 0) - (b.x ?? 0),
+      );
+      const chainForValidation: Array<{
+        kind: "businessObject" | "process";
+        title: string;
+        symbolId?: string;
+        detailModelId?: string;
+      }> = [];
+      // Rebuild approximate spine with detail ids by process index
+      for (const s of spine) {
+        if (PROCESS_OBJECT_TYPES.has(normType(s.objectType))) {
+          const idx = orderedProcesses.findIndex(
+            (p) => p.vertexId === s.vertexId,
+          );
+          chainForValidation.push({
+            kind: "process",
+            title: s.title ?? "",
+            symbolId: s.symbolId,
+            detailModelId:
+              idx >= 0 ? args.detailModelIds[idx] : undefined,
+          });
+        } else {
+          chainForValidation.push({
+            kind: "businessObject",
+            title: s.title ?? "",
+            symbolId: s.symbolId,
+          });
+        }
+      }
+      const validation = await this.validateProcessMapBoBridges({
+        repositoryId: args.repositoryId,
+        chain: chainForValidation,
+      });
+      scopeChecks = validation.checks;
+      scopeViolations = validation.errors;
+      if (scopeViolations.length) {
+        summaryLines.push("SCOPE-AVVIKELSER:");
+        for (const e of scopeViolations) {
+          summaryLines.push(`- ${e}`);
+        }
+      } else {
+        summaryLines.push(
+          "Scope OK: overview I/O matches provided detail models.",
+        );
+      }
+    }
+
+    return {
+      kind: "process-map",
+      overview: {
+        uuid: overview.uuid,
+        title: modelTitle,
+        modelType: overview.modelType,
+        version: overview.version,
+        vertexCount: overview.vertexCount,
+        edgeCount: overview.edgeCount,
+      },
+      chain: chainNarrative,
+      processes: mainProcesses.map((p) => ({
+        title: p.title,
+        symbolId: p.symbolId,
+        vertexId: p.vertexId,
+        inputs: (p.inputs ?? [])
+          .filter((i) => BUSINESS_OBJECT_TYPES.has(normType(i.objectType)))
+          .map((i) => ({ title: i.title, symbolId: i.symbolId })),
+        outputs: (p.outputs ?? [])
+          .filter((o) => BUSINESS_OBJECT_TYPES.has(normType(o.objectType)))
+          .map((o) => ({ title: o.title, symbolId: o.symbolId })),
+      })),
+      sideLoops: sideLoopNarrative,
+      breakdowns,
+      scopeChecks,
+      scopeViolations,
+      scopeOk: scopeViolations.length === 0,
+      summaryText: summaryLines.join("\n"),
+      steps,
+      methodologyNotes: [
+        "Process map: process chevrons + business objects on FLOW (not activities).",
+        "SCOPE: each process on the map must have the same input/output BOs as its detail model.",
+        "Pass detailModelIds (left→right) to verify scope; or use create_process_map(detailModelIds) to build correctly.",
+        "Prefer describe_process_map for overviews; describe_process for activity-level models.",
+      ],
+      nextSuggestedTools: [
+        "get_detail_process_scope",
+        "validate_process_map_bridges",
+        "get_breakdowns",
+        "create_process_map",
+      ],
     };
   }
 
@@ -730,17 +1191,589 @@ export class ProcessReader {
     repositoryId: string;
     modelId: string;
   }): Promise<Record<string, unknown>> {
-    const page = await this.client.request<Page<BreakdownView>>({
-      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from",
-      pathParams: {
-        repositoryId: args.repositoryId,
-        modelId: args.modelId,
-      },
+    try {
+      const page = await this.client.request<Page<BreakdownView>>({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from",
+        pathParams: {
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+        },
+      });
+      return {
+        breakdowns: page.data ?? page,
+        methodologyNotes: [
+          "Breakdowns are stored on DETAIL models (broken-down-from → overview symbol).",
+          "For full L0→… tree and missing links, prefer get_navigation_tree.",
+        ],
+        nextSuggestedTools: ["get_navigation_tree", "link_breakdown"],
+      };
+    } catch (err) {
+      const status =
+        err && typeof err === "object" && "status" in err
+          ? Number((err as { status: number }).status)
+          : undefined;
+      if (status === 404) {
+        return {
+          breakdowns: [],
+          methodologyNotes: [
+            "404 on broken-down-from — typical for overview/root models. Use get_navigation_tree.",
+          ],
+          nextSuggestedTools: ["get_navigation_tree"],
+        };
+      }
+      throw err;
+    }
+  }
+
+  private normTitle(s: string): string {
+    return s
+      .toLowerCase()
+      .replace(/[\u00AC\u00AD]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Canonical scope of a detail process model: its process chevron + FLOW inputs/outputs.
+   * Overview maps must reuse these same BO symbols — never invent overview-only I/O.
+   */
+  async getDetailProcessScope(args: {
+    repositoryId: string;
+    modelId: string;
+  }): Promise<{
+    modelId: string;
+    processTitle: string;
+    processSymbolId?: string;
+    inputs: Array<{ title: string; symbolId?: string }>;
+    /** Primary (main-path) outputs — use for overview spine / handoffs. */
+    outputs: Array<{ title: string; symbolId?: string }>;
+    /** Branch/side terminal BOs — optional stacked extras, not handoff spine. */
+    secondaryOutputs: Array<{ title: string; symbolId?: string }>;
+    rule: string;
+    methodologyNotes: string[];
+    nextSuggestedTools: string[];
+  }> {
+    const described = (await this.describeProcess(args)) as {
+      overview?: { title?: string };
+      inputs?: Array<{ title?: string; symbolId?: string }>;
+      outputs?: Array<{ title?: string; symbolId?: string }>;
+      secondaryOutputs?: Array<{ title?: string; symbolId?: string }>;
+      steps?: Array<{
+        objectType?: string;
+        title?: string;
+        symbolId?: string;
+        x?: number;
+        y?: number;
+      }>;
+    };
+    const processChevron = (described.steps ?? []).find(
+      (s) =>
+        PROCESS_OBJECT_TYPES.has(normType(s.objectType)) &&
+        (s.x ?? 999) < 100,
+    );
+    const processTitle =
+      processChevron?.title ??
+      described.overview?.title ??
+      "Okänd process";
+    const inputs = (described.inputs ?? [])
+      .filter((i): i is { title: string; symbolId?: string } => Boolean(i.title))
+      .map((i) => ({ title: i.title, symbolId: i.symbolId }));
+    const outputs = (described.outputs ?? [])
+      .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
+      .map((o) => ({ title: o.title, symbolId: o.symbolId }));
+    const secondaryOutputs = (described.secondaryOutputs ?? [])
+      .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
+      .map((o) => ({ title: o.title, symbolId: o.symbolId }));
+
+    return {
+      modelId: args.modelId,
+      processTitle,
+      processSymbolId: processChevron?.symbolId,
+      inputs,
+      outputs,
+      secondaryOutputs,
+      rule:
+        "On an overview, this process chevron MUST have the same primary input(s) and output(s) " +
+        "as listed here (same symbol UUID). secondaryOutputs are branch terminals — stack, do not use as handoffs.",
+      methodologyNotes: [
+        "Detail scope defines overview scope — overview is composition, not a new value stream.",
+        `Process "${processTitle}": inputs=[${inputs.map((i) => i.title).join(", ") || "—"}]; ` +
+          `outputs(primary)=[${outputs.map((o) => o.title).join(", ") || "—"}]` +
+          (secondaryOutputs.length
+            ? `; secondaryOutputs=[${secondaryOutputs.map((o) => o.title).join(", ")}]`
+            : "") +
+          ".",
+        "Prefer create_process_map(detailModelIds=…) so BO chain is derived from these scopes.",
+      ],
+      nextSuggestedTools: [
+        "get_detail_process_scope",
+        "propose_process_map_from_models",
+        "create_process_map",
+        "validate_process_map_bridges",
+      ],
+    };
+  }
+
+  private matchBo(
+    bo: { title: string; symbolId?: string },
+    candidates: Array<{ title?: string; symbolId?: string }>,
+  ): { hit: boolean; by: "symbolId" | "title" | null } {
+    if (bo.symbolId) {
+      const byId = candidates.find((c) => c.symbolId === bo.symbolId);
+      if (byId) return { hit: true, by: "symbolId" };
+    }
+    const byTitle = candidates.find(
+      (c) => c.title && this.normTitle(c.title) === this.normTitle(bo.title),
+    );
+    if (byTitle) return { hit: true, by: "title" };
+    return { hit: false, by: null };
+  }
+
+  /**
+   * Build overview chain solely from detail scopes (process order + BO handoffs).
+   * Prefer this over agents inventing business object titles.
+   */
+  async buildProcessMapChainFromDetails(args: {
+    repositoryId: string;
+    modelIds: string[];
+    /** Keep this order; default = greedy by shared BO. */
+    preserveOrder?: boolean;
+  }): Promise<{
+    chain: Array<{
+      kind: "businessObject" | "process";
+      title: string;
+      symbolId?: string;
+      detailModelId?: string;
+      confidence: "high" | "medium" | "low";
+      note?: string;
+      source?: string;
+    }>;
+    scopes: Array<Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>>;
+    uncertainLinks: string[];
+    readyForCreate: boolean;
+  }> {
+    const scopes: Array<Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>> =
+      [];
+    for (const modelId of args.modelIds) {
+      scopes.push(
+        await this.getDetailProcessScope({
+          repositoryId: args.repositoryId,
+          modelId,
+        }),
+      );
+    }
+
+    let ordered = [...scopes];
+    if (!args.preserveOrder) {
+      const remaining = [...scopes];
+      ordered = [];
+      const produced = new Set<string>();
+      while (remaining.length) {
+        let idx = remaining.findIndex((m) =>
+          m.inputs.every(
+            (i) =>
+              !remaining.some(
+                (o) =>
+                  o !== m &&
+                  o.outputs.some(
+                    (out) =>
+                      this.normTitle(out.title) === this.normTitle(i.title),
+                  ),
+              ),
+          ),
+        );
+        if (idx < 0) {
+          idx = remaining.findIndex((m) =>
+            m.inputs.some((i) => produced.has(this.normTitle(i.title))),
+          );
+        }
+        if (idx < 0) idx = 0;
+        const next = remaining.splice(idx, 1)[0]!;
+        ordered.push(next);
+        for (const o of next.outputs) produced.add(this.normTitle(o.title));
+      }
+    }
+
+    const chain: Array<{
+      kind: "businessObject" | "process";
+      title: string;
+      symbolId?: string;
+      detailModelId?: string;
+      confidence: "high" | "medium" | "low";
+      note?: string;
+      source?: string;
+    }> = [];
+    const uncertainLinks: string[] = [];
+
+    for (let i = 0; i < ordered.length; i++) {
+      const m = ordered[i]!;
+      const prev = ordered[i - 1];
+      const next = ordered[i + 1];
+
+      if (i === 0) {
+        if (m.inputs.length === 0) {
+          uncertainLinks.push(
+            `BLOCKING: detail "${m.processTitle}" (${m.modelId}) has no process input BO — fix detail before overview.`,
+          );
+        }
+        // All leading inputs as consecutive BOs — layout stacks extras below primary
+        for (let ii = 0; ii < m.inputs.length; ii++) {
+          const lead = m.inputs[ii]!;
+          chain.push({
+            kind: "businessObject",
+            title: lead.title,
+            symbolId: lead.symbolId,
+            confidence: lead.symbolId ? "high" : "medium",
+            note:
+              ii === 0
+                ? "Primary leading input (spine)"
+                : "Extra input — stack below primary, FLOW to process left",
+            source: `detail:${m.modelId}:input`,
+          });
+        }
+      } else if (prev) {
+        const shared = m.inputs.find((inp) =>
+          prev.outputs.some(
+            (out) =>
+              (inp.symbolId && out.symbolId && inp.symbolId === out.symbolId) ||
+              this.normTitle(out.title) === this.normTitle(inp.title),
+          ),
+        );
+        if (shared) {
+          const fromPrev = prev.outputs.find(
+            (out) =>
+              (shared.symbolId &&
+                out.symbolId &&
+                shared.symbolId === out.symbolId) ||
+              this.normTitle(out.title) === this.normTitle(shared.title),
+          );
+          chain.push({
+            kind: "businessObject",
+            title: shared.title,
+            symbolId: shared.symbolId ?? fromPrev?.symbolId,
+            confidence: "high",
+            note: "Handoff = previous detail OUTPUT ∩ next detail INPUT",
+            source: `detail:${prev.modelId}:output∩${m.modelId}:input`,
+          });
+        } else {
+          uncertainLinks.push(
+            `BLOCKING: "${prev.processTitle}" outputs [${prev.outputs.map((o) => o.title).join(", ")}] ` +
+              `do not share a BO with "${m.processTitle}" inputs [${m.inputs.map((i) => i.title).join(", ")}]. ` +
+              `Align detail scopes before building the overview.`,
+          );
+          chain.push({
+            kind: "businessObject",
+            title: `MISSING_SHARED_BO (${prev.processTitle} → ${m.processTitle})`,
+            confidence: "low",
+            note: "Do not create_process_map until details share the same BO symbol",
+            source: "invalid",
+          });
+        }
+      }
+
+      chain.push({
+        kind: "process",
+        title: m.processTitle,
+        symbolId: m.processSymbolId,
+        detailModelId: m.modelId,
+        confidence: m.processSymbolId ? "high" : "medium",
+        source: `detail:${m.modelId}:process`,
+      });
+
+      if (!next) {
+        if (m.outputs.length === 0) {
+          uncertainLinks.push(
+            `BLOCKING: detail "${m.processTitle}" (${m.modelId}) has no process output BO — fix detail before overview.`,
+          );
+        }
+        for (let oi = 0; oi < m.outputs.length; oi++) {
+          const trail = m.outputs[oi]!;
+          chain.push({
+            kind: "businessObject",
+            title: trail.title,
+            symbolId: trail.symbolId,
+            confidence: trail.symbolId ? "high" : "medium",
+            note:
+              oi === 0
+                ? "Primary trailing output (spine)"
+                : "Extra output — stack below primary, FLOW from process right",
+            source: `detail:${m.modelId}:output`,
+          });
+        }
+      }
+    }
+
+    return {
+      chain,
+      scopes: ordered,
+      uncertainLinks,
+      readyForCreate:
+        uncertainLinks.filter((u) => u.startsWith("BLOCKING:")).length === 0,
+    };
+  }
+
+  /**
+   * Lock overview chain BOs to detail scopes: keep process order/ids, replace all BO nodes.
+   */
+  async lockProcessMapChainToDetailScopes(args: {
+    repositoryId: string;
+    chain: Array<{
+      kind: "businessObject" | "process";
+      title: string;
+      symbolId?: string;
+      detailModelId?: string;
+    }>;
+  }): Promise<{
+    chain: Array<{
+      kind: "businessObject" | "process";
+      title: string;
+      symbolId?: string;
+      detailModelId?: string;
+      confidence?: string;
+      note?: string;
+      source?: string;
+    }>;
+    rewrote: boolean;
+    uncertainLinks: string[];
+    readyForCreate: boolean;
+  }> {
+    const processes = args.chain.filter(
+      (n) => n.kind === "process" && n.detailModelId,
+    );
+    if (processes.length === 0) {
+      return {
+        chain: args.chain,
+        rewrote: false,
+        uncertainLinks: [],
+        readyForCreate: true,
+      };
+    }
+    const built = await this.buildProcessMapChainFromDetails({
+      repositoryId: args.repositoryId,
+      modelIds: processes.map((p) => p.detailModelId!),
+      preserveOrder: true,
+    });
+    // Prefer agent process titles/symbolIds when provided
+    const locked = built.chain.map((node) => {
+      if (node.kind !== "process" || !node.detailModelId) return node;
+      const agent = processes.find((p) => p.detailModelId === node.detailModelId);
+      if (!agent) return node;
+      return {
+        ...node,
+        title: agent.title || node.title,
+        symbolId: agent.symbolId ?? node.symbolId,
+      };
     });
     return {
-      breakdowns: page.data ?? page,
+      chain: locked,
+      rewrote: true,
+      uncertainLinks: built.uncertainLinks,
+      readyForCreate: built.readyForCreate,
+    };
+  }
+
+  /**
+   * Overview BO / per-process neighbors must match detail scopes (same symbols).
+   */
+  async validateProcessMapBoBridges(args: {
+    repositoryId: string;
+    chain: Array<{
+      kind: "businessObject" | "process";
+      title: string;
+      symbolId?: string;
+      detailModelId?: string;
+    }>;
+  }): Promise<{
+    ok: boolean;
+    checks: Array<Record<string, unknown>>;
+    errors: string[];
+    methodologyNotes: string[];
+  }> {
+    const cache = new Map<
+      string,
+      Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>
+    >();
+    const loadScope = async (modelId: string) => {
+      const hit = cache.get(modelId);
+      if (hit) return hit;
+      const scope = await this.getDetailProcessScope({
+        repositoryId: args.repositoryId,
+        modelId,
+      });
+      cache.set(modelId, scope);
+      return scope;
+    };
+
+    const checks: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    const chain = args.chain;
+
+    // Per-process scope: left neighbor = detail input, right neighbor = detail output
+    for (let i = 0; i < chain.length; i++) {
+      const node = chain[i];
+      if (!node || node.kind !== "process" || !node.detailModelId) continue;
+      const scope = await loadScope(node.detailModelId);
+      const left = chain[i - 1];
+      const right = chain[i + 1];
+      const leftBo =
+        left?.kind === "businessObject"
+          ? { title: left.title, symbolId: left.symbolId }
+          : undefined;
+      const rightBo =
+        right?.kind === "businessObject"
+          ? { title: right.title, symbolId: right.symbolId }
+          : undefined;
+
+      const inputOk = leftBo
+        ? this.matchBo(leftBo, scope.inputs)
+        : { hit: scope.inputs.length === 0, by: null as null };
+      const outputOk = rightBo
+        ? this.matchBo(rightBo, scope.outputs)
+        : { hit: scope.outputs.length === 0, by: null as null };
+
+      const ok = Boolean(
+        (!leftBo || inputOk.hit) && (!rightBo || outputOk.hit),
+      );
+      checks.push({
+        kind: "process-scope",
+        processTitle: node.title,
+        detailModelId: node.detailModelId,
+        overviewInput: leftBo,
+        overviewOutput: rightBo,
+        detailInputs: scope.inputs,
+        detailOutputs: scope.outputs,
+        inputMatch: inputOk,
+        outputMatch: outputOk,
+        ok,
+      });
+      if (leftBo && !inputOk.hit) {
+        errors.push(
+          `SCOPE: overview input "${leftBo.title}" of process "${node.title}" ` +
+            `is not an INPUT of detail ${node.detailModelId}. ` +
+            `Detail inputs=[${scope.inputs.map((x) => x.title).join(", ")}]. ` +
+            `Use get_detail_process_scope / create_process_map(detailModelIds).`,
+        );
+      }
+      if (rightBo && !outputOk.hit) {
+        errors.push(
+          `SCOPE: overview output "${rightBo.title}" of process "${node.title}" ` +
+            `is not an OUTPUT of detail ${node.detailModelId}. ` +
+            `Detail outputs=[${scope.outputs.map((x) => x.title).join(", ")}]. ` +
+            `Use get_detail_process_scope / create_process_map(detailModelIds).`,
+        );
+      }
+      if (!leftBo && scope.inputs.length > 0) {
+        errors.push(
+          `SCOPE: process "${node.title}" has detail inputs [${scope.inputs.map((x) => x.title).join(", ")}] ` +
+            `but no business object on its left on the overview.`,
+        );
+      }
+      if (!rightBo && scope.outputs.length > 0) {
+        errors.push(
+          `SCOPE: process "${node.title}" has detail outputs [${scope.outputs.map((x) => x.title).join(", ")}] ` +
+            `but no business object on its right on the overview.`,
+        );
+      }
+    }
+
+    // Handoff between two detailed processes
+    for (let i = 0; i < chain.length; i++) {
+      const node = chain[i];
+      if (!node || node.kind !== "businessObject") continue;
+      const prev = chain[i - 1];
+      const next = chain[i + 1];
+      const prevDetail =
+        prev?.kind === "process" ? prev.detailModelId : undefined;
+      const nextDetail =
+        next?.kind === "process" ? next.detailModelId : undefined;
+
+      if (prevDetail && nextDetail) {
+        const prevIo = await loadScope(prevDetail);
+        const nextIo = await loadScope(nextDetail);
+        const inPrevAsOutput = this.matchBo(node, prevIo.outputs);
+        const inNextAsInput = this.matchBo(node, nextIo.inputs);
+        const strictOk = inPrevAsOutput.hit && inNextAsInput.hit;
+        checks.push({
+          kind: "handoff",
+          bridgeTitle: node.title,
+          symbolId: node.symbolId,
+          previousProcess: prev?.title,
+          previousDetailModelId: prevDetail,
+          nextProcess: next?.title,
+          nextDetailModelId: nextDetail,
+          inPreviousOutputs: inPrevAsOutput,
+          inNextInputs: inNextAsInput,
+          ok: strictOk,
+        });
+        if (!strictOk) {
+          errors.push(
+            `HANDOFF: overview BO "${node.title}" between "${prev?.title}" and "${next?.title}" ` +
+              `must be OUTPUT of detail ${prevDetail} AND INPUT of detail ${nextDetail} ` +
+              `(same symbol). prevOutputs=[${prevIo.outputs.map((o) => o.title).join(", ")}]; ` +
+              `nextInputs=[${nextIo.inputs.map((o) => o.title).join(", ")}].`,
+          );
+        }
+      }
+    }
+
+    return {
+      ok: errors.length === 0,
+      checks,
+      errors,
       methodologyNotes: [
-        "Breakdowns navigate from high-level processes to detailed activity models.",
+        "SCOPE RULE: each overview process has the same primary input(s)/output(s) as its breakdown detail model.",
+        "HANDOFF RULE: BO between A and B = A's detail primary OUTPUT ∩ B's detail INPUT (same symbol UUID).",
+        "secondaryOutputs (branch terminals) may be stacked under the process — they are not spine handoffs.",
+        "Never invent overview-only business objects. Call get_detail_process_scope first, or create_process_map(detailModelIds).",
+      ],
+    };
+  }
+
+  /**
+   * Propose a process-map chain from existing detail models by matching
+   * shared business objects (output of A ≈ input of B). Review before create_process_map.
+   */
+  async proposeProcessMapFromModels(args: {
+    repositoryId: string;
+    modelIds: string[];
+    title?: string;
+  }): Promise<Record<string, unknown>> {
+    const built = await this.buildProcessMapChainFromDetails({
+      repositoryId: args.repositoryId,
+      modelIds: args.modelIds,
+      preserveOrder: false,
+    });
+
+    return {
+      title: args.title ?? "Processöversikt",
+      chain: built.chain,
+      scopes: built.scopes.map((s) => ({
+        modelId: s.modelId,
+        processTitle: s.processTitle,
+        processSymbolId: s.processSymbolId,
+        inputs: s.inputs,
+        outputs: s.outputs,
+      })),
+      models: built.scopes.map((s) => ({
+        modelId: s.modelId,
+        processTitle: s.processTitle,
+        processSymbolId: s.processSymbolId,
+        inputs: s.inputs.map((i) => i.title),
+        outputs: s.outputs.map((o) => o.title),
+      })),
+      uncertainLinks: built.uncertainLinks,
+      readyForCreate: built.readyForCreate,
+      methodologyNotes: [
+        "Chain BOs are derived from detail scopes — do not rename them on the overview.",
+        "Prefer create_process_map with detailModelIds (same list) so the server locks BOs to these scopes.",
+        "SCOPE: each process on the map must show the same inputs/outputs as get_detail_process_scope for its detail.",
+        "Side loops are not inferred — add via sideLoops on create_process_map.",
+      ],
+      nextSuggestedTools: [
+        "get_detail_process_scope",
+        "validate_process_map_bridges",
+        "create_process_map",
+        "describe_process_map",
       ],
     };
   }
@@ -855,6 +1888,31 @@ export class ProcessReader {
     startAt?: string;
     maxResults?: string;
   }): Promise<Record<string, unknown>> {
+    // Agents often search query="vägval"/"gateway" as if it were a title —
+    // reinterpret as objectType so they hit DECISION + gateway diamonds.
+    let query = args.query?.trim();
+    let objectType = args.objectType?.trim();
+    if (query && !objectType && (isGatewayAlias(query) || isForbiddenJoinType(query))) {
+      objectType = query;
+      query = undefined;
+    }
+    if (objectType && isForbiddenJoinType(objectType)) {
+      return {
+        total: 0,
+        symbols: [],
+        items: [],
+        methodologyNotes: [
+          "Join/förbinda is forbidden — do not search or create it. Use objectType=gateway (vägval) for exclusive choice.",
+          GATEWAY_SEARCH_HINT,
+        ],
+        nextSuggestedTools: ["get_methodology", "search_symbols"],
+      };
+    }
+
+    const gatewayNotes = objectType && isGatewayAlias(objectType)
+      ? [GATEWAY_SEARCH_HINT]
+      : [];
+
     // Scope to symbols placed on a model canvas when modelId is set
     if (args.modelId) {
       const canvas = await this.client.request<CanvasDto>({
@@ -876,16 +1934,13 @@ export class ProcessReader {
         symbolIds: ids,
       });
       let symbols = resolved.symbols;
-      if (args.objectType) {
-        const ot = args.objectType.toLowerCase();
+      if (objectType) {
         symbols = symbols.filter((s) =>
-          String(s.objectType ?? "")
-            .toLowerCase()
-            .includes(ot),
+          matchesObjectTypeFilter(String(s.objectType ?? ""), objectType!),
         );
       }
-      if (args.query) {
-        const q = args.query.toLowerCase();
+      if (query) {
+        const q = query.toLowerCase();
         symbols = symbols.filter((s) =>
           String(s.title ?? "")
             .toLowerCase()
@@ -895,50 +1950,61 @@ export class ProcessReader {
       return {
         total: symbols.length,
         symbols,
+        items: symbols, // alias — agents often expect items
         scopedToModelId: args.modelId,
         methodologyNotes: [
           "Results limited to symbols placed on the given model canvas.",
+          "Response: symbols (also as items). Search param: query (title alias OK).",
+          ...gatewayNotes,
         ],
         nextSuggestedTools: ["resolve_symbols", "reuse_symbol"],
       };
     }
 
+    // For gateway-type filters without a title query: fetch a wider page and
+    // filter client-side (API title filter would miss DECISION diamonds).
+    const useTitleFilter = Boolean(query) && !isGatewayAlias(query ?? "");
     const page = await this.client.request<Page<SymbolView>>({
       path: "/api/v1/repositories/{repositoryId}/symbols",
       pathParams: { repositoryId: args.repositoryId },
       query: {
         startAt: args.startAt,
-        maxResults: args.maxResults ?? "100",
+        maxResults: args.maxResults ?? (objectType && isGatewayAlias(objectType) ? "500" : "100"),
         projection: "ALL",
-        ...(args.query
-          ? { filter: toWildcardFilter(args.query), filterFields: "titles" }
+        ...(useTitleFilter
+          ? { filter: toWildcardFilter(query!), filterFields: "titles" }
           : {}),
       },
     });
 
     let symbols = page.data ?? [];
-    if (args.objectType) {
-      const ot = args.objectType.toLowerCase();
+    if (objectType) {
       symbols = symbols.filter((s) =>
-        (s.objectType ?? "").toLowerCase().includes(ot),
+        matchesObjectTypeFilter(s.objectType, objectType!),
       );
     }
-    if (args.query) {
-      symbols = symbols.filter((s) => titleMatches(s.titles, args.query!));
+    if (query && useTitleFilter) {
+      symbols = symbols.filter((s) => titleMatches(s.titles, query!));
+    } else if (query) {
+      symbols = symbols.filter((s) => titleMatches(s.titles, query!));
     }
 
+    const mapped = symbols.map((s) => ({
+      uuid: s.uuid,
+      objectType: s.objectType,
+      title: pickTitle(s.titles),
+      titles: s.titles,
+      documents: s.documents,
+    }));
     return {
-      total: symbols.length,
-      symbols: symbols.map((s) => ({
-        uuid: s.uuid,
-        objectType: s.objectType,
-        title: pickTitle(s.titles),
-        titles: s.titles,
-        documents: s.documents,
-      })),
+      total: mapped.length,
+      symbols: mapped,
+      items: mapped, // alias — agents often expect items
       methodologyNotes: [
         "Prefer reusing an existing symbol UUID over creating a duplicate with the same title.",
         "Pass modelId to search only symbols used on a specific model.",
+        "Response: symbols (also as items). Search param: query (title alias OK).",
+        ...gatewayNotes,
       ],
       nextSuggestedTools: ["reuse_symbol", "add_process_step", "find_symbol_usage"],
     };

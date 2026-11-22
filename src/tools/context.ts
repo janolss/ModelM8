@@ -3,6 +3,7 @@ import type { AppConfig } from "../config.js";
 import type { DocumentsService } from "../domain/documents.js";
 import type { ProcessReader } from "../domain/process-reader.js";
 import type { ProcessWriter } from "../domain/process-writer.js";
+import type { QualityService } from "../domain/quality.js";
 import type { MethodologyPack } from "../methodology/loader.js";
 
 export interface ToolContext {
@@ -12,4 +13,5 @@ export interface ToolContext {
   reader: ProcessReader;
   writer: ProcessWriter | null;
   documents: DocumentsService;
+  quality: QualityService;
 }

@@ -5,6 +5,25 @@ guidance:
   - Create new breakdown model or link to an existing one
   - Multiple breakdowns from the same object/relation are allowed
   - Use breakdowns for process → sub-process → activity hierarchy
+  - Prefer link_breakdown with overviewSymbolId rather than raw create_breakdown bodies
+  - Reuse the process symbol UUID placed on the overview when linking the detail model
+  - >
+    Overview FLOW business objects between processes must match detail handoffs
+    (previous detail OUTPUT = next detail INPUT, same symbol). Validate with
+    validate_process_map_bridges before create_process_map.
+writeFormat:
+  description: >
+    POST body on the DETAIL model (broken-down-from). The symbol UUID is the
+    process (or other) symbol on the overview that this detail elaborates.
+  required:
+    symbol: UUID string of the overview symbol
+  example:
+    symbol: "315349a9-fbee-497d-8edc-5a19d2002d1d"
+  notAllowed:
+    - ofSymbol
+    - ofModel
+    - ofVertex
+    - nested symbol object ({ uuid, version }) — use plain UUID string
 api:
   list: GET /api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from
   create: POST /api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from

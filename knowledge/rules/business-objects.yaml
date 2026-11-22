@@ -1,0 +1,41 @@
+id: business-objects
+appliesToModelTypes: [process, swimlane]
+summary: >
+  Business objects on the FLOW spine express value created or transformed —
+  not a status label that merely restates the preceding activity.
+guidance:
+  - >
+    Think value-stream: what artefact, capability or business state of value
+    exists after the activity that did not exist before?
+  - >
+    The BO should explain why the activity exists (purpose / value add), not
+    that the activity "was done".
+  - Prefer concrete deliverables and outcomes over past-participle status tags.
+  - Input BOs state the need or trigger; output BOs state the refined result.
+goodExamples:
+  - Påskrivet anställningsavtal
+  - Alla förutsättningar på plats för nyanställd
+  - Medarbetare redo att arbeta självständigt
+  - Karriärutvecklingsplan
+  - Registrerad order
+antiPatterns:
+  - Dokumenterad prestation (echo of "Genomföra prestationssamtal")
+  - Dokumenterad utbildning (echo of "Dokumentera utbildningar…")
+  - Godkänd vinstandel (echo of "Godkänna vinstandel")
+  - Reviderad lön (echo of "Genomföra lönerevision")
+  - Genomförd introduktion (echo of "Genomföra introduktion")
+rules:
+  - id: bo-value-not-status
+    severity: warning
+    description: >
+      Do not name a business object as a past-participle status of the previous
+      activity (e.g. activity "Godkänna X" → BO "Godkänd X"). Name the value,
+      artefact or capability the activity produces.
+  - id: bo-explains-purpose
+    severity: info
+    description: >
+      A good BO title should still make sense if the activity title were hidden —
+      it names what is handed to the next step, not that work occurred.
+sources:
+  - https://support.2c8.com/hc/sv/articles/6336377323421-Vilket-objekt-ska-jag-anv%C3%A4nda-i-vilket-sammanhang
+  - https://support.2c8.com/hc/sv/articles/7185436499741-Processmodell

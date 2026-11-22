@@ -10,6 +10,12 @@ export interface Page<T> {
 export interface LocalizedTitle {
   title?: string;
   rawTitle?: string;
+  /**
+   * Non-default language only. true = confirmed translation (GUI globe OFF);
+   * false/omitted = not translated (GUI Translation status globe ON).
+   * Default language omits the field. MCP update_titles / confirm_translations set true.
+   */
+  translated?: boolean;
   [key: string]: unknown;
 }
 
@@ -100,6 +106,8 @@ export interface FlowStep {
   title?: string;
   x?: number;
   y?: number;
+  width?: number;
+  height?: number;
   hasDocument?: boolean;
   documents?: Array<{ id: string; title?: string }>;
   inputs?: FlowStepRef[];

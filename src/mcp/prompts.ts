@@ -55,14 +55,16 @@ export function registerMethodologyPrompts(server: McpServer): void {
             text: [
               "Create/update a 2c8 process from the description below.",
               "Order:",
-              "1) get_methodology (process, activity, naming, reuse-first)",
-              "2) list_allowed_types",
-              "3) propose_model_from_text with the description",
-              "4) For each proposed step: search_symbols; prefer reuse",
-              "5) validate_against_methodology for failing namingChecks",
-              "6) If writes enabled: apply_model_proposal (draft mode preferred)",
-              "7) set_activity_performer / link_document / set_step_io as needed",
-              "8) get_process_flow to verify",
+              "1) get_methodology (process, activity, naming, reuse-first) + list_allowed_types",
+              "2) propose_model_from_text — chain BO↔activity↔vägval, branches Ja/Nej. Prefixed: Vägval: … / Ja: … / Nej: …",
+              "3) Review BOs: value/artefacts, NOT status echoes. Rewrite failing namingChecks.",
+              "4) ANY choice/gateway: call resolve_branching_object_type — exclusive → objectType \"or\" (Regel Eller). NEVER create gateway or join.",
+              "5) search_symbols objectType=or (vägval/decision aliases). Titles are questions, not 'vägval'.",
+              "6) validate_against_methodology; fix titles if needed",
+              "7) apply_model_proposal (chain nodes with objectType or)",
+              "8) describe_process — expect decisions[]",
+              "9) Gaps: create_canvas_edge(label=Ja|Nej) / set_activity_performer",
+              "10) review_process_model — REQUIRED before done. Fix all errors (BO in/out, performers, layout spaghetti/alignment/spacing). Re-run until ok or only acceptable infos.",
               "",
               `repositoryId=${repositoryId}`,
               `languageId=${languageId}`,
@@ -108,6 +110,53 @@ export function registerMethodologyPrompts(server: McpServer): void {
   );
 
   server.registerPrompt(
+    "create_process_map_overview",
+    {
+      description:
+        "Workflow: build a process map / lifecycle overview (process chevrons + BO + breakdowns), not an activity detail model.",
+      argsSchema: {
+        repositoryId: z.string(),
+        languageId: z.string(),
+        title: z.string(),
+        description: z
+          .string()
+          .optional()
+          .describe("Optional narrative of how processes connect"),
+      },
+    },
+    ({ repositoryId, languageId, title, description }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: [
+              `Create process map / overview titled "${title}".`,
+              "SCOPE RULE: each overview process must show the SAME inputs/outputs as its detail model (same symbol UUIDs). Never invent overview BOs.",
+              "Order:",
+              "1) get_methodology topic=process-map and topic=breakdowns",
+              "2) For each detail model: get_detail_process_scope — note inputs/outputs/symbolIds",
+              "3) create_process_map({ title, detailModelIds: […ordered detail UUIDs…] }) — server builds BO↔process from those scopes",
+              "   (Alternative: propose_process_map_from_models then create_process_map with the same detailModelIds)",
+              "4) describe_process_map(detailModelIds) — must report scopeOk / no scopeViolations",
+              "5) review_process_model(detailModelIds) — REQUIRED before done (scope + layout)",
+              "6) If scope/layout fails: fix DETAIL models / rebuild — do not invent a map-only BO",
+              "Do NOT place activities on the overview. Do NOT invent different input/output titles than get_detail_process_scope.",
+              "Never stack symbols on the same coordinates.",
+              "",
+              `repositoryId=${repositoryId}`,
+              `languageId=${languageId}`,
+              description ? `Context:\n${description}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
     "document_to_process_model",
     {
       description:
@@ -130,8 +179,8 @@ export function registerMethodologyPrompts(server: McpServer): void {
               "Order:",
               "1) get_methodology (process, document-links, reuse-first)",
               "2) propose_model_from_document",
-              "3) Present the proposal to the user for confirmation",
-              "4) search_symbols + validate_against_methodology",
+              "3) Present the proposal; rewrite business objects that are status echoes of activities into value/artefact titles",
+              "4) search_symbols + validate_against_methodology (BOs: pass previousActivityTitle)",
               "5) apply_model_proposal when approved",
               "6) link_document for referenced documents where possible",
               "",

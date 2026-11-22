@@ -17,6 +17,44 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   const writer = ctx.writer;
 
   server.registerTool(
+    "create_repository",
+    {
+      description:
+        "Create a new 2c8 repository (POST /repositories). Use for sandboxes such as 'Utveckling MCP'.",
+      inputSchema: {
+        name: z.string().min(1),
+        languages: z
+          .array(
+            z.object({
+              name: z.string(),
+              locale: z.string(),
+              default: z.boolean().optional(),
+            }),
+          )
+          .optional()
+          .describe("Defaults to Svenska sv_SE"),
+        template: z.boolean().optional(),
+        owner: uuid.optional(),
+        directory: uuid.optional(),
+        colorScheme: uuid.optional(),
+        body: jsonBody.optional(),
+      },
+    },
+    async (args) =>
+      runTool(() =>
+        writer.createRepository({
+          name: args.name,
+          languages: args.languages,
+          template: args.template,
+          owner: args.owner,
+          directory: args.directory,
+          colorScheme: args.colorScheme,
+          body: args.body,
+        }),
+      ),
+  );
+
+  server.registerTool(
     "create_process_model",
     {
       description:
@@ -42,6 +80,161 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           body: args.body,
         }),
       ),
+  );
+
+  server.registerTool(
+    "create_canvas_edge",
+    {
+      description:
+        "Create a canvas edge (orthogonal points). edgeType: FLOW, RACI_RESPONSIBLE, CONTROLS, IS_USED_BY, IS_FOLLOWED_BY. FLOW on process/activity: left-in / right-out. For RACI: never fan one role vertex to multiple activities — place a role under each activity (prefer set_activity_performer). Optional label for VÄGVAL answers (Ja/Nej).",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        fromVertexId: uuid,
+        toVertexId: uuid,
+        languageId,
+        edgeType: z
+          .string()
+          .min(1)
+          .describe(
+            "e.g. flow, raciresponsible, controls, isusedby, isfollowedby",
+          ),
+        label: z
+          .string()
+          .optional()
+          .describe("Edge label text, e.g. Ja / Nej on vägval branches"),
+      },
+    },
+    async (args) => runTool(() => writer.createCanvasEdge(args)),
+  );
+
+  server.registerTool(
+    "move_canvas_vertices",
+    {
+      description:
+        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. By default reorthogonalizes attached edges in the same call (set reorthogonalizeEdges:false to skip).",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        vertices: z
+          .array(
+            z.object({
+              vertexId: uuid,
+              x: z.number(),
+              y: z.number(),
+              width: z.number().optional(),
+              height: z.number().optional(),
+            }),
+          )
+          .min(1),
+        reorthogonalizeEdges: z
+          .boolean()
+          .optional()
+          .describe("Default true — rebuild orthogonal routes for attached edges"),
+      },
+    },
+    async (args) => runTool(() => writer.moveCanvasVertices(args)),
+  );
+
+  server.registerTool(
+    "retarget_vertex_symbol",
+    {
+      description:
+        "Replace the symbol on a canvas vertex while keeping position and recreating edges. Use when renaming/consolidating aliases (e.g. HRM → HR-system). API cannot PATCH vertex.symbol.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        vertexId: uuid,
+        newSymbolId: uuid.describe("Existing symbol UUID to place on the vertex"),
+        languageId,
+      },
+    },
+    async (args) => runTool(() => writer.retargetVertexSymbol(args)),
+  );
+
+  server.registerTool(
+    "create_document_type",
+    {
+      description:
+        "Create a document type (category) in the repository. Body: { titles: { [languageId]: { title } } }. Use uuid in link_document createDocumentBody.documentTypes.",
+      inputSchema: {
+        repositoryId,
+        languageId: languageId.optional(),
+        title: z.string().min(1).optional().describe("Shorthand: builds titles for languageId"),
+        body: jsonBody
+          .optional()
+          .describe("Full MtbDocumentTypeDto — titles map required if title omitted"),
+      },
+    },
+    async (args) =>
+      runTool(async () => {
+        let body = args.body;
+        if (!body) {
+          if (!args.title || !args.languageId) {
+            throw new Error(
+              "create_document_type requires body or (title + languageId)",
+            );
+          }
+          body = {
+            titles: {
+              [args.languageId]: { title: args.title },
+            },
+          };
+        }
+        return ctx.documents.createDocumentType(args.repositoryId, body);
+      }),
+  );
+
+  server.registerTool(
+    "update_canvas_edges",
+    {
+      description:
+        "Update edge routing on the canvas (PATCH /canvas). Prefer edges[{ edgeId, reorthogonalize: true }] after move_canvas_vertices. Or pass explicit points[].",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        edges: z
+          .array(
+            z.object({
+              edgeId: uuid,
+              reorthogonalize: z.boolean().optional(),
+              points: z
+                .array(z.object({ x: z.number(), y: z.number() }))
+                .optional(),
+            }),
+          )
+          .min(1),
+      },
+    },
+    async (args) => runTool(() => writer.updateCanvasEdges(args)),
+  );
+
+  server.registerTool(
+    "delete_canvas_edge",
+    {
+      description:
+        "Delete canvas edge(s) by edgeId (corrective edit). Use to remove illegal activity→activity / BO→BO FLOW or wrong relations. edgeId from describe_process outgoing[].edgeId. Does NOT require TWO_C8_ALLOW_DELETES.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        edgeIds: z.array(uuid).min(1).describe("One or more edge UUIDs"),
+      },
+    },
+    async (args) => runTool(() => writer.deleteCanvasEdges(args)),
+  );
+
+  server.registerTool(
+    "delete_canvas_vertex",
+    {
+      description:
+        "Remove vertex/vertices from the model canvas (symbol stays in repo). Delete attached edges first if needed. Corrective edit — not the same as delete_model.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        vertexIds: z.array(uuid).min(1),
+      },
+    },
+    async (args) => runTool(() => writer.deleteCanvasVertices(args)),
   );
 
   server.registerTool(
@@ -84,7 +277,9 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         objectType: z
           .string()
           .optional()
-          .describe("Defaults to activity; e.g. businessObject, role"),
+          .describe(
+            'Defaults to activity; e.g. businessObject, role, or (vägval/Regel Eller). Call resolve_branching_object_type for branching. NEVER gateway or join.',
+          ),
         symbolId: uuid.optional().describe("Reuse this symbol UUID if known"),
         connectFromVertexId: uuid
           .optional()
@@ -107,11 +302,17 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "reuse_symbol",
     {
       description:
-        "Place an existing symbol UUID on a model canvas (reuse, not duplicate).",
+        "Place an existing symbol UUID on a model canvas (reuse, not duplicate). Uses repository symbolsizes + label placement (inside for activity/process, below for small icons).",
       inputSchema: {
         repositoryId,
         modelId: uuid,
         symbolId: uuid,
+        languageId,
+        title: z.string().optional().describe("For label bounds sizing"),
+        objectType: z
+          .string()
+          .optional()
+          .describe("Defaults to activity; drives symbolsizes lookup"),
         x: z.number().optional(),
         y: z.number().optional(),
       },
@@ -123,13 +324,18 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "set_activity_performer",
     {
       description:
-        "Link a role/position/organisation symbol as performer of an activity vertex.",
+        "Link a role/position/organisation as performer of one activity (RACI_RESPONSIBLE). Always places a vertex under that activity (reuses symbol UUID). Never attaches one canvas role to multiple activities — call once per activity.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
         activityVertexId: uuid,
         performerSymbolId: uuid,
-        edgeType: z.string().optional(),
+        languageId,
+        performerTitle: z.string().optional(),
+        edgeType: z
+          .string()
+          .optional()
+          .describe("Defaults to raciresponsible"),
         x: z.number().optional(),
         y: z.number().optional(),
       },
@@ -141,12 +347,13 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "set_step_io",
     {
       description:
-        "Connect two vertices with a flow edge to express input/output between steps.",
+        "Connect two vertices with a FLOW edge to express input/output between steps.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
         fromVertexId: uuid,
         toVertexId: uuid,
+        languageId,
         edgeType: z.string().optional(),
       },
     },
@@ -173,21 +380,123 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_breakdown",
     {
       description:
-        "Create a breakdown (nedbrytning) linking this model as detail of a symbol/edge. Body matches MtbBreakdownWriteDto.",
+        "Create a breakdown (nedbrytning) on the DETAIL model. Preferred body: { symbol: \"<overviewSymbolUuid>\" }. Do not use ofSymbol/ofModel/ofVertex or nested {uuid,version}. Prefer link_breakdown for the common case.",
       inputSchema: {
         repositoryId,
         modelId: uuid.describe("Target detail model UUID"),
-        body: jsonBody,
+        body: jsonBody.describe(
+          'Write DTO, typically { "symbol": "<processSymbolUuidOnOverview>" }',
+        ),
       },
     },
     async (args) => runTool(() => writer.createBreakdown(args)),
   );
 
   server.registerTool(
+    "link_breakdown",
+    {
+      description:
+        "Link a detail process model as breakdown of an overview process symbol. POSTs { symbol: overviewSymbolId } on the detail model. Prefer this over raw create_breakdown.",
+      inputSchema: {
+        repositoryId,
+        detailModelId: uuid.describe("Detail model that elaborates the process"),
+        overviewSymbolId: uuid.describe(
+          "Process symbol UUID placed on the overview map (same UUID as reused on canvas)",
+        ),
+      },
+    },
+    async (args) => runTool(() => writer.linkBreakdown(args)),
+  );
+
+  server.registerTool(
+    "create_process_map",
+    {
+      description:
+        "Create a process map / overview. PREFERRED: pass detailModelIds (ordered detail UUIDs) — server derives BO↔process chain from each detail's inputs/outputs (same symbols). Do NOT invent overview BOs. Optional chain is locked to detail scopes when detailModelId is set. Validates scope; blocks mismatches. Never stacks vertices.",
+      inputSchema: {
+        repositoryId,
+        languageId,
+        title: z.string().min(1),
+        detailModelIds: z
+          .array(uuid)
+          .min(1)
+          .optional()
+          .describe(
+            "PREFERRED. Ordered detail model UUIDs left→right. Builds chain from get_detail_process_scope — overview I/O = detail I/O.",
+          ),
+        chain: z
+          .array(
+            z.object({
+              kind: z.enum(["businessObject", "process"]),
+              title: z.string().min(1),
+              symbolId: uuid.optional(),
+              detailModelId: uuid
+                .optional()
+                .describe("When kind=process: link breakdown to this detail model"),
+            }),
+          )
+          .optional()
+          .describe("Only if detailModelIds omitted; BOs will be rewritten from detail scopes when detailModelId is set"),
+        lockBosToDetailScope: z
+          .boolean()
+          .optional()
+          .describe("Default true when chain has detailModelId — replace BOs with detail inputs/outputs"),
+        sideLoops: z
+          .array(
+            z.object({
+              fromBoTitle: z
+                .string()
+                .min(1)
+                .describe("Business object title on the main chain"),
+              processTitle: z.string().min(1),
+              symbolId: uuid.optional(),
+              detailModelId: uuid.optional(),
+              placement: z.enum(["below"]).optional(),
+            }),
+          )
+          .optional()
+          .describe("Supporting processes stacked under a state BO (never left of the BO)"),
+        parallelTracks: z
+          .array(
+            z.object({
+              fromBoTitle: z
+                .string()
+                .min(1)
+                .describe("Shared state BO that fans into variant processes"),
+              label: z.string().optional(),
+              processes: z
+                .array(
+                  z.object({
+                    processTitle: z.string().min(1),
+                    symbolId: uuid.optional(),
+                    detailModelId: uuid.optional(),
+                    outputBoTitle: z.string().optional(),
+                    outputSymbolId: uuid.optional(),
+                  }),
+                )
+                .min(1),
+            }),
+          )
+          .optional()
+          .describe(
+            "Peer variant processes as columns to the RIGHT of a shared BO (prefer over sideLoops for sales/delivery types)",
+          ),
+        permissionGroup: permissionGroupHeader,
+        owner: uuid.optional(),
+        group: uuid.optional(),
+        modelId: uuid
+          .optional()
+          .describe("Append to existing model; otherwise creates new"),
+      },
+    },
+    async (args) => runTool(() => writer.createProcessMap(args)),
+  );
+
+  server.registerTool(
     "link_document",
     {
       description:
-        "Create/update an MT document and/or attach document IDs to a symbol. Prefer existing document roots/types.",
+        "Create/update an MT document and/or attach document IDs to a symbol. Prefer existing document roots/types. Symbol PATCH uses MtbDocumentIdDto [{ id, source: 'mt.documents' }] — never plain UUID strings.",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
@@ -202,12 +511,17 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     async (args) =>
       runTool(async () => {
         const results: Record<string, unknown> = {};
+        let linked = false;
         if (args.createDocumentBody) {
           results.created = await ctx.documents.createMtDocument(
             args.repositoryId,
             args.createDocumentBody,
           );
-          const createdId = (results.created as { uuid?: string })?.uuid;
+          const created = results.created as {
+            uuid?: string;
+            id?: string;
+          };
+          const createdId = created?.uuid ?? created?.id;
           if (createdId && args.symbolId) {
             results.linked = await ctx.documents.linkDocumentsToSymbol({
               repositoryId: args.repositoryId,
@@ -217,6 +531,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
                 createdId,
               ],
             });
+            linked = true;
           }
         } else if (args.updateDocumentId && args.updateDocumentBody) {
           results.updated = await ctx.documents.updateMtDocument(
@@ -225,7 +540,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             args.updateDocumentBody,
           );
         }
-        if (args.symbolId && args.documentIds?.length && !results.linked) {
+        if (args.symbolId && args.documentIds?.length && !linked) {
           results.linked = await ctx.documents.linkDocumentsToSymbol({
             repositoryId: args.repositoryId,
             symbolId: args.symbolId,
@@ -235,11 +550,63 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         return {
           data: results,
           methodologyNotes: [
-            "Document links on symbols appear in publications; ensure end-user reachability.",
+            "Document links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is treated as success.",
           ],
           nextSuggestedTools: ["get_object_documents"],
         };
       }),
+  );
+
+  server.registerTool(
+    "confirm_translations",
+    {
+      description:
+        "Mark existing titles as translated (translated:true) without changing text — symbols, models, and canvas edge labels (Ja/Nej etc.). Clears GUI Translation status globes. Pass languageId (e.g. English).",
+      inputSchema: {
+        repositoryId,
+        languageId,
+        includeModels: z
+          .boolean()
+          .optional()
+          .describe("Also confirm model titles (default true)"),
+        maxSymbols: z.number().int().positive().optional(),
+      },
+    },
+    async (args) => runTool(() => writer.confirmTranslations(args)),
+  );
+
+  server.registerTool(
+    "update_titles",
+    {
+      description:
+        "Update model/symbol titles (translations). Writes title + rawTitle and sets translated:true (marks language as translated — clears GUI globe). Prefer items[] to batch many symbols in ONE call.",
+      inputSchema: {
+        repositoryId,
+        languageId: languageId.optional().describe("Default language for single or items without per-item languageId"),
+        title: z.string().min(1).optional().describe("Title for single-target update"),
+        modelId: uuid.optional(),
+        symbolId: uuid.optional(),
+        titles: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Optional extra languageId → title entries in the same call"),
+        items: z
+          .array(
+            z.object({
+              modelId: uuid.optional(),
+              symbolId: uuid.optional(),
+              title: z.string().min(1),
+              languageId: languageId.optional(),
+              titles: z.record(z.string(), z.string()).optional(),
+            }),
+          )
+          .optional()
+          .describe(
+            "Batch: [{ symbolId, title }] or [{ modelId, title }] — one tool call for all translations",
+          ),
+      },
+    },
+    async (args) => runTool(() => writer.updateTitles(args)),
   );
 
   server.registerTool(

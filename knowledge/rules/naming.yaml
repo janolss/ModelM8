@@ -7,9 +7,24 @@ patterns:
     regex: '^\S+\s+.+'
     hint: Infinitive verb + noun (e.g. 'Registrera order')
   businessObject:
-    hint: Noun, optionally with status (e.g. 'Registrerad order')
+    hint: >
+      Noun for the value/artefact/outcome (value stream), e.g. 'Påskrivet
+      anställningsavtal'. Avoid status echoes of the activity ('Godkänd X'
+      after 'Godkänna X', 'Dokumenterad Y' after 'Dokumentera Y').
   requirement:
     hint: Imperative + direction (e.g. 'Förbättra leveransprecisionen')
+  or:
+    regex: '.+\?$'
+    hint: Question ending with '?' (e.g. 'Finns artikel i lager?'); Ja/Nej on FLOW labels
+  vägval:
+    regex: '.+\?$'
+    hint: Same as or (Regel Eller) — question with '?'
+  decision:
+    regex: '.+\?$'
+    hint: Same as or — question with '?'
+  gateway:
+    regex: '.+\?$'
+    hint: 'Not a create type — use or (Regel Eller). Title still a question with ?'
 swedishInfinitiveExamples:
   - Hantera
   - Registrera
