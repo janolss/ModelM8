@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
-    `ModelM8 (stdio) started (writes=${config.allowWrites}, deletes=${config.allowDeletes}, writeMode=${config.writeMode})`,
+    `modelM8 (stdio) started (writes=${config.allowWrites}, deletes=${config.allowDeletes}, writeMode=${config.writeMode})`,
   );
 }
 

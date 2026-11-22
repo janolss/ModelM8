@@ -67,7 +67,7 @@ export async function startHttpServer(config: AppConfig): Promise<void> {
         return;
       }
       console.error(
-        `ModelM8 (HTTP) listening on http://${config.host}:${config.port}/mcp (writes=${config.allowWrites}, deletes=${config.allowDeletes}, writeMode=${config.writeMode})`,
+        `modelM8 (HTTP) listening on http://${config.host}:${config.port}/mcp (writes=${config.allowWrites}, deletes=${config.allowDeletes}, writeMode=${config.writeMode})`,
       );
       resolve();
     });
