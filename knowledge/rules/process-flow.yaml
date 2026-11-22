@@ -7,12 +7,61 @@ rules:
   - id: activity-has-performer
     severity: warning
     description: Activities should have a performer (role, position or organisation).
+  - id: role-per-activity-placement
+    severity: error
+    description: >
+      A role responsible for several activities must be placed under each
+      activity (shared symbol UUID, separate canvas vertices + RACI edges).
+      Never one role icon with relations to multiple activities.
+  - id: flow-left-in-right-out
+    severity: error
+    description: >
+      FLOW edges on process and activity attach left-in / right-out only —
+      never top or bottom. Side branches detour orthogonally to the left edge.
+  - id: no-stacked-vertices
+    severity: error
+    description: >
+      Never place two canvas vertices on the same (or overlapping) coordinates.
+      Advance along the FLOW spine or nudge; tools auto-nudge when possible.
+  - id: multi-io-stack-below
+    severity: error
+    description: >
+      Multiple FLOW inputs/outputs for one process/activity: one primary BO on
+      the spine midline; 2nd/3rd/… stacked directly below (same X) with FLOW to
+      the left edge (inputs) or from the right edge (outputs). Never a horizontal
+      sequence of I/O BOs on the spine.
+  - id: overview-process-scope
+    severity: error
+    description: >
+      On a process map, each process chevron must have the same FLOW input(s)
+      and output(s) as its breakdown detail model (same symbol UUIDs). Use
+      get_detail_process_scope; prefer create_process_map(detailModelIds).
+  - id: overview-bo-detail-handoff
+    severity: error
+    description: >
+      On a process map, a business object between two processes must be the
+      OUTPUT of the previous detail model and the INPUT of the next detail
+      model (same symbol UUID). No overview-only bridge objects.
   - id: chain-io
     severity: info
     description: Prefer linking activity output as input to the next activity.
+  - id: bo-value-stream
+    severity: warning
+    description: >
+      Business objects between activities should name created value, artefacts
+      or capabilities (value stream), not status labels that restate the
+      activity (e.g. avoid 'Dokumenterad X' / 'Godkänd X' as mere echoes).
   - id: naming-verb-noun
     severity: warning
     description: Process and activity titles should use infinitive verb + noun.
+  - id: gateway-branching
+    severity: info
+    description: >
+      Exclusive branches = vägval = gateway (question title + Ja/Nej on FLOW
+      labels). See topic 'gateways' / 'vägval'. Never use join. Not on process maps.
+  - id: never-join
+    severity: error
+    description: Never create or place Join / Förbinda symbols.
 sources:
   - https://support.2c8.com/hc/sv/articles/7185436499741-Processmodell
   - https://support.2c8.com/hc/sv/articles/6336377323421-Vilket-objekt-ska-jag-anv%C3%A4nda-i-vilket-sammanhang

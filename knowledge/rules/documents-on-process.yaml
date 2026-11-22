@@ -1,0 +1,24 @@
+id: documents-on-process
+title:
+  sv: Dokument på processdetalj
+  en: Documents on detail processes
+summary: >
+  On activity-level process models, only draw documents that are specific to
+  that activity. Process-wide governing docs belong on the process/model, not
+  repeated under every step.
+guidance:
+  - "CONTROLS on an activity = steering specific to THIS step (policy, guideline, checklist for that step)"
+  - "IS_USED_BY on an activity = support artefact for THIS step (template, form, worksheet). Prefer IS_USED_BY for mall/blankett; CONTROLS for styrning."
+  - "Do NOT place the same core_document under most/all activities (e.g. Leveransrutin, Dokumentstyrningsrutin, Kvalitetspolicy). That clutters the canvas and hides what is unique per step."
+  - "Process-wide / always-applicable documents: attach as document links on the process symbol or the model (Documents panel), or mention once in the model description — not as CONTROLS/IS_USED_BY fan-out across the FLOW spine."
+  - "Heuristic: if the same document would apply to ≥ half of the activities (or all but one), treat it as process-wide and do not draw it per activity."
+  - "Applications (CRM etc.) may appear on several activities when truly used there, but avoid decorating every step with the same generic system unless usage differs."
+  - "Never invent role→checklist CONTROLS; checklists govern activities."
+agentChecklist:
+  - "Before applying controlledBy/usedBy on every activity, ask: is this specific to the step or true for the whole process?"
+  - "Prefer fewer, sharper document satellites over wallpapering the model."
+  - "review_process_model flags process-wide document fan-out."
+topics: [documents, controls, styrdokument, core_document, is_used_by]
+sources:
+  - knowledge/relations/edges.yaml
+  - knowledge/object-types/index.yaml

@@ -39,8 +39,16 @@ objectTypes:
   - id: businessObject
     apiObjectTypeHints: [businessobject, BusinessObject, verksamhetsobjekt]
     title: { sv: Verksamhetsobjekt, en: Business object }
-    naming: "Noun, often with status adverb, e.g. 'Registrerad order'"
-    usage: Resource, substance or information package; used as process input/output.
+    naming: >
+      Noun naming the value, artefact or capability produced or consumed
+      (value stream). Prefer 'Påskrivet anställningsavtal' or
+      'Medarbetare redo att arbeta självständigt' over status echoes like
+      'Godkänd X' after activity 'Godkänna X'.
+    usage: >
+      Resource, substance, information package or achieved business state on the
+      FLOW spine. Expresses what value was created or transformed — why the
+      activity exists — not a past-participle restatement of the activity
+      ("Dokumenterad prestation", "Genomförd introduktion").
     specializations: [document, message, tool]
     phase1: true
 
@@ -49,6 +57,27 @@ objectTypes:
     title: { sv: Dokument, en: Document }
     naming: Noun naming the document artefact
     usage: Specialisation of business object for documents such as price lists or schedules. Distinct from document *links* attached to symbols.
+    phase1: true
+
+  - id: core_document
+    apiObjectTypeHints: [core_document, CORE_DOCUMENT, CoreDocument]
+    title: { sv: Styrdokument, en: Core document }
+    naming: Noun naming the checklist, template or governing document
+    usage: >
+      Steering or support document on the canvas. Link to an activity with CONTROLS
+      only when it specifically steers THAT step (policy/riktlinje/checklista for
+      the step). Templates/forms for a step use IS_USED_BY. Do not repeat the same
+      process-wide routine/policy under every activity — attach those on the
+      process/model instead (see methodology topic documents-on-process).
+    phase1: true
+
+  - id: application
+    apiObjectTypeHints: [application, APPLICATION, Application]
+    title: { sv: Applikation, en: Application }
+    naming: System or application name as used in the organisation
+    usage: >
+      IT system supporting an activity. Place below the activity and connect with
+      IS_USED_BY (application → activity).
     phase1: true
 
   - id: message
@@ -98,4 +127,49 @@ objectTypes:
     title: { sv: Roll, en: Role }
     naming: Role name as used in the organisation
     usage: Responsibility / performer for activities; swimlane owner.
+    phase1: true
+
+  # Regel (Eller) — exclusive vägval. API create type: or. NOT "gateway".
+  - id: or
+    apiObjectTypeHints:
+      [
+        or,
+        Or,
+        eller,
+        gateway,
+        decision,
+        DECISION,
+        vägval,
+        vagval,
+        regel,
+        xor,
+        beslut,
+      ]
+    title: { sv: Regel (Eller) / Vägval, en: Or rule / exclusive choice }
+    naming: >
+      Phrase as a question ending with '?', e.g. 'Finns artikel i lager?',
+      'Är leveransen stage-gated?'. Put Ja/Nej on outgoing FLOW edge labels.
+    usage: >
+      Exclusive branch (vägval). Agents often say "gateway" or "decision" —
+      that is THIS type. Create with objectType "or". Call
+      resolve_branching_object_type before create. Legacy canvases may show
+      DECISION. NEVER create gateway or join. Detail models only.
+    phase1: true
+
+  - id: vägval
+    apiObjectTypeHints: [vägval, vagval, Vägval]
+    title: { sv: Vägval, en: Exclusive choice }
+    naming: Same as or — question ending with '?'
+    usage: >
+      Alias for Regel (Eller). Create as objectType "or".
+      Call resolve_branching_object_type("vägval").
+    phase1: true
+
+  - id: and
+    apiObjectTypeHints: [and, And, och, parallel]
+    title: { sv: Regel (Och), en: And / parallel split }
+    naming: Optional short label; type means parallel split
+    usage: >
+      Parallel split — several following activities may run. Create as
+      objectType "and". NEVER join. Call resolve_branching_object_type("and").
     phase1: true

@@ -74,6 +74,13 @@ export function loadMethodologyPack(knowledgeDir?: string): MethodologyPack {
   const processModel = readYamlFile(
     path.join(root, "model-types", "process.yaml"),
   ) as ModelTypeDef;
+  const processMapModel = fs.existsSync(
+    path.join(root, "model-types", "process-map.yaml"),
+  )
+    ? (readYamlFile(
+        path.join(root, "model-types", "process-map.yaml"),
+      ) as ModelTypeDef)
+    : null;
   const swimlaneModel = readYamlFile(
     path.join(root, "model-types", "swimlane.yaml"),
   ) as ModelTypeDef;
@@ -140,6 +147,7 @@ export function loadMethodologyPack(knowledgeDir?: string): MethodologyPack {
     objectTypes: objectIndex.objectTypes ?? [],
     modelTypes: [
       processModel,
+      ...(processMapModel ? [processMapModel] : []),
       swimlaneModel,
       ...((stubs.modelTypes ?? []).map((m) => ({
         ...m,

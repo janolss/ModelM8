@@ -5,6 +5,27 @@ guidance:
   - Prefer orthogonal flow left-to-right for process readability
   - Center-center (diagonal) edges require repository configuration enabling them
   - Edge type must be allowed by repository configuration for the model type
+  - FLOW — main spine between business objects (value/artefacts/outcomes) and activities; BOs are not status stickers for the activity
+  - FLOW from gateway/decision — exclusive or parallel branch; put Ja/Nej (or similar) on the edge label
+  - IS_FOLLOWED_BY — sometimes used between chained decisions (decision→decision); still part of the choice path
+  - RACI_RESPONSIBLE (API: raciresponsible) — role/position → activity ownership; do not infer from placement alone
+  - Same role for N activities → N canvas placements under each activity (shared symbol UUID); never one vertex with multiple RACI edges
+  - FLOW on process/activity: left-in / right-out only (never top/bottom attach)
+  - CONTROLS — core_document → activity when the document steers how THIS activity is performed (step-specific)
+  - IS_USED_BY (API: isusedby) — application or template document → activity when it is used as support for THIS step, not governance
+  - Never invent a role→checklist CONTROLS link; checklists govern activities, not roles
+  - Do not CONTROLS/IS_USED_BY the same process-wide document onto most/all activities (Leveransrutin, policy, dokumentstyrning, …). Put those on the process/model instead — see documents-on-process
+commonEdgeTypes:
+  - api: flow
+    meaning: Process/input-output chain (also gateway branches; label = answer)
+  - api: isfollowedby
+    meaning: Sequence between steps/decisions when not modelled as FLOW
+  - api: raciresponsible
+    meaning: RACI Responsible
+  - api: controls
+    meaning: Steering document controls activity
+  - api: isusedby
+    meaning: Application or template is used by activity
 api:
   create: POST /api/v1/repositories/{repositoryId}/models/{modelId}/canvas/edges
   delete: DELETE /api/v1/repositories/{repositoryId}/models/{modelId}/canvas/edges/{edgeId}

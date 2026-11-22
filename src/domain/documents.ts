@@ -70,6 +70,35 @@ export class DocumentsService {
     };
   }
 
+  /**
+   * Create a document type (category for MT documents / panel filtering).
+   * Body: { titles: { [languageId]: { title } } }
+   */
+  async createDocumentType(
+    repositoryId: string,
+    body: Record<string, unknown>,
+  ) {
+    const created = await this.client.request<DocumentTypeView>({
+      method: "POST",
+      path: "/api/v1/repositories/{repositoryId}/document-types",
+      pathParams: { repositoryId },
+      body,
+    });
+    return {
+      data: {
+        uuid: created.uuid,
+        title: pickTitle(created.titles),
+        titles: created.titles,
+        raw: created,
+      },
+      methodologyNotes: [
+        "Document types categorise MT documents. Pass uuid in createDocumentBody.documentTypes when creating documents.",
+        "MT documents also require type: 'URL' | 'file' (separate from documentTypes).",
+      ],
+      nextSuggestedTools: ["list_document_types", "link_document"],
+    };
+  }
+
   async listSources(repositoryId: string) {
     return this.client.request({
       path: "/api/v1/repositories/{repositoryId}/documents/sources",
@@ -354,9 +383,20 @@ export class DocumentsService {
     documentIds: string[];
     merge?: boolean;
   }) {
-    let documents = args.documentIds.map((id) =>
-      typeof id === "string" ? id : id,
-    );
+    // API expects MtbDocumentIdDto objects — plain UUID strings are rejected (400).
+    const toRef = (id: string) => ({ id, source: "mt.documents" as const });
+    const extractId = (d: unknown): string | null => {
+      if (typeof d === "string") return d;
+      if (d && typeof d === "object" && "uuid" in d) {
+        return String((d as { uuid: string }).uuid);
+      }
+      if (d && typeof d === "object" && "id" in d) {
+        return String((d as { id: string }).id);
+      }
+      return null;
+    };
+
+    let ids = [...args.documentIds];
 
     if (args.merge !== false) {
       const existing = await this.client.request<{ documents?: unknown[] }>({
@@ -368,30 +408,25 @@ export class DocumentsService {
         query: { projection: "ALL" },
       });
       const prev = (existing.documents ?? [])
-        .map((d) => {
-          if (typeof d === "string") {
-            return d;
-          }
-          if (d && typeof d === "object" && "uuid" in d) {
-            return String((d as { uuid: string }).uuid);
-          }
-          if (d && typeof d === "object" && "id" in d) {
-            return String((d as { id: string }).id);
-          }
-          return null;
-        })
+        .map(extractId)
         .filter((x): x is string => Boolean(x));
-      documents = [...new Set([...prev, ...documents])];
+      ids = [...new Set([...prev, ...ids])];
     }
 
-    return this.client.request({
+    // PATCH often returns empty 200 → client yields undefined; still report success.
+    await this.client.request({
       method: "PATCH",
       path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
       pathParams: {
         repositoryId: args.repositoryId,
         symbolId: args.symbolId,
       },
-      body: { documents },
+      body: { documents: ids.map(toRef) },
     });
+    return {
+      ok: true as const,
+      symbolId: args.symbolId,
+      documents: ids.map(toRef),
+    };
   }
 }
