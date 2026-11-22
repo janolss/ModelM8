@@ -81,3 +81,9 @@ API-täckning: [docs/dev/API-GAP-ANALYSIS.md](docs/dev/API-GAP-ANALYSIS.md)
 Felkoder: [docs/dev/mcp-errors.md](docs/dev/mcp-errors.md)
 
 Kräver Node.js 26+.
+
+## Licens
+
+Licensierad under [Apache License 2.0](LICENSE).
+
+Namnet **modelM8** och tillhörande branding får inte användas utan tillstånd (se Apache 2.0 §6 Trademarks).
