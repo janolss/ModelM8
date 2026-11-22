@@ -7,7 +7,7 @@ modelM8 är en **MCP-server**. Den ger AI-agenter verktyg för att läsa och ska
 
 ## Krav
 
-- Node.js 20+
+- Node.js 26+
 - Tillgång till en 2c8 MT-backend (`…/mt-backend`)
 - API-nyckel (`x-api-key`)
 
@@ -59,7 +59,7 @@ Hälsokoll: `GET http://127.0.0.1:3000/health`
 ### Docker (valfritt)
 
 ```bash
-docker build -t modelm8 .
+docker build -t modelm8 .   # bas: node:26-alpine
 docker run --rm -p 3000:3000 \
   -e TWO_C8_BASE_URL=https://host/mt-backend \
   -e TWO_C8_API_KEY=... \

@@ -46,6 +46,8 @@ Health: `GET /health`
 
 ### Docker
 
+Basimage: `node:26-alpine`. CI bygger och pushar till GHCR vid tag `v*` (t.ex. `v1.2.0`).
+
 ```bash
 docker build -t modelm8 .
 docker run --rm -p 3000:3000 \
@@ -53,6 +55,12 @@ docker run --rm -p 3000:3000 \
   -e TWO_C8_API_KEY=... \
   -e TWO_C8_ALLOW_WRITES=false \
   modelm8
+```
+
+GHCR (efter tag-push):
+
+```bash
+docker pull ghcr.io/<owner>/modelm8:1.2.0
 ```
 
 ## Funktioner
@@ -72,4 +80,4 @@ npm run typecheck
 API-täckning: [docs/dev/API-GAP-ANALYSIS.md](docs/dev/API-GAP-ANALYSIS.md)  
 Felkoder: [docs/dev/mcp-errors.md](docs/dev/mcp-errors.md)
 
-Kräver Node.js 20+.
+Kräver Node.js 26+.
