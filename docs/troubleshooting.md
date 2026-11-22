@@ -4,13 +4,13 @@
 
 | Symptom | Åtgärd |
 |---|---|
-| Inga verktyg / auth-fel | Starta om ModelM8; återanslut MCP-klienten |
+| Inga verktyg / auth-fel | Starta om modelM8; återanslut MCP-klienten |
 | `list_repositories` failar | Kontrollera `TWO_C8_BASE_URL`, API-nyckel, nätverk |
 | Skrivverktyg saknas | `TWO_C8_ALLOW_WRITES=true` och starta om |
 
 ## Tom HTTP 200
 
-Många PATCH returnerar tom body. ModelM8 tolkar det som `{ ok: true }`. Det är **inte** ett fel.
+Många PATCH returnerar tom body. modelM8 tolkar det som `{ ok: true }`. Det är **inte** ett fel.
 
 ## Dokument
 

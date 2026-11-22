@@ -1,7 +1,7 @@
 # Prompt: konsumera process
 
 ```
-Använd ModelM8 (2c8 MCP).
+Använd modelM8 (2c8 MCP).
 
 Repo: <repositoryId eller namn>
 Modell: <titel eller modelId>

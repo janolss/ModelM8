@@ -6,8 +6,8 @@ Bygg / fortsätt IMS enligt planmallen.
 Planfil: templates/Create-2c8-IMS-Plan-Template.md
 (eller min ifyllda kopia: <sökväg>)
 
-ModelM8 = MCP-verktyg. 2c8 = Modeling Tool / målrepo.
-STT sker i klienten om tal används; ModelM8 skapar modeller.
+modelM8 = MCP-verktyg. 2c8 = Modeling Tool / målrepo.
+STT sker i klienten om tal används; modelM8 skapar modeller.
 
 1. Läs planen. Bekräfta alla {{PLACEHOLDERS}} och avsnitt 0 innan writes.
 2. Följ faserna i ordning (G0 → …). Hoppa inte över handoff-kontrakt eller Q-grindar.

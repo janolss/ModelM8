@@ -1,7 +1,7 @@
 # Prompt: dokument → modell
 
 ```
-Använd ModelM8. Repo: <repositoryId>. Språk: <languageId>.
+Använd modelM8. Repo: <repositoryId>. Språk: <languageId>.
 
 Källa: <sökväg / documentId / bifogad fil>
 Typ: <URL | file | innehåll i chatten>

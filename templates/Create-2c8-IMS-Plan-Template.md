@@ -1,8 +1,8 @@
 # Mall — skapa visuellt ledningssystem i 2c8 från dokument
 
-> **Läsare:** AI-agent med MCP-servern **ModelM8**, filsystem och shell.  
-> **Namn:** **ModelM8** = MCP-verktyget du anropar. **2c8** = Modeling Tool, repon, modeller och metodik (oförändrat). Säg aldrig att modellerna “ligger i ModelM8”.  
-> **Ursprung:** Genererad från `TechSeed-IMS/Create-2c8-IMS.md` + lessons learned (`TechSeed-IMS/_2c8-work/SLUTRAPPORT.md`, 2026-11-22) och ModelM8 v1.2+ kvalitet-/skrivverktyg.  
+> **Läsare:** AI-agent med MCP-servern **modelM8**, filsystem och shell.  
+> **Namn:** **modelM8** = MCP-verktyget du anropar. **2c8** = Modeling Tool, repon, modeller och metodik (oförändrat). Säg aldrig att modellerna “ligger i modelM8”.  
+> **Ursprung:** Genererad från `TechSeed-IMS/Create-2c8-IMS.md` + lessons learned (`TechSeed-IMS/_2c8-work/SLUTRAPPORT.md`, 2026-11-22) och modelM8 v1.2+ kvalitet-/skrivverktyg.  
 > **Så använder du mallen:** Kopiera till projektmappen (t.ex. `<ORG>-IMS/Create-2c8-IMS.md`), fyll i alla `{{PLACEHOLDERS}}`, ta bort avsnitt som inte gäller, och låt agenten köra planen.
 
 ---
@@ -69,7 +69,7 @@ Saknas bekräftelse: **en** samlad fråga. Språk måste vara klara innan `creat
 
 ## 3. Regler som alltid gäller
 
-1. **ModelM8**-serverns **instructions** har företräde framför denna plan.
+1. **modelM8**-serverns **instructions** har företräde framför denna plan.
 2. **Källtrohet** — hitta inte på; antaganden → `GAPS.md` typ `ANTAGANDE`.
 3. **Reuse-first** endast inom målrepot. Aldrig kopiera UUID mellan repon.
 4. Ändra aldrig källdokumenten.
@@ -84,13 +84,13 @@ Saknas bekräftelse: **en** samlad fråga. Språk måste vara klara innan `creat
 
 ---
 
-## 4. Miljö och verktyg (ModelM8 ≥ 1.2)
+## 4. Miljö och verktyg (modelM8 ≥ 1.2)
 
-Alla verktygsnamn nedan anropas via MCP-servern **ModelM8**. Resultatet skrivs till / läses från **2c8**.
+Alla verktygsnamn nedan anropas via MCP-servern **modelM8**. Resultatet skrivs till / läses från **2c8**.
 
 ### 4.1 Verifiera vid start
 
-Bekräfta att ModelM8 är ansluten. Kör `list_repositories`, `get_api_versions`; kontrollera skrivläge (`direct`/`draft`), att `create_repository` finns, att `delete_model` saknas om deletes är av.
+Bekräfta att modelM8 är ansluten. Kör `list_repositories`, `get_api_versions`; kontrollera skrivläge (`direct`/`draft`), att `create_repository` finns, att `delete_model` saknas om deletes är av.
 
 ### 4.2 Verktygskarta (urval)
 
@@ -116,7 +116,7 @@ Bekräfta att ModelM8 är ansluten. Kör `list_repositories`, `get_api_versions`
 | 7 | Join nämns ibland i äldre metodiktext | Följ `resolve_branching_object_type` / policy: aldrig Join |
 | 8 | EMF/Visio-bilder i källa svåra att Q2:a | Kräv PNG/SVG i extrakt eller konvertera i fas 0 |
 
-Logga ModelM8-/API-avvikelser i `WORK_DIR/MCP-FEEDBACK.md`.
+Logga modelM8-/API-avvikelser i `WORK_DIR/MCP-FEEDBACK.md`.
 
 ---
 
@@ -196,7 +196,7 @@ Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_
 
 ### Fas 0 — Förberedelse (inga skrivningar)
 
-1. Läs ModelM8 instructions + verktygsscheman; verifiera miljö.
+1. Läs modelM8 instructions + verktygsscheman; verifiera miljö.
 2. `get_methodology` (process, process-map, naming, business-objects, documents-on-process, breakdowns, gateways); `resolve_branching_object_type("vägval")`.
 3. Extrahera källor → `WORK_DIR/extract/` (inkl. bildkonvertering om EMF).
 4. Skapa arbetsfiler (avsnitt 11); seed `GAPS.md`.
@@ -324,7 +324,7 @@ Före stängning av pilot/område: öppna modell i 2c8 MT — dokumentpanel, sek
 | `GAPS.md` | MOTSÄGELSE / LUCKA / ANTAGANDE / FRÅGA / BESLUT |
 | `SOURCE-MAP.md` | Dokument-avsnitt → modell / status |
 | `CATALOG.md` | Roller, system, dokument, handoff-BO (+ UUID) |
-| `MCP-FEEDBACK.md` | ModelM8-/API-fel med request/response |
+| `MCP-FEEDBACK.md` | modelM8-/API-fel med request/response |
 | `cards/<ID>.md` | Processkort |
 | `extract/` | Extraherad text/bilder |
 | `SLUTRAPPORT.md` | Fas 7 |
@@ -390,4 +390,4 @@ Output: Överlämningspaket
 
 ---
 
-*Mallversion: 2026-11-22 · ModelM8 1.2+ (2c8 Modeling Tool)*
+*Mallversion: 2026-11-22 · modelM8 1.2+ (2c8 Modeling Tool)*

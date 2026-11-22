@@ -17,7 +17,7 @@ export function createServer(config: AppConfig): McpServer {
 
   const server = new McpServer(
     {
-      name: "ModelM8",
+      name: "modelM8",
       version: "1.2.0",
     },
     {

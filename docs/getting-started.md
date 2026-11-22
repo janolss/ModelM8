@@ -1,8 +1,8 @@
-# Kom igång med ModelM8
+# Kom igång med modelM8
 
-ModelM8 är en **MCP-server**. Den ger AI-agenter verktyg för att läsa och skapa processmodeller i **2c8 Modeling Tool**.
+modelM8 är en **MCP-server**. Den ger AI-agenter verktyg för att läsa och skapa processmodeller i **2c8 Modeling Tool**.
 
-- **ModelM8** = verktyget (MCP)
+- **modelM8** = verktyget (MCP)
 - **2c8** = där modellerna lagras och metodiken gäller
 
 ## Krav
@@ -15,7 +15,7 @@ ModelM8 är en **MCP-server**. Den ger AI-agenter verktyg för att läsa och ska
 
 ```bash
 git clone <denna-repo-url>
-cd ModelM8   # eller ditt lokala katalognamn
+cd modelM8   # eller ditt lokala katalognamn
 npm install
 cp .env.example .env
 ```

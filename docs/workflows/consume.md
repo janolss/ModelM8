@@ -6,7 +6,7 @@ Förstå en befintlig process i 2c8: flöde, roller, dokument, nedbrytningar.
 
 ## Förutsättningar
 
-- ModelM8 ansluten
+- modelM8 ansluten
 - `repositoryId` känt (`list_repositories`)
 
 ## Agentprompt

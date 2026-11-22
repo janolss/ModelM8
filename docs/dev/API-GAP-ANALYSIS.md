@@ -3,7 +3,7 @@
 Jämförelse mellan OpenAPI-schemat från
 `https://406olsson.2c8.com/mt-backend/api/v1/openapi.json`
 (MT backend REST API, version 1.0.0) och de endpoints som
-`ModelM8` använder efter metodikdriven ombyggnad (v1.1).
+`modelM8` använder efter metodikdriven ombyggnad (v1.1).
 
 Uppdaterad: 2026-11-22 (v1.2 quality tools).
 

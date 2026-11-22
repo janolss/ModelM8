@@ -6,7 +6,7 @@ Du har en dokumentmapp (policies, direktiv, practices, processregister) och vill
 
 ## Förutsättningar
 
-- ModelM8 med writes
+- modelM8 med writes
 - Källmapp lokalt (eller motsvarande extrakt)
 - Planmall ifylld: [templates/Create-2c8-IMS-Plan-Template.md](../../templates/Create-2c8-IMS-Plan-Template.md)
 
@@ -18,7 +18,7 @@ Du har en dokumentmapp (policies, direktiv, practices, processregister) och vill
 
 1. Kopiera mallen, fyll `{{PLACEHOLDERS}}`, bekräfta parametrar med användaren  
 2. Agenten följer faserna i planen (G0 → … → G3 pilot → utbyggnad → L0 → Q4/Q5)  
-3. Allt skrivs till **2c8**-repot via ModelM8 — inte “till ModelM8”
+3. Allt skrivs till **2c8**-repot via modelM8 — inte “till modelM8”
 
 Nyckelpunkter från leveranser:
 

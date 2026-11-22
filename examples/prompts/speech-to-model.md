@@ -2,11 +2,11 @@
 
 ```
 Jag har dikterat / bifogar transkription av en process.
-Använd ModelM8; målrepo <repositoryId>; språk <languageId>.
+Använd modelM8; målrepo <repositoryId>; språk <languageId>.
 
 Transkription:
 <<<
-<STT-text från klienten — ModelM8 gör ingen STT>
+<STT-text från klienten — modelM8 gör ingen STT>
 >>>
 
 Rensa upprepningar och osäkerhet, behåll affärsinnehåll.

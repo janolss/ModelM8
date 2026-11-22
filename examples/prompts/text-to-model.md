@@ -1,7 +1,7 @@
 # Prompt: text → modell
 
 ```
-Använd ModelM8 med writes. Målrepo: <repositoryId>. Språk: <languageId>.
+Använd modelM8 med writes. Målrepo: <repositoryId>. Språk: <languageId>.
 
 Processbeskrivning:
 <<<

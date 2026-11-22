@@ -1,6 +1,6 @@
-# Anslut en MCP-klient till ModelM8
+# Anslut en MCP-klient till modelM8
 
-ModelM8 talar **MCP**. Vilken agent eller IDE som helst som kan anropa en MCP-server fungerar.
+modelM8 talar **MCP**. Vilken agent eller IDE som helst som kan anropa en MCP-server fungerar.
 
 ## Två transportlägen
 
@@ -28,7 +28,7 @@ Misslyckas steg 1–2: kontrollera `TWO_C8_BASE_URL`, API-nyckel och att servern
 
 ## Namngivning i klienten
 
-Registrera servern under namnet **ModelM8** (eller motsvarande display name). Modellerna ligger fortfarande i **2c8** — förväxla inte namnen i instruktioner till agenten.
+Registrera servern under namnet **modelM8** (eller motsvarande display name). Modellerna ligger fortfarande i **2c8** — förväxla inte namnen i instruktioner till agenten.
 
 ## Klientspecifika bilagor
 

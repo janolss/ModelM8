@@ -1,8 +1,8 @@
-# ModelM8
+# modelM8
 
 MCP-server för AI-agenter som **läser** och **skapar/redigerar** processmodeller i [2c8 Modeling Tool](https://www.2c8.com).
 
-- **ModelM8** = MCP-verktyget  
+- **modelM8** = MCP-verktyget  
 - **2c8** = Modeling Tool (repon, modeller, metodik)
 
 ## Användardokumentation

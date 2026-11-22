@@ -1,6 +1,6 @@
-# ModelM8 — användardokumentation
+# modelM8 — användardokumentation
 
-**ModelM8** = MCP-verktyg. **2c8** = Modeling Tool (modeller, metodik, repon).
+**modelM8** = MCP-verktyg. **2c8** = Modeling Tool (modeller, metodik, repon).
 
 ## Börja här
 
@@ -29,7 +29,7 @@
 - Kopierbara prompts: [examples/prompts/](../examples/prompts/)  
 - IMS-planmall: [templates/Create-2c8-IMS-Plan-Template.md](../templates/Create-2c8-IMS-Plan-Template.md)
 
-### För utvecklare av ModelM8
+### För utvecklare av modelM8
 
 - [dev/API-GAP-ANALYSIS.md](dev/API-GAP-ANALYSIS.md)  
 - [dev/mcp-errors.md](dev/mcp-errors.md)

@@ -1,13 +1,13 @@
 # Begrepp
 
-## ModelM8 vs 2c8
+## modelM8 vs 2c8
 
 | | |
 |---|---|
-| **ModelM8** | MCP-server: verktyg, instructions, prompts, knowledge-pack |
+| **modelM8** | MCP-server: verktyg, instructions, prompts, knowledge-pack |
 | **2c8** | Modeling Tool: repon, modeller, symboler, canvas, metodik |
 
-Säg inte att “modellen ligger i ModelM8”. ModelM8 *skriver till* och *läser från* 2c8.
+Säg inte att “modellen ligger i modelM8”. modelM8 *skriver till* och *läser från* 2c8.
 
 ## Repository
 

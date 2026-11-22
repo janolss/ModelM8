@@ -6,10 +6,10 @@ Användaren beskriver processen muntligt och vill ha en 2c8-modell.
 
 ## Viktigt
 
-**ModelM8 har ingen tal-till-text.** Din MCP-klient / agent (t.ex. Copilot) sköter STT. ModelM8 får **text** och kör samma kedja som text-to-model.
+**modelM8 har ingen tal-till-text.** Din MCP-klient / agent (t.ex. Copilot) sköter STT. modelM8 får **text** och kör samma kedja som text-to-model.
 
 ```text
-Tal → (klientens STT) → text → ModelM8 propose/apply → modell i 2c8
+Tal → (klientens STT) → text → modelM8 propose/apply → modell i 2c8
 ```
 
 ## Förutsättningar
@@ -35,4 +35,4 @@ Samma som text-to-model.
 | Symptom | Åtgärd |
 |---|---|
 | Tvetydigt tal (“ibland A ibland B”) | Ställ en fråga; modellera inte båda som fakta |
-| Agent “transkriberar” in i verktyg som inte finns | Använd bara ModelM8:s text-/write-verktyg |
+| Agent “transkriberar” in i verktyg som inte finns | Använd bara modelM8:s text-/write-verktyg |
