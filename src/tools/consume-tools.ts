@@ -501,4 +501,62 @@ export function registerConsumeTools(
         }),
       ),
   );
+
+  server.registerTool(
+    "get_model_descriptions",
+    {
+      description:
+        "Read model description(s) — syfte/scope/ägare/ISO etc. Omit descriptionTypeId to list all; set it for one type. Pair with list_description_types / update_model_description.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        descriptionTypeId: uuid.optional(),
+      },
+    },
+    async ({ repositoryId: id, modelId, descriptionTypeId }) =>
+      runTool(() =>
+        descriptionTypeId
+          ? ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/descriptions/{descriptionTypeId}",
+              pathParams: {
+                repositoryId: id,
+                modelId,
+                descriptionTypeId,
+              },
+            })
+          : ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/descriptions",
+              pathParams: { repositoryId: id, modelId },
+            }),
+      ),
+  );
+
+  server.registerTool(
+    "get_symbol_descriptions",
+    {
+      description:
+        "Read symbol description(s). Omit descriptionTypeId to list all; set it for one type. Pair with list_description_types / update_symbol_description.",
+      inputSchema: {
+        repositoryId,
+        symbolId: uuid,
+        descriptionTypeId: uuid.optional(),
+      },
+    },
+    async ({ repositoryId: id, symbolId, descriptionTypeId }) =>
+      runTool(() =>
+        descriptionTypeId
+          ? ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}/descriptions/{descriptionTypeId}",
+              pathParams: {
+                repositoryId: id,
+                symbolId,
+                descriptionTypeId,
+              },
+            })
+          : ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}/descriptions",
+              pathParams: { repositoryId: id, symbolId },
+            }),
+      ),
+  );
 }

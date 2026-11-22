@@ -76,6 +76,12 @@ fortfarande medvetet utanför fas 1.
 - `list_orphan_symbols` (canvas-diff; `titlePrefix` t.ex. ZZ_)
 - `verify_handoffs` utökad: `contract[]` + `autoDiscover.modelIds` (primary out ∩ in)
 
+### Tillagt efter S3 (P1 spårbarhet, 2026-11-22)
+- `get_model_descriptions` / `get_symbol_descriptions`
+- `create_description_type`
+- `delete_breakdown` (länk only; writes, ej ALLOW_DELETES)
+- `unlink_document` (symbol.documents subtract)
+
 ### Relevanta men ofullständiga
 - Model/symbol/vertex **properties** (provider/key) — ej egna verktyg
 - Symbol **versions** list/get

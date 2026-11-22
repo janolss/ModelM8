@@ -186,6 +186,43 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
+    "create_description_type",
+    {
+      description:
+        "Create a description type in the repository (syfte/scope/ägare fields). Body: { titles: { [languageId]: { title } } } (+ optional dataType/inputType). New repos may be empty until client open — create before update_*_description.",
+      inputSchema: {
+        repositoryId,
+        languageId: languageId.optional(),
+        title: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Shorthand: builds titles for languageId"),
+        body: jsonBody
+          .optional()
+          .describe("Full MtbDescriptionTypeDto — titles map required if title omitted"),
+      },
+    },
+    async (args) =>
+      runTool(async () => {
+        let body = args.body;
+        if (!body) {
+          if (!args.title || !args.languageId) {
+            throw new Error(
+              "create_description_type requires body or (title + languageId)",
+            );
+          }
+          body = {
+            titles: {
+              [args.languageId]: { title: args.title },
+            },
+          };
+        }
+        return ctx.documents.createDescriptionType(args.repositoryId, body);
+      }),
+  );
+
+  server.registerTool(
     "update_canvas_edges",
     {
       description:
@@ -459,6 +496,20 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
+    "delete_breakdown",
+    {
+      description:
+        "Remove a broken-down-from link from a DETAIL model (not the model itself). Requires writes, not ALLOW_DELETES. Get breakdownId via get_breakdowns / get_navigation_tree.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid.describe("Detail model that owns the breakdown link"),
+        breakdownId: uuid,
+      },
+    },
+    async (args) => runTool(() => writer.deleteBreakdown(args)),
+  );
+
+  server.registerTool(
     "create_process_map",
     {
       description:
@@ -605,6 +656,27 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           nextSuggestedTools: ["get_object_documents"],
         };
       }),
+  );
+
+  server.registerTool(
+    "unlink_document",
+    {
+      description:
+        "Remove MT document ID(s) from a symbol documents panel (PATCH remaining refs). Use to undo fan-out or wrong links. Does not delete the mt-document itself.",
+      inputSchema: {
+        repositoryId,
+        symbolId: uuid,
+        documentIds: z.array(z.string()).min(1),
+      },
+    },
+    async (args) =>
+      runTool(() =>
+        ctx.documents.unlinkDocumentsFromSymbol({
+          repositoryId: args.repositoryId,
+          symbolId: args.symbolId,
+          documentIds: args.documentIds,
+        }),
+      ),
   );
 
   server.registerTool(

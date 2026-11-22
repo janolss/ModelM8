@@ -429,4 +429,93 @@ export class DocumentsService {
       documents: ids.map(toRef),
     };
   }
+
+  /** Remove MT document refs from a symbol (documents panel). */
+  async unlinkDocumentsFromSymbol(args: {
+    repositoryId: string;
+    symbolId: string;
+    documentIds: string[];
+  }) {
+    const toRef = (id: string) => ({ id, source: "mt.documents" as const });
+    const extractId = (d: unknown): string | null => {
+      if (typeof d === "string") return d;
+      if (d && typeof d === "object" && "uuid" in d) {
+        return String((d as { uuid: string }).uuid);
+      }
+      if (d && typeof d === "object" && "id" in d) {
+        return String((d as { id: string }).id);
+      }
+      return null;
+    };
+
+    const remove = new Set(args.documentIds);
+    const existing = await this.client.request<{ documents?: unknown[] }>({
+      path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        symbolId: args.symbolId,
+      },
+      query: { projection: "ALL" },
+    });
+    const prev = (existing.documents ?? [])
+      .map(extractId)
+      .filter((x): x is string => Boolean(x));
+    const remaining = prev.filter((id) => !remove.has(id));
+    const removed = prev.filter((id) => remove.has(id));
+
+    await this.client.request({
+      method: "PATCH",
+      path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        symbolId: args.symbolId,
+      },
+      body: { documents: remaining.map(toRef) },
+    });
+
+    return {
+      ok: true as const,
+      symbolId: args.symbolId,
+      removed,
+      documents: remaining.map(toRef),
+      note:
+        removed.length < args.documentIds.length
+          ? "Some documentIds were not linked on the symbol"
+          : undefined,
+    };
+  }
+
+  /**
+   * Create a description type (syfte/scope/ägare fields etc.).
+   * Body: MtbDescriptionTypeDto — typically { titles: { [languageId]: { title } } }
+   */
+  async createDescriptionType(
+    repositoryId: string,
+    body: Record<string, unknown>,
+  ) {
+    const created = await this.client.request<{
+      uuid?: string;
+      titles?: Record<string, { title?: string }>;
+    }>({
+      method: "POST",
+      path: "/api/v1/repositories/{repositoryId}/description-types",
+      pathParams: { repositoryId },
+      body,
+    });
+    return {
+      data: {
+        uuid: created.uuid,
+        title: pickTitle(created.titles as never),
+        titles: created.titles,
+      },
+      methodologyNotes: [
+        "New repos may lack description types until the 2c8 client opens them — create before update_*_description.",
+      ],
+      nextSuggestedTools: [
+        "list_description_types",
+        "update_model_description",
+        "update_symbol_description",
+      ],
+    };
+  }
 }

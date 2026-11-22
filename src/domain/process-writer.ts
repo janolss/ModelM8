@@ -1222,6 +1222,42 @@ export class ProcessWriter {
   }
 
   /**
+   * Remove a breakdown link from a DETAIL model. Does not delete the model or symbol.
+   * Requires TWO_C8_ALLOW_WRITES (not ALLOW_DELETES).
+   */
+  async deleteBreakdown(args: {
+    repositoryId: string;
+    modelId: string;
+    breakdownId: string;
+  }) {
+    await this.client.request({
+      method: "DELETE",
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from/{breakdownId}",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        breakdownId: args.breakdownId,
+      },
+    });
+    return {
+      data: {
+        ok: true as const,
+        modelId: args.modelId,
+        breakdownId: args.breakdownId,
+      },
+      methodologyNotes: [
+        "Removed broken-down-from link only — detail model and overview symbol remain.",
+        "Use get_breakdowns on the detail (or get_navigation_tree) to find breakdownId before delete.",
+      ],
+      nextSuggestedTools: [
+        "get_breakdowns",
+        "get_navigation_tree",
+        "link_breakdown",
+      ],
+    };
+  }
+
+  /**
    * Link a detail model as breakdown of an overview symbol (process chevron).
    * POST body is { symbol: overviewSymbolId } on the detail model.
    */
