@@ -75,29 +75,22 @@ export interface ModelProposal {
   nextSuggestedTools: string[];
 }
 
-const ACTIVITY_HINTS =
-  /^(aktivitet(?:er)?|activit(?:y|ies)|steg|step)\s*[:\-–]\s*/i;
-const ROLE_HINTS =
-  /^(roll(?:er)?|role(?:s)?|ansvarig|befattning|utförare)\s*[:\-–]\s*/i;
-const DOC_HINTS =
-  /^(dokument|document|länk|link|styrdokument|checklista)\s*[:\-–]\s*/i;
+const ACTIVITY_HINTS = /^(aktivitet(?:er)?|activit(?:y|ies)|steg|step)\s*[:\-–]\s*/i;
+const ROLE_HINTS = /^(roll(?:er)?|role(?:s)?|ansvarig|befattning|utförare)\s*[:\-–]\s*/i;
+const DOC_HINTS = /^(dokument|document|länk|link|styrdokument|checklista)\s*[:\-–]\s*/i;
 /** Explicit BO prefix used heavily by agents (English + Swedish). */
 const BO_HINTS =
   /^(?:input\s+|output\s+)?(?:business\s*objects?|verksamhetsobjekt|värdeobjekt|bo)\s*[:\-–]\s*/i;
-const INPUT_HINTS =
-  /^(input|in|ingång|start|tillstånd)\s*[:\-–]\s*/i;
-const OUTPUT_HINTS =
-  /^(output|ut|resultat|utgång)\s*[:\-–]\s*/i;
+const INPUT_HINTS = /^(input|in|ingång|start|tillstånd)\s*[:\-–]\s*/i;
+const OUTPUT_HINTS = /^(output|ut|resultat|utgång)\s*[:\-–]\s*/i;
 const PROCESS_TITLE = /^(process|processmodell|modell)\s*[:\-–]\s*/i;
-const APP_HINTS =
-  /^(applikation(?:er)?|applications?|systems?|it-stöd|itstöd)\s*[:\-–]\s*/i;
+const APP_HINTS = /^(applikation(?:er)?|applications?|systems?|it-stöd|itstöd)\s*[:\-–]\s*/i;
 const USED_BY_HINTS = /^(används|mall|verktyg)\s*[:\-–]\s*/i;
 const NOTES_HINTS = /^(notes?|anteckningar?|kommentar(?:er)?)\s*[:\-–]/i;
 const GATEWAY_HINTS =
   /^(vägval|vagval|gateway|decision|beslut|regel(?:\s*\((?:eller|och)\))?|eller|och-regel)\s*[:\-–]\s*/i;
 /** Ja:/Nej: or Ja → title */
-const BRANCH_HINTS =
-  /^(ja|nej|yes|no|gren|branch)\s*(?:[:\-–]|→|->)\s*/i;
+const BRANCH_HINTS = /^(ja|nej|yes|no|gren|branch)\s*(?:[:\-–]|→|->)\s*/i;
 
 /** Skip instructional / meta lines agents paste into proposals. */
 function isMetaOrInstructionLine(line: string): boolean {
@@ -155,10 +148,7 @@ function parseInlineActivityAnnotations(line: string): {
 } {
   const normalized = line
     .replace(/\s+[—–]\s+/g, " — ")
-    .replace(
-      /\s+-\s+(?=(?:performer|ansvarig|used by|används|controlled by|styr))/i,
-      " — ",
-    );
+    .replace(/\s+-\s+(?=(?:performer|ansvarig|used by|används|controlled by|styr))/i, " — ");
   const parts = normalized.split(/\s+—\s+/);
   const titlePart = parts[0] ?? line;
   const title = cleanTitle(titlePart.replace(ACTIVITY_HINTS, "").trim()) || titlePart.trim();
@@ -271,11 +261,7 @@ function buildNamingChecks(
   let previousActivityTitle: string | undefined;
   for (const node of chain) {
     if (node.kind === "businessObject") {
-      const c = checkBusinessObjectValue(
-        pack,
-        node.title,
-        previousActivityTitle,
-      );
+      const c = checkBusinessObjectValue(pack, node.title, previousActivityTitle);
       checks.push({
         title: node.title,
         objectType: node.objectType,
@@ -303,12 +289,7 @@ function buildNamingChecks(
   }
   for (const b of branches) {
     const ot = b.objectType ?? (b.toKind === "businessObject" ? "businessObject" : "activity");
-    if (
-      ot === "or" ||
-      ot === "gateway" ||
-      ot === "decision" ||
-      b.toKind === "gateway"
-    ) {
+    if (ot === "or" || ot === "gateway" || ot === "decision" || b.toKind === "gateway") {
       const c = checkNaming(pack, "or", b.toTitle);
       checks.push({
         title: b.toTitle,
@@ -357,8 +338,7 @@ function finalizeProposal(
 ): ModelProposal {
   const steps = stepsFromChain(chain, activities);
   const hasGateway =
-    chain.some((n) => n.kind === "gateway" || n.kind === "and") ||
-    branches.length > 0;
+    chain.some((n) => n.kind === "gateway" || n.kind === "and") || branches.length > 0;
   return {
     modelType,
     title,
@@ -447,7 +427,10 @@ function looksLikeNarrative(text: string): boolean {
     return true;
   }
   // Prose paragraphs without "Aktivitet:" prefixes
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const prefixed = lines.filter(
     (l) =>
       ACTIVITY_HINTS.test(l) ||
@@ -483,15 +466,11 @@ function proposeFromNarrative(
 
   // Title: "heter X," / "processen X"
   let title = "Ny process";
-  const heter = full.match(
-    /heter\s+([A-ZÅÄÖÉa-zåäöé][^,.]{2,80}?)(?:,|\s+och\s+den|\s*$)/,
-  );
+  const heter = full.match(/heter\s+([A-ZÅÄÖÉa-zåäöé][^,.]{2,80}?)(?:,|\s+och\s+den|\s*$)/);
   if (heter) {
     title = capitalizeFirst(heter[1].trim());
   } else {
-    const named = full.match(
-      /(?:process(?:en|modell)?)\s+([A-ZÅÄÖ][^,.]{2,60})/,
-    );
+    const named = full.match(/(?:process(?:en|modell)?)\s+([A-ZÅÄÖ][^,.]{2,60})/);
     if (named) title = capitalizeFirst(named[1].trim());
   }
 
@@ -520,8 +499,7 @@ function proposeFromNarrative(
     });
   }
 
-  const stepParas =
-    paragraphs.length >= 2 ? paragraphs.slice(1) : paragraphs;
+  const stepParas = paragraphs.length >= 2 ? paragraphs.slice(1) : paragraphs;
 
   for (let i = 0; i < stepParas.length; i++) {
     const para = stepParas[i];
@@ -547,11 +525,19 @@ function proposeFromNarrative(
     // Activity title heuristics
     if (/bestämmer villkor|bestämma villkor|villkoren för anställning/i.test(para)) {
       activityTitle = "Bestämma villkor för anställning";
-    } else if (/förbereder|förbereda/.test(lower) && /medarbetare|nyanställd|personen ska börja/i.test(para)) {
+    } else if (
+      /förbereder|förbereda/.test(lower) &&
+      /medarbetare|nyanställd|personen ska börja/i.test(para)
+    ) {
       activityTitle = "Förbereda för medarbetare";
     } else if (/introduktion/i.test(para)) {
       activityTitle = "Genomföra introduktion";
-    } else if (/först\s+/i.test(para) || /därefter\s+/i.test(para) || /sedan\s+/i.test(para) || /sista\s+/i.test(para)) {
+    } else if (
+      /först\s+/i.test(para) ||
+      /därefter\s+/i.test(para) ||
+      /sedan\s+/i.test(para) ||
+      /sista\s+/i.test(para)
+    ) {
       // Generic: try "verb ... noun" after connector
       const m = para.match(
         /(?:först|därefter|sedan|sista steget(?: är)?)\s+(?:är\s+)?(.+?)(?:\.|,| och | där )/i,
@@ -600,7 +586,10 @@ function proposeFromNarrative(
     }
 
     // IS_USED_BY mall
-    if (/mall(?:en)?\s+för\s+anställningsavtal|anställningsavtal/i.test(para) && /utgår från|mall/i.test(para)) {
+    if (
+      /mall(?:en)?\s+för\s+anställningsavtal|anställningsavtal/i.test(para) &&
+      /utgår från|mall/i.test(para)
+    ) {
       usedBy.push("Mall anställningsavtal");
       usedByTypes["Mall anställningsavtal"] = "core_document";
     }
@@ -622,9 +611,7 @@ function proposeFromNarrative(
       usedBy.push(app);
       usedByTypes[app] = "application";
     } else if (/personalliggare/i.test(para)) {
-      const app = /lättkrängt/i.test(para)
-        ? "Lättkrängt Personalliggare"
-        : "Personalliggare";
+      const app = /lättkrängt/i.test(para) ? "Lättkrängt Personalliggare" : "Personalliggare";
       usedBy.push(app);
       usedByTypes[app] = "application";
     }
@@ -809,7 +796,10 @@ function proposeFromPrefixedLines(
       continue;
     }
 
-    if (PROCESS_TITLE.test(line) || (chain.length === 0 && !line.includes(":") && lines.indexOf(line) === 0)) {
+    if (
+      PROCESS_TITLE.test(line) ||
+      (chain.length === 0 && !line.includes(":") && lines.indexOf(line) === 0)
+    ) {
       if (PROCESS_TITLE.test(line) || lines.indexOf(line) === 0) {
         const cleaned = cleanTitle(line);
         if (cleaned && PROCESS_TITLE.test(line)) {
@@ -873,8 +863,7 @@ function proposeFromPrefixedLines(
       const stepTitle = cleanTitle(line);
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
-      pendingGatewayTitle =
-        kind === "gateway" || kind === "and" ? stepTitle : undefined;
+      pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
       gatewayBranchCount = 0;
       continue;
     }
@@ -883,12 +872,11 @@ function proposeFromPrefixedLines(
     if (BRANCH_HINTS.test(line) && pendingGatewayTitle) {
       const labelMatch = line.match(BRANCH_HINTS);
       const labelRaw = labelMatch?.[1] ?? "";
-      const label =
-        /^(ja|yes)$/i.test(labelRaw)
-          ? "Ja"
-          : /^(nej|no)$/i.test(labelRaw)
-            ? "Nej"
-            : capitalizeFirst(labelRaw);
+      const label = /^(ja|yes)$/i.test(labelRaw)
+        ? "Ja"
+        : /^(nej|no)$/i.test(labelRaw)
+          ? "Nej"
+          : capitalizeFirst(labelRaw);
       const targetRaw = line.replace(BRANCH_HINTS, "").trim();
       if (!targetRaw) continue;
       const target = resolveBranchTarget(targetRaw);
@@ -930,8 +918,7 @@ function proposeFromPrefixedLines(
       const stepTitle = cleanTitle(line);
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
-      pendingGatewayTitle =
-        kind === "gateway" || kind === "and" ? stepTitle : undefined;
+      pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
       gatewayBranchCount = 0;
       continue;
     }
@@ -1001,9 +988,7 @@ function proposeFromPrefixedLines(
     [
       "Extracted from prefixed / structured lines.",
       ...(branches.length
-        ? [
-            "Parsed vägval/gateway branches — review branches[].label (Ja/Nej) before apply.",
-          ]
+        ? ["Parsed vägval/gateway branches — review branches[].label (Ja/Nej) before apply."]
         : []),
     ],
     branches,
@@ -1049,17 +1034,11 @@ export function proposeModelFromDocument(
  * activity-only chain), weave those BOs into the FLOW spine so apply does
  * not silently create activity→activity models.
  */
-function pushBoUnique(
-  chain: ProposedChainNode[],
-  title: string | undefined,
-): void {
+function pushBoUnique(chain: ProposedChainNode[], title: string | undefined): void {
   const t = (title ?? "").trim();
   if (!t) return;
   const last = chain[chain.length - 1];
-  if (
-    last?.kind === "businessObject" &&
-    last.title.toLowerCase() === t.toLowerCase()
-  ) {
+  if (last?.kind === "businessObject" && last.title.toLowerCase() === t.toLowerCase()) {
     return;
   }
   chain.push({
@@ -1075,12 +1054,8 @@ function enrichChainFromStepIo(
 ): ProposedChainNode[] {
   if (!chain.length) return chain;
   if (chain.some((n) => n.kind === "businessObject")) return chain;
-  const byTitle = new Map(
-    steps.map((s) => [s.title.trim().toLowerCase(), s]),
-  );
-  const hasIo = steps.some(
-    (s) => (s.inputs?.length ?? 0) > 0 || (s.outputs?.length ?? 0) > 0,
-  );
+  const byTitle = new Map(steps.map((s) => [s.title.trim().toLowerCase(), s]));
+  const hasIo = steps.some((s) => (s.inputs?.length ?? 0) > 0 || (s.outputs?.length ?? 0) > 0);
   if (!hasIo) return chain;
 
   const out: ProposedChainNode[] = [];
@@ -1131,8 +1106,6 @@ export function normalizeProposal(proposal: ModelProposal): ModelProposal {
     } else if (ot === "and" || ot === "och") {
       chain.push({ kind: "and", title: step.title, objectType: "and" });
     } else if (ot === "join" || ot.includes("forbind") || ot.includes("förbind")) {
-      // Join forbidden — skip silently (agents must not place join)
-      continue;
     } else {
       // Legacy steps: inputs/outputs become spine BOs (were previously ignored).
       for (const inp of step.inputs ?? []) pushBoUnique(chain, inp);
@@ -1143,9 +1116,7 @@ export function normalizeProposal(proposal: ModelProposal): ModelProposal {
       });
       activities.push({
         title: step.title,
-        performers:
-          step.performers ??
-          (step.performerTitle ? [step.performerTitle] : []),
+        performers: step.performers ?? (step.performerTitle ? [step.performerTitle] : []),
         controlledBy: step.controlledBy ?? step.documents ?? [],
         usedBy: step.usedBy ?? [],
       });

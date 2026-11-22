@@ -38,8 +38,7 @@ export function registerMethodologyPrompts(server: McpServer): void {
   server.registerPrompt(
     "text_to_process_model",
     {
-      description:
-        "Workflow for text-to-model / talk-to-model creating a process in 2c8.",
+      description: "Workflow for text-to-model / talk-to-model creating a process in 2c8.",
       argsSchema: {
         repositoryId: z.string(),
         languageId: z.string(),
@@ -58,7 +57,7 @@ export function registerMethodologyPrompts(server: McpServer): void {
               "1) get_methodology (process, activity, naming, reuse-first) + list_allowed_types",
               "2) propose_model_from_text — chain BO↔activity↔vägval, branches Ja/Nej. Prefixed: Vägval: … / Ja: … / Nej: …",
               "3) Review BOs: value/artefacts, NOT status echoes. Rewrite failing namingChecks.",
-              "4) ANY choice/gateway: call resolve_branching_object_type — exclusive → objectType \"or\" (Regel Eller). NEVER create gateway or join.",
+              '4) ANY choice/gateway: call resolve_branching_object_type — exclusive → objectType "or" (Regel Eller). NEVER create gateway or join.',
               "5) search_symbols objectType=or (vägval/decision aliases). Titles are questions, not 'vägval'.",
               "6) validate_against_methodology; fix titles if needed",
               "7) apply_model_proposal (chain nodes with objectType or)",
@@ -118,10 +117,7 @@ export function registerMethodologyPrompts(server: McpServer): void {
         repositoryId: z.string(),
         languageId: z.string(),
         title: z.string(),
-        description: z
-          .string()
-          .optional()
-          .describe("Optional narrative of how processes connect"),
+        description: z.string().optional().describe("Optional narrative of how processes connect"),
       },
     },
     ({ repositoryId, languageId, title, description }) => ({
@@ -159,8 +155,7 @@ export function registerMethodologyPrompts(server: McpServer): void {
   server.registerPrompt(
     "document_to_process_model",
     {
-      description:
-        "Workflow for document-to-model extraction into a 2c8 process.",
+      description: "Workflow for document-to-model extraction into a 2c8 process.",
       argsSchema: {
         repositoryId: z.string(),
         languageId: z.string(),

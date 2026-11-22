@@ -31,11 +31,7 @@ export function findObjectType(
   );
 }
 
-export function checkNaming(
-  pack: MethodologyPack,
-  objectType: string,
-  title: string,
-): NamingCheck {
+export function checkNaming(pack: MethodologyPack, objectType: string, title: string): NamingCheck {
   const def = findObjectType(pack, objectType);
   const patternKey = def?.id ?? normalize(objectType);
   const pattern = pack.naming?.patterns?.[patternKey];
@@ -156,10 +152,7 @@ export function checkBusinessObjectValue(
   previousActivityTitle?: string,
 ): NamingCheck {
   const base = checkNaming(pack, "businessObject", boTitle);
-  if (
-    previousActivityTitle &&
-    isBusinessObjectStatusEcho(boTitle, previousActivityTitle)
-  ) {
+  if (previousActivityTitle && isBusinessObjectStatusEcho(boTitle, previousActivityTitle)) {
     return {
       pass: false,
       hint: BO_VALUE_HINT,
@@ -167,9 +160,7 @@ export function checkBusinessObjectValue(
     };
   }
   // Standalone weak anti-pattern: bare "Dokumenterad/Genomförd …" without artefact clarity
-  if (
-    /^(dokumenterad|genomförd|utförd|avklarad)\s+\S+/i.test(plainTitle(boTitle))
-  ) {
+  if (/^(dokumenterad|genomförd|utförd|avklarad)\s+\S+/i.test(plainTitle(boTitle))) {
     return {
       pass: false,
       hint: BO_VALUE_HINT,
@@ -182,17 +173,12 @@ export function checkBusinessObjectValue(
   };
 }
 
-export function methodologyNotesForObject(
-  pack: MethodologyPack,
-  objectType: string,
-): string[] {
+export function methodologyNotesForObject(pack: MethodologyPack, objectType: string): string[] {
   const def = findObjectType(pack, objectType);
   if (!def) {
     return [`No methodology entry for objectType '${objectType}'.`];
   }
-  const notes = [
-    `${def.title?.sv ?? def.id}: ${def.usage ?? ""}`.trim(),
-  ];
+  const notes = [`${def.title?.sv ?? def.id}: ${def.usage ?? ""}`.trim()];
   if (def.naming) {
     notes.push(`Naming: ${def.naming}`);
   }
@@ -249,15 +235,16 @@ const FALLBACK_SYMBOL_SIZES: Record<string, SymbolSizeSpec> = {
 };
 
 function objectTypeKey(objectType: string): string {
-  return objectType.trim().toLowerCase().replace(/[_\s-]/g, "");
+  return objectType
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]/g, "");
 }
 
 /**
  * Parse symbolsizes.symbol[] from repository configuration.
  */
-export function extractSymbolSizes(
-  config: unknown,
-): Map<string, SymbolSizeSpec> {
+export function extractSymbolSizes(config: unknown): Map<string, SymbolSizeSpec> {
   const map = new Map<string, SymbolSizeSpec>();
   const root = config as {
     symbolsizes?: { symbol?: Array<Record<string, unknown>> };
@@ -286,15 +273,11 @@ export function extractSymbolSizes(
  * Quickdraw placement margins (not a general process-flow gap).
  * Present as quickdraw["distance-to-new-symbol"] = { top, left, bottom, right }.
  */
-export function extractQuickdrawDistance(
-  config: unknown,
-): QuickdrawDistance | null {
+export function extractQuickdrawDistance(config: unknown): QuickdrawDistance | null {
   const root = config as {
     quickdraw?: Record<string, unknown>;
   } | null;
-  const dist = root?.quickdraw?.["distance-to-new-symbol"] as
-    | Record<string, unknown>
-    | undefined;
+  const dist = root?.quickdraw?.["distance-to-new-symbol"] as Record<string, unknown> | undefined;
   if (!dist) {
     return null;
   }
@@ -308,10 +291,7 @@ export function extractQuickdrawDistance(
   return { top, left, bottom, right };
 }
 
-export function resolveSymbolSize(
-  objectType: string,
-  config: unknown | null,
-): SymbolSizeSpec {
+export function resolveSymbolSize(objectType: string, config: unknown | null): SymbolSizeSpec {
   const key = objectTypeKey(objectType);
   if (config) {
     const fromConfig = extractSymbolSizes(config).get(key);
@@ -393,11 +373,7 @@ export function extractAllowedTypes(config: unknown): {
         if (key.includes("modeltype") || key === "modeltypes") {
           modelTypes.add(node);
         }
-        if (
-          key.includes("objecttype") ||
-          key === "objecttypes" ||
-          key.includes("symboltype")
-        ) {
+        if (key.includes("objecttype") || key === "objecttypes" || key.includes("symboltype")) {
           objectTypes.add(node);
         }
       }
@@ -440,11 +416,7 @@ export function validateProposedSymbol(
     normalize(args.objectType) === "businessobject" ||
     findObjectType(pack, args.objectType)?.id === "businessObject";
   const namingCheck = isBo
-    ? checkBusinessObjectValue(
-        pack,
-        args.title,
-        args.previousActivityTitle,
-      )
+    ? checkBusinessObjectValue(pack, args.title, args.previousActivityTitle)
     : checkNaming(pack, args.objectType, args.title);
   const configViolations: string[] = [];
 
@@ -452,9 +424,7 @@ export function validateProposedSymbol(
     const allowed = extractAllowedTypes(args.repoConfig);
     if (
       allowed.objectTypes.length > 0 &&
-      !allowed.objectTypes.some(
-        (t) => normalize(t) === normalize(args.objectType),
-      )
+      !allowed.objectTypes.some((t) => normalize(t) === normalize(args.objectType))
     ) {
       // Only flag when we found an allow-list that looks intentional
       const def = findObjectType(pack, args.objectType);
@@ -480,10 +450,7 @@ export function validateProposedSymbol(
   };
 }
 
-export function getMethodologyTopic(
-  pack: MethodologyPack,
-  topic: string,
-): unknown {
+export function getMethodologyTopic(pack: MethodologyPack, topic: string): unknown {
   const t = normalize(topic);
   // Fold accents so vägval / vagval both resolve
   const tFold = t.normalize("NFD").replace(/\p{M}/gu, "");
@@ -529,15 +496,11 @@ export function getMethodologyTopic(
       normalize(ot.id) === t ||
       normalize(ot.id).normalize("NFD").replace(/\p{M}/gu, "") === tFold ||
       (ot.apiObjectTypeHints ?? []).some(
-        (h) =>
-          normalize(h) === t ||
-          normalize(h).normalize("NFD").replace(/\p{M}/gu, "") === tFold,
+        (h) => normalize(h) === t || normalize(h).normalize("NFD").replace(/\p{M}/gu, "") === tFold,
       ),
   );
   const model = pack.modelTypes.find(
-    (mt) =>
-      normalize(mt.id) === t ||
-      (mt.apiModelTypeHints ?? []).some((h) => normalize(h) === t),
+    (mt) => normalize(mt.id) === t || (mt.apiModelTypeHints ?? []).some((h) => normalize(h) === t),
   );
   if (object && model) {
     return { kind: "modelAndObjectType", modelType: model, objectType: object };

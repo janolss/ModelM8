@@ -16,8 +16,11 @@ fields:
   titles: Display name per languageId
   type: Stored as mtDocumentRoot by the API
 linking:
-  - create_document_root({ key, value, title, languageId }) or full body
-  - link_document createDocumentBody: { type: "URL"|"file", prefix: "<key>", languages: { [lang]: { title, content: "relative/path.doc" } }, documentTypes: [...] }
+  - >
+    create_document_root({ key, value, title, languageId }) or full body
+  - >
+    link_document createDocumentBody uses type URL or file, prefix=<root key>,
+    and languages.*.content as the path relative to the root
   - Do not repeat the full absolute URL in content when using a root
 guidance:
   - Prefer a document root when several links share the same base folder or URL prefix

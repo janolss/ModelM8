@@ -22,7 +22,5 @@ export function resolveKnowledgeDir(override?: string): string {
     }
   }
 
-  throw new Error(
-    `Knowledge directory not found. Checked: ${candidates.join(", ")}`,
-  );
+  throw new Error(`Knowledge directory not found. Checked: ${candidates.join(", ")}`);
 }

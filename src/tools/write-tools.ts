@@ -2,13 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
-import {
-  jsonBody,
-  languageId,
-  permissionGroupHeader,
-  repositoryId,
-  uuid,
-} from "./schemas.js";
+import { jsonBody, languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
 
 export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   if (!ctx.writer) {
@@ -96,13 +90,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         edgeType: z
           .string()
           .min(1)
-          .describe(
-            "e.g. flow, raciresponsible, controls, isusedby, isfollowedby",
-          ),
-        label: z
-          .string()
-          .optional()
-          .describe("Edge label text, e.g. Ja / Nej on vägval branches"),
+          .describe("e.g. flow, raciresponsible, controls, isusedby, isfollowedby"),
+        label: z.string().optional().describe("Edge label text, e.g. Ja / Nej on vägval branches"),
       },
     },
     async (args) => runTool(() => writer.createCanvasEdge(args)),
@@ -171,9 +160,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         let body = args.body;
         if (!body) {
           if (!args.title || !args.languageId) {
-            throw new Error(
-              "create_document_type requires body or (title + languageId)",
-            );
+            throw new Error("create_document_type requires body or (title + languageId)");
           }
           body = {
             titles: {
@@ -237,9 +224,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           if (
             args.title &&
             args.languageId &&
-            (body.titles === undefined ||
-              typeof body.titles !== "object" ||
-              body.titles === null)
+            (body.titles === undefined || typeof body.titles !== "object" || body.titles === null)
           ) {
             body.titles = { [args.languageId]: { title: args.title } };
           }
@@ -259,11 +244,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         repositoryId,
         languageId: languageId.optional(),
-        title: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Shorthand: builds titles for languageId"),
+        title: z.string().min(1).optional().describe("Shorthand: builds titles for languageId"),
         body: jsonBody
           .optional()
           .describe("Full MtbDescriptionTypeDto — titles map required if title omitted"),
@@ -274,9 +255,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         let body = args.body;
         if (!body) {
           if (!args.title || !args.languageId) {
-            throw new Error(
-              "create_description_type requires body or (title + languageId)",
-            );
+            throw new Error("create_description_type requires body or (title + languageId)");
           }
           body = {
             titles: {
@@ -301,9 +280,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             z.object({
               edgeId: uuid,
               reorthogonalize: z.boolean().optional(),
-              points: z
-                .array(z.object({ x: z.number(), y: z.number() }))
-                .optional(),
+              points: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
             }),
           )
           .min(1),
@@ -343,13 +320,9 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "accept_draft_model",
     {
-      description:
-        "Accept a draft model into a target repository and archive the source draft",
+      description: "Accept a draft model into a target repository and archive the source draft",
       inputSchema: {
-        repositoryId: z
-          .string()
-          .min(1)
-          .describe("Source repository UUID or draft alias"),
+        repositoryId: z.string().min(1).describe("Source repository UUID or draft alias"),
         modelId: uuid.describe("Draft model UUID"),
         permissionGroup: permissionGroupHeader,
         body: jsonBody,
@@ -391,9 +364,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           },
           body: args.body ?? {
             ...(args.message !== undefined ? { message: args.message } : {}),
-            ...(args.workflowState !== undefined
-              ? { workflowState: args.workflowState }
-              : {}),
+            ...(args.workflowState !== undefined ? { workflowState: args.workflowState } : {}),
           },
         }),
       ),
@@ -423,9 +394,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           },
           body: args.body ?? {
             ...(args.message !== undefined ? { message: args.message } : {}),
-            ...(args.workflowState !== undefined
-              ? { workflowState: args.workflowState }
-              : {}),
+            ...(args.workflowState !== undefined ? { workflowState: args.workflowState } : {}),
           },
         }),
       ),
@@ -521,12 +490,10 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .string()
           .optional()
           .describe(
-            'Defaults to activity; e.g. businessObject, role, or (vägval/Regel Eller). Call resolve_branching_object_type for branching. NEVER gateway or join.',
+            "Defaults to activity; e.g. businessObject, role, or (vägval/Regel Eller). Call resolve_branching_object_type for branching. NEVER gateway or join.",
           ),
         symbolId: uuid.optional().describe("Reuse this symbol UUID if known"),
-        connectFromVertexId: uuid
-          .optional()
-          .describe("Create flow edge from this vertex"),
+        connectFromVertexId: uuid.optional().describe("Create flow edge from this vertex"),
         edgeType: z.string().optional(),
         x: z.number().optional(),
         y: z.number().optional(),
@@ -575,10 +542,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         performerSymbolId: uuid,
         languageId,
         performerTitle: z.string().optional(),
-        edgeType: z
-          .string()
-          .optional()
-          .describe("Defaults to raciresponsible"),
+        edgeType: z.string().optional().describe("Defaults to raciresponsible"),
         x: z.number().optional(),
         y: z.number().optional(),
       },
@@ -602,10 +566,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .string()
           .optional()
           .describe("e.g. application | core_document — layout size; defaults from symbol"),
-        edgeType: z
-          .string()
-          .optional()
-          .describe("Defaults to isusedby"),
+        edgeType: z.string().optional().describe("Defaults to isusedby"),
         x: z.number().optional(),
         y: z.number().optional(),
       },
@@ -625,10 +586,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         controlsSymbolId: uuid,
         languageId,
         controlsTitle: z.string().optional(),
-        edgeType: z
-          .string()
-          .optional()
-          .describe("Defaults to controls"),
+        edgeType: z.string().optional().describe("Defaults to controls"),
         x: z.number().optional(),
         y: z.number().optional(),
       },
@@ -639,8 +597,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "set_step_io",
     {
-      description:
-        "Connect two vertices with a FLOW edge to express input/output between steps.",
+      description: "Connect two vertices with a FLOW edge to express input/output between steps.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -673,7 +630,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_breakdown",
     {
       description:
-        "Create a breakdown (nedbrytning) on the DETAIL model. Preferred body: { symbol: \"<overviewSymbolUuid>\" }. Do not use ofSymbol/ofModel/ofVertex or nested {uuid,version}. Prefer link_breakdown for the common case.",
+        'Create a breakdown (nedbrytning) on the DETAIL model. Preferred body: { symbol: "<overviewSymbolUuid>" }. Do not use ofSymbol/ofModel/ofVertex or nested {uuid,version}. Prefer link_breakdown for the common case.',
       inputSchema: {
         repositoryId,
         modelId: uuid.describe("Target detail model UUID"),
@@ -743,18 +700,19 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             }),
           )
           .optional()
-          .describe("Only if detailModelIds omitted; BOs will be rewritten from detail scopes when detailModelId is set"),
+          .describe(
+            "Only if detailModelIds omitted; BOs will be rewritten from detail scopes when detailModelId is set",
+          ),
         lockBosToDetailScope: z
           .boolean()
           .optional()
-          .describe("Default true when chain has detailModelId — replace BOs with detail inputs/outputs"),
+          .describe(
+            "Default true when chain has detailModelId — replace BOs with detail inputs/outputs",
+          ),
         sideLoops: z
           .array(
             z.object({
-              fromBoTitle: z
-                .string()
-                .min(1)
-                .describe("Business object title on the main chain"),
+              fromBoTitle: z.string().min(1).describe("Business object title on the main chain"),
               processTitle: z.string().min(1),
               symbolId: uuid.optional(),
               detailModelId: uuid.optional(),
@@ -811,9 +769,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         permissionGroup: permissionGroupHeader,
         owner: uuid.optional(),
         group: uuid.optional(),
-        modelId: uuid
-          .optional()
-          .describe("Append to existing model; otherwise creates new"),
+        modelId: uuid.optional().describe("Append to existing model; otherwise creates new"),
       },
     },
     async (args) => runTool(() => writer.createProcessMap(args)),
@@ -855,10 +811,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             results.linked = await ctx.documents.linkDocumentsToSymbol({
               repositoryId: args.repositoryId,
               symbolId: args.symbolId,
-              documentIds: [
-                ...(args.documentIds ?? []),
-                createdId,
-              ],
+              documentIds: [...(args.documentIds ?? []), createdId],
             });
             linked = true;
           }
@@ -915,10 +868,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         repositoryId,
         languageId,
-        includeModels: z
-          .boolean()
-          .optional()
-          .describe("Also confirm model titles (default true)"),
+        includeModels: z.boolean().optional().describe("Also confirm model titles (default true)"),
         maxSymbols: z.number().int().positive().optional(),
       },
     },
@@ -932,7 +882,9 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         "Update model/symbol titles (translations). Writes title + rawTitle and sets translated:true (marks language as translated — clears GUI globe). Prefer items[] to batch many symbols in ONE call.",
       inputSchema: {
         repositoryId,
-        languageId: languageId.optional().describe("Default language for single or items without per-item languageId"),
+        languageId: languageId
+          .optional()
+          .describe("Default language for single or items without per-item languageId"),
         title: z.string().min(1).optional().describe("Title for single-target update"),
         modelId: uuid.optional(),
         symbolId: uuid.optional(),

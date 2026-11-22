@@ -3,15 +3,11 @@ import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { jsonBody, pagination, repositoryId, uuid } from "./schemas.js";
 
-export function registerAnalysisTools(
-  server: McpServer,
-  ctx: ToolContext,
-): void {
+export function registerAnalysisTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "execute_query",
     {
-      description:
-        "Execute a repository query (analysis). Allowed in read-only mode.",
+      description: "Execute a repository query (analysis). Allowed in read-only mode.",
       inputSchema: {
         repositoryId,
         body: jsonBody,
@@ -237,9 +233,7 @@ export function registerAnalysisTools(
           });
         }
         if (!body) {
-          throw new Error(
-            "Either relationId or body is required for execute_relation",
-          );
+          throw new Error("Either relationId or body is required for execute_relation");
         }
         return ctx.client.request({
           method: "POST",

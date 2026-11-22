@@ -13,9 +13,7 @@ import type { ProcessReader } from "./process-reader.js";
 
 const SWEDISH_CHARS = /[åäöÅÄÖ]/;
 
-function symbolIdOfVertex(vertex: {
-  symbol?: string | { uuid?: string };
-}): string | undefined {
+function symbolIdOfVertex(vertex: { symbol?: string | { uuid?: string } }): string | undefined {
   if (typeof vertex.symbol === "string") return vertex.symbol;
   if (vertex.symbol && typeof vertex.symbol === "object") {
     return vertex.symbol.uuid;
@@ -148,11 +146,7 @@ export class QualityService {
           reason = "not-marked";
         } else if (args.compareLanguageId) {
           const other = titleForLang(s.titles, args.compareLanguageId);
-          if (
-            other &&
-            title === other &&
-            SWEDISH_CHARS.test(title)
-          ) {
+          if (other && title === other && SWEDISH_CHARS.test(title)) {
             reason = "same-as-compare-with-swedish-chars";
           }
         }
@@ -190,11 +184,7 @@ export class QualityService {
         "missing = no title; not-marked = title exists but translated !== true; same-as-compare-with-swedish-chars = EN left as SV.",
         "Fix text with update_titles; fix flag only with confirm_translations.",
       ],
-      nextSuggestedTools: [
-        "confirm_translations",
-        "update_titles",
-        "search_symbols",
-      ],
+      nextSuggestedTools: ["confirm_translations", "update_titles", "search_symbols"],
     };
   }
 
@@ -235,10 +225,7 @@ export class QualityService {
       const batch = page.data ?? [];
       for (const s of batch) {
         if (!s.uuid) continue;
-        if (
-          objectTypeFilter &&
-          (s.objectType ?? "").toLowerCase() !== objectTypeFilter
-        ) {
+        if (objectTypeFilter && (s.objectType ?? "").toLowerCase() !== objectTypeFilter) {
           continue;
         }
         const title = pickTitle(s.titles, args.languageId);
@@ -294,9 +281,7 @@ export class QualityService {
         scannedModels: models.length,
         scannedSymbols: allSymbols.length,
         usedOnCanvasCount: usedOnCanvas.size,
-        ...(used
-          ? { usedOnCanvas: used.slice(0, max), usedTruncated: used.length > max }
-          : {}),
+        ...(used ? { usedOnCanvas: used.slice(0, max), usedTruncated: used.length > max } : {}),
         note: "Canvas-only; documents panel / breakdowns may still reference symbols",
       },
       methodologyNotes: [
@@ -304,11 +289,7 @@ export class QualityService {
         "Filter with titlePrefix (e.g. ZZ_) before delete_model / cleanup.",
         "Reuse-first: prefer search_symbols over creating when an orphan already matches the concept.",
       ],
-      nextSuggestedTools: [
-        "search_symbols",
-        "find_symbol_usage",
-        "retarget_vertex_symbol",
-      ],
+      nextSuggestedTools: ["search_symbols", "find_symbol_usage", "retarget_vertex_symbol"],
     };
   }
 
@@ -409,17 +390,13 @@ export class QualityService {
             emptyIntersections.push({
               fromModelId: fromId,
               toModelId: toId,
-              reason: !fromScope
-                ? "producer scope unavailable"
-                : "consumer scope unavailable",
+              reason: !fromScope ? "producer scope unavailable" : "consumer scope unavailable",
             });
             continue;
           }
           // Primary outputs only — overview/handoff spine (not secondaryOutputs).
           const outById = new Map(
-            fromScope.outputs
-              .filter((o) => o.symbolId)
-              .map((o) => [o.symbolId!, o.title] as const),
+            fromScope.outputs.filter((o) => o.symbolId).map((o) => [o.symbolId!, o.title] as const),
           );
           const shared: Array<{ symbolId: string; title?: string }> = [];
           for (const inp of toScope.inputs) {
@@ -446,10 +423,7 @@ export class QualityService {
             });
             // Dedupe against already queued explicit checks
             const dup = normalized.some(
-              (n) =>
-                n.fromModelId === fromId &&
-                n.toModelId === toId &&
-                n.symbolId === s.symbolId,
+              (n) => n.fromModelId === fromId && n.toModelId === toId && n.symbolId === s.symbolId,
             );
             if (dup) continue;
             normalized.push({
@@ -488,8 +462,7 @@ export class QualityService {
           title?: string;
         }>;
         const exact = symbols.find(
-          (s) =>
-            (s.title ?? "").toLowerCase() === title!.trim().toLowerCase(),
+          (s) => (s.title ?? "").toLowerCase() === title!.trim().toLowerCase(),
         );
         symbolId = exact?.uuid ?? symbols[0]?.uuid;
         title = exact?.title ?? symbols[0]?.title ?? title;
@@ -515,9 +488,7 @@ export class QualityService {
         usages?: Array<{ modelId?: string; title?: string }>;
         symbol?: { title?: string };
       };
-      const usageModelIds = new Set(
-        (usage.usages ?? []).map((u) => u.modelId).filter(Boolean),
-      );
+      const usageModelIds = new Set((usage.usages ?? []).map((u) => u.modelId).filter(Boolean));
       const onFrom = usageModelIds.has(h.fromModelId);
       const onTo = usageModelIds.has(h.toModelId);
       const usageCount = usage.usages?.length ?? 0;
@@ -533,17 +504,13 @@ export class QualityService {
             repositoryId: args.repositoryId,
             modelId: h.toModelId,
           });
-          const fromOutputs = [
-            ...fromScope.outputs,
-            ...fromScope.secondaryOutputs,
-          ]
+          const fromOutputs = [...fromScope.outputs, ...fromScope.secondaryOutputs]
             .map((o) => o.symbolId)
             .filter((x): x is string => Boolean(x));
           const toInputs = toScope.inputs
             .map((i) => i.symbolId)
             .filter((x): x is string => Boolean(x));
-          ioOk =
-            fromOutputs.includes(symbolId) && toInputs.includes(symbolId);
+          ioOk = fromOutputs.includes(symbolId) && toInputs.includes(symbolId);
         } catch (err) {
           ioOk = undefined;
           results.push({
@@ -562,8 +529,7 @@ export class QualityService {
         }
       }
 
-      const pass =
-        onFrom && onTo && (h.checkIo === false || ioOk === true);
+      const pass = onFrom && onTo && (h.checkIo === false || ioOk === true);
       results.push({
         fromModelId: h.fromModelId,
         toModelId: h.toModelId,
@@ -613,17 +579,12 @@ export class QualityService {
    * Build L0→… navigation from detail models' broken-down-from links.
    * Marks models with no upward link (except optional roots).
    */
-  async getNavigationTree(args: {
-    repositoryId: string;
-    rootModelId?: string;
-  }) {
+  async getNavigationTree(args: { repositoryId: string; rootModelId?: string }) {
     const models = await this.listAllModels(args.repositoryId);
 
     // symbolId → modelIds that place that symbol
     const symbolToModels = new Map<string, string[]>();
-    const modelMeta = new Map(
-      models.map((m) => [m.uuid, m] as const),
-    );
+    const modelMeta = new Map(models.map((m) => [m.uuid, m] as const));
 
     // Load canvases in chunks to find which models host overview symbols
     const concurrency = 6;
@@ -691,9 +652,7 @@ export class QualityService {
       for (const b of data) {
         const parentSymbolId = breakdownSymbolId(b);
         const parentModelIds = parentSymbolId
-          ? [...new Set(symbolToModels.get(parentSymbolId) ?? [])].filter(
-              (id) => id !== m.uuid,
-            )
+          ? [...new Set(symbolToModels.get(parentSymbolId) ?? [])].filter((id) => id !== m.uuid)
           : [];
         links.push({
           modelId: m.uuid,
@@ -718,14 +677,11 @@ export class QualityService {
       (m) =>
         parentIds.has(m.uuid) ||
         (args.rootModelId ? m.uuid === args.rootModelId : false) ||
-        (!childIds.has(m.uuid) &&
-          (m.modelType ?? "").toLowerCase().includes("process")),
+        (!childIds.has(m.uuid) && (m.modelType ?? "").toLowerCase().includes("process")),
     );
 
     // Prefer explicit root when given
-    const rootIds = args.rootModelId
-      ? [args.rootModelId]
-      : roots.map((r) => r.uuid);
+    const rootIds = args.rootModelId ? [args.rootModelId] : roots.map((r) => r.uuid);
 
     const childrenOf = new Map<string, Link[]>();
     for (const l of links) {
@@ -745,9 +701,7 @@ export class QualityService {
 
     const build = (modelId: string, seen: Set<string>): TreeNode => {
       const meta = modelMeta.get(modelId);
-      const kids = (childrenOf.get(modelId) ?? []).filter(
-        (c) => !seen.has(c.modelId),
-      );
+      const kids = (childrenOf.get(modelId) ?? []).filter((c) => !seen.has(c.modelId));
       const nextSeen = new Set(seen);
       nextSeen.add(modelId);
       return {
@@ -758,9 +712,7 @@ export class QualityService {
       };
     };
 
-    const tree = rootIds
-      .filter((id) => modelMeta.has(id))
-      .map((id) => build(id, new Set()));
+    const tree = rootIds.filter((id) => modelMeta.has(id)).map((id) => build(id, new Set()));
 
     // Dedupe missing: models that are children with empty parentModelIds, or
     // process models that are neither roots nor linked (exclude known parents of others when they are roots)
@@ -830,9 +782,7 @@ export class QualityService {
           const c = exp.code.toLowerCase();
           if (
             t.includes(c) ||
-            Object.values(m.titles ?? {}).some((x) =>
-              (x.title ?? "").toLowerCase().includes(c),
-            )
+            Object.values(m.titles ?? {}).some((x) => (x.title ?? "").toLowerCase().includes(c))
           ) {
             return true;
           }
@@ -846,8 +796,7 @@ export class QualityService {
         return false;
       });
       const covered = matches.length > 0;
-      const reachableOk =
-        !reachable || matches.some((m) => reachable!.has(m.uuid));
+      const reachableOk = !reachable || matches.some((m) => reachable!.has(m.uuid));
       return {
         expected: exp,
         pass: covered && reachableOk,
@@ -873,11 +822,7 @@ export class QualityService {
         "Pass expected[] from your process register (code and/or titleContains). Does not parse documents.",
         "Optional rootModelId checks navigation reachability via get_navigation_tree.",
       ],
-      nextSuggestedTools: [
-        "get_navigation_tree",
-        "find_models",
-        "link_breakdown",
-      ],
+      nextSuggestedTools: ["get_navigation_tree", "find_models", "link_breakdown"],
     };
   }
 }

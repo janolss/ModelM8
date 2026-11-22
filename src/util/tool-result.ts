@@ -29,9 +29,7 @@ export function errorResult(error: unknown): CallToolResult {
   };
 }
 
-export async function runTool(
-  action: () => Promise<unknown>,
-): Promise<CallToolResult> {
+export async function runTool(action: () => Promise<unknown>): Promise<CallToolResult> {
   try {
     return jsonResult(await action());
   } catch (error) {

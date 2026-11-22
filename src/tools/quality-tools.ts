@@ -4,10 +4,7 @@ import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { repositoryId, uuid } from "./schemas.js";
 
-export function registerQualityTools(
-  server: McpServer,
-  ctx: ToolContext,
-): void {
+export function registerQualityTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "list_untranslated_symbols",
     {
@@ -18,9 +15,7 @@ export function registerQualityTools(
         languageId: uuid.describe("Language to check (e.g. English)"),
         compareLanguageId: uuid
           .optional()
-          .describe(
-            "Usually primary/default language; flags titles identical to this with åäö",
-          ),
+          .describe("Usually primary/default language; flags titles identical to this with åäö"),
         objectType: z.string().optional(),
         maxResults: z.number().int().positive().optional(),
       },
@@ -35,9 +30,7 @@ export function registerQualityTools(
         "List symbols not placed on any model canvas (orphans). Useful for ZZ_UTGÅR cleanup and reuse-first audits. Canvas-only — documents panel / breakdowns may still reference symbols.",
       inputSchema: {
         repositoryId,
-        languageId: uuid
-          .optional()
-          .describe("Preferred language for title pick"),
+        languageId: uuid.optional().describe("Preferred language for title pick"),
         titlePrefix: z
           .string()
           .optional()
@@ -89,15 +82,10 @@ export function registerQualityTools(
         autoDiscover: z
           .object({
             modelIds: z.array(uuid).min(2),
-            checkIo: z
-              .boolean()
-              .optional()
-              .describe("Default true for discovered pairs"),
+            checkIo: z.boolean().optional().describe("Default true for discovered pairs"),
           })
           .optional()
-          .describe(
-            "Derive checks from primary outputs(A) ∩ inputs(B) for each ordered pair",
-          ),
+          .describe("Derive checks from primary outputs(A) ∩ inputs(B) for each ordered pair"),
       },
     },
     async (args) => runTool(() => ctx.quality.verifyHandoffs(args)),
@@ -110,9 +98,7 @@ export function registerQualityTools(
         "Build model navigation L0→… from detail broken-down-from links. Prefer this over get_breakdowns(overview) which is often empty. Reports missingUpwardLinks.",
       inputSchema: {
         repositoryId,
-        rootModelId: uuid
-          .optional()
-          .describe("Optional L0 / root model UUID to anchor the tree"),
+        rootModelId: uuid.optional().describe("Optional L0 / root model UUID to anchor the tree"),
       },
     },
     async (args) => runTool(() => ctx.quality.getNavigationTree(args)),

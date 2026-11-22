@@ -1,11 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
 import { registerAnalysisTools } from "./analysis-tools.js";
 import { registerConsumeTools } from "./consume-tools.js";
+import type { ToolContext } from "./context.js";
+import { registerDeleteTools } from "./delete-tools.js";
 import { registerMethodologyTools } from "./methodology-tools.js";
 import { registerProposeTools } from "./propose-tools.js";
 import { registerQualityTools } from "./quality-tools.js";
-import { registerDeleteTools } from "./delete-tools.js";
 import { registerWriteTools } from "./write-tools.js";
 
 export function registerAllTools(server: McpServer, ctx: ToolContext): void {

@@ -4,10 +4,7 @@ import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { pagination, repositoryId, uuid } from "./schemas.js";
 
-export function registerConsumeTools(
-  server: McpServer,
-  ctx: ToolContext,
-): void {
+export function registerConsumeTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "list_repositories",
     {
@@ -51,10 +48,7 @@ export function registerConsumeTools(
       inputSchema: {
         repositoryId,
         query: z.string().optional().describe("Title substring filter"),
-        modelType: z
-          .string()
-          .optional()
-          .describe("Model type filter, e.g. process or swimlane"),
+        modelType: z.string().optional().describe("Model type filter, e.g. process or swimlane"),
         startAt: pagination.startAt,
         maxResults: pagination.maxResults,
       },
@@ -108,10 +102,7 @@ export function registerConsumeTools(
           "Titles come from canvas labels (and symbol.titles when expanded).",
           "FLOW / RACI_RESPONSIBLE / IS_USED_BY edges are grouped per step.",
         ],
-        nextSuggestedTools: [
-          "describe_process",
-          "get_roles_and_responsibilities",
-        ],
+        nextSuggestedTools: ["describe_process", "get_roles_and_responsibilities"],
       })),
   );
 
@@ -139,9 +130,7 @@ export function registerConsumeTools(
         detailModelIds: z
           .array(uuid)
           .optional()
-          .describe(
-            "For process maps: detail model UUIDs left→right to include scopeViolations",
-          ),
+          .describe("For process maps: detail model UUIDs left→right to include scopeViolations"),
       },
     },
     async (args) => runTool(() => ctx.reader.reviewProcessModel(args)),
@@ -189,8 +178,7 @@ export function registerConsumeTools(
         modelId: uuid.describe("Model UUID"),
       },
     },
-    async (args) =>
-      runTool(() => ctx.reader.getRolesAndResponsibilities(args)),
+    async (args) => runTool(() => ctx.reader.getRolesAndResponsibilities(args)),
   );
 
   server.registerTool(
@@ -221,10 +209,7 @@ export function registerConsumeTools(
         "Batch-resolve symbol UUIDs to { uuid, title, objectType, documents }. Prefer this over N× get_object_documents when enriching a flow.",
       inputSchema: {
         repositoryId,
-        symbolIds: z
-          .array(uuid)
-          .min(1)
-          .describe("Symbol UUIDs to resolve"),
+        symbolIds: z.array(uuid).min(1).describe("Symbol UUIDs to resolve"),
       },
     },
     async (args) =>
@@ -242,10 +227,7 @@ export function registerConsumeTools(
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
-        titleQuery: z
-          .string()
-          .optional()
-          .describe("e.g. Däckmontör — used if symbolId omitted"),
+        titleQuery: z.string().optional().describe("e.g. Däckmontör — used if symbolId omitted"),
         enrich: z
           .enum(["basic", "full"])
           .optional()
@@ -377,19 +359,14 @@ export function registerConsumeTools(
           .describe(
             "Title substring — or type alias or/vägval/gateway/decision (auto objectType filter)",
           ),
-        title: z
-          .string()
-          .optional()
-          .describe("Alias for query (same title substring search)"),
+        title: z.string().optional().describe("Alias for query (same title substring search)"),
         objectType: z
           .string()
           .optional()
           .describe(
             "Filter: or|vägval|decision (exclusive), and (parallel), activity, businessObject, …",
           ),
-        modelId: uuid
-          .optional()
-          .describe("Limit search to symbols on this model canvas"),
+        modelId: uuid.optional().describe("Limit search to symbols on this model canvas"),
         startAt: pagination.startAt,
         maxResults: pagination.maxResults,
       },
@@ -414,8 +391,7 @@ export function registerConsumeTools(
         "List document roots in a repository. A root is a shared base URL/folder for relative document links — update the root once when the host or library path moves.",
       inputSchema: { repositoryId },
     },
-    async ({ repositoryId: id }) =>
-      runTool(() => ctx.documents.listRoots(id)),
+    async ({ repositoryId: id }) => runTool(() => ctx.documents.listRoots(id)),
   );
 
   server.registerTool(
@@ -424,8 +400,7 @@ export function registerConsumeTools(
       description: "List document types used to categorise document links",
       inputSchema: { repositoryId },
     },
-    async ({ repositoryId: id }) =>
-      runTool(() => ctx.documents.listTypes(id)),
+    async ({ repositoryId: id }) => runTool(() => ctx.documents.listTypes(id)),
   );
 
   server.registerTool(
@@ -434,8 +409,7 @@ export function registerConsumeTools(
       description: "List document sources available in a repository",
       inputSchema: { repositoryId },
     },
-    async ({ repositoryId: id }) =>
-      runTool(() => ctx.documents.listSources(id)),
+    async ({ repositoryId: id }) => runTool(() => ctx.documents.listSources(id)),
   );
 
   server.registerTool(
@@ -707,8 +681,7 @@ export function registerConsumeTools(
   server.registerTool(
     "list_layers",
     {
-      description:
-        "List layers on a model. Also summarized in get_process_overview.",
+      description: "List layers on a model. Also summarized in get_process_overview.",
       inputSchema: { repositoryId, modelId: uuid },
     },
     async ({ repositoryId: id, modelId }) =>

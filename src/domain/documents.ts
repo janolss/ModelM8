@@ -24,10 +24,7 @@ function fileUrlToPath(link: string): string | null {
   }
 }
 
-function metaValue(
-  metadata: unknown[] | undefined,
-  id: string,
-): string | undefined {
+function metaValue(metadata: unknown[] | undefined, id: string): string | undefined {
   for (const m of metadata ?? []) {
     if (m && typeof m === "object" && (m as { id?: string }).id === id) {
       const data = (m as { data?: string }).data;
@@ -61,10 +58,7 @@ export class DocumentsService {
    * and relative content paths in createDocumentBody / link_document.
    * Body: { key, value, titles: { [languageId]: { title } } }
    */
-  async createDocumentRoot(
-    repositoryId: string,
-    body: Record<string, unknown>,
-  ) {
+  async createDocumentRoot(repositoryId: string, body: Record<string, unknown>) {
     const created = await this.client.request<DocumentRootView>({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/document-roots",
@@ -108,10 +102,7 @@ export class DocumentsService {
    * Create a document type (category for MT documents / panel filtering).
    * Body: { titles: { [languageId]: { title } } }
    */
-  async createDocumentType(
-    repositoryId: string,
-    body: Record<string, unknown>,
-  ) {
+  async createDocumentType(repositoryId: string, body: Record<string, unknown>) {
     const created = await this.client.request<DocumentTypeView>({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/document-types",
@@ -142,16 +133,12 @@ export class DocumentsService {
   }
 
   async defaultLanguageId(repositoryId: string): Promise<string | undefined> {
-    const page = await this.client.request<
-      Page<{ uuid?: string; defaultLanguage?: boolean }>
-    >({
+    const page = await this.client.request<Page<{ uuid?: string; defaultLanguage?: boolean }>>({
       path: "/api/v1/repositories/{repositoryId}/languages",
       pathParams: { repositoryId },
     });
     const data = page.data ?? [];
-    return (
-      data.find((l) => l.defaultLanguage)?.uuid ?? data[0]?.uuid ?? undefined
-    );
+    return data.find((l) => l.defaultLanguage)?.uuid ?? data[0]?.uuid ?? undefined;
   }
 
   async listDocumentKeys(args: {
@@ -160,8 +147,7 @@ export class DocumentsService {
     languageId?: string;
   }): Promise<{ sourceId: string; keys: string[] }> {
     const sourceId = args.sourceId ?? "mt.documents";
-    const language =
-      args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
+    const language = args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
     const keys = await this.client.request<string[]>({
       path: "/api/v1/repositories/{repositoryId}/documents/sources/{sourceId}/documents",
       pathParams: { repositoryId: args.repositoryId, sourceId },
@@ -177,8 +163,7 @@ export class DocumentsService {
     languageId?: string;
   }): Promise<{ sourceId: string; documents: ResolvedDocView[] }> {
     const sourceId = args.sourceId ?? "mt.documents";
-    const language =
-      args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
+    const language = args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
     if (!language) {
       throw new Error("Could not resolve repository default language");
     }
@@ -276,9 +261,7 @@ export class DocumentsService {
     languageId?: string;
     maxChars?: number;
   }): Promise<Record<string, unknown>> {
-    const keys =
-      args.documentKeys ??
-      (args.documentId ? [args.documentId] : undefined);
+    const keys = args.documentKeys ?? (args.documentId ? [args.documentId] : undefined);
     if (!keys?.length) {
       throw new Error("Provide documentId or documentKeys");
     }
@@ -407,11 +390,7 @@ export class DocumentsService {
     });
   }
 
-  async updateMtDocument(
-    repositoryId: string,
-    documentId: string,
-    body: unknown,
-  ) {
+  async updateMtDocument(repositoryId: string, documentId: string, body: unknown) {
     return this.client.request({
       method: "PATCH",
       path: "/api/v1/repositories/{repositoryId}/mt-documents/{documentId}",
@@ -450,9 +429,7 @@ export class DocumentsService {
         },
         query: { projection: "ALL" },
       });
-      const prev = (existing.documents ?? [])
-        .map(extractId)
-        .filter((x): x is string => Boolean(x));
+      const prev = (existing.documents ?? []).map(extractId).filter((x): x is string => Boolean(x));
       ids = [...new Set([...prev, ...ids])];
     }
 
@@ -500,9 +477,7 @@ export class DocumentsService {
       },
       query: { projection: "ALL" },
     });
-    const prev = (existing.documents ?? [])
-      .map(extractId)
-      .filter((x): x is string => Boolean(x));
+    const prev = (existing.documents ?? []).map(extractId).filter((x): x is string => Boolean(x));
     const remaining = prev.filter((id) => !remove.has(id));
     const removed = prev.filter((id) => remove.has(id));
 
@@ -532,10 +507,7 @@ export class DocumentsService {
    * Create a description type (syfte/scope/ägare fields etc.).
    * Body: MtbDescriptionTypeDto — typically { titles: { [languageId]: { title } } }
    */
-  async createDescriptionType(
-    repositoryId: string,
-    body: Record<string, unknown>,
-  ) {
+  async createDescriptionType(repositoryId: string, body: Record<string, unknown>) {
     const created = await this.client.request<{
       uuid?: string;
       titles?: Record<string, { title?: string }>;
