@@ -199,12 +199,129 @@ export class QualityService {
   }
 
   /**
+   * Symbols not placed on any model canvas (orphans). Canvas-only —
+   * documents panel / breakdowns may still reference them.
+   */
+  async listOrphanSymbols(args: {
+    repositoryId: string;
+    languageId?: string;
+    titlePrefix?: string;
+    objectType?: string;
+    /** When true, also return symbols that ARE on a canvas (debug). Default false. */
+    includeUsedOnCanvas?: boolean;
+    maxResults?: number;
+  }) {
+    const max = args.maxResults ?? 200;
+    const prefix = args.titlePrefix?.trim().toLowerCase();
+    const objectTypeFilter = args.objectType?.trim().toLowerCase();
+
+    const allSymbols: Array<{
+      symbolId: string;
+      title?: string;
+      objectType?: string;
+    }> = [];
+    let startAt = 0;
+    const pageSize = 100;
+    for (;;) {
+      const page = await this.client.request<Page<SymbolView>>({
+        path: "/api/v1/repositories/{repositoryId}/symbols",
+        pathParams: { repositoryId: args.repositoryId },
+        query: {
+          startAt: String(startAt),
+          maxResults: String(pageSize),
+          projection: "ALL",
+        },
+      });
+      const batch = page.data ?? [];
+      for (const s of batch) {
+        if (!s.uuid) continue;
+        if (
+          objectTypeFilter &&
+          (s.objectType ?? "").toLowerCase() !== objectTypeFilter
+        ) {
+          continue;
+        }
+        const title = pickTitle(s.titles, args.languageId);
+        if (prefix && !(title ?? "").toLowerCase().startsWith(prefix)) {
+          continue;
+        }
+        allSymbols.push({
+          symbolId: s.uuid,
+          title,
+          objectType: s.objectType,
+        });
+      }
+      startAt += batch.length;
+      if (batch.length === 0 || startAt >= (page.total ?? startAt)) break;
+    }
+
+    const models = await this.listAllModels(args.repositoryId);
+    const usedOnCanvas = new Set<string>();
+    const concurrency = 6;
+    for (let i = 0; i < models.length; i += concurrency) {
+      const chunk = models.slice(i, i + concurrency);
+      await Promise.all(
+        chunk.map(async (m) => {
+          try {
+            const canvas = await this.client.request<CanvasDto>({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+              pathParams: {
+                repositoryId: args.repositoryId,
+                modelId: m.uuid,
+              },
+            });
+            for (const v of canvas.vertices ?? []) {
+              const sid = symbolIdOfVertex(v);
+              if (sid) usedOnCanvas.add(sid);
+            }
+          } catch {
+            // model without canvas
+          }
+        }),
+      );
+    }
+
+    const orphans = allSymbols.filter((s) => !usedOnCanvas.has(s.symbolId));
+    const used = args.includeUsedOnCanvas
+      ? allSymbols.filter((s) => usedOnCanvas.has(s.symbolId))
+      : undefined;
+
+    return {
+      data: {
+        orphanCount: orphans.length,
+        orphans: orphans.slice(0, max),
+        truncated: orphans.length > max,
+        scannedModels: models.length,
+        scannedSymbols: allSymbols.length,
+        usedOnCanvasCount: usedOnCanvas.size,
+        ...(used
+          ? { usedOnCanvas: used.slice(0, max), usedTruncated: used.length > max }
+          : {}),
+        note: "Canvas-only; documents panel / breakdowns may still reference symbols",
+      },
+      methodologyNotes: [
+        "Orphans often include ZZ_UTGÅR leftovers after retarget/consolidation.",
+        "Filter with titlePrefix (e.g. ZZ_) before delete_model / cleanup.",
+        "Reuse-first: prefer search_symbols over creating when an orphan already matches the concept.",
+      ],
+      nextSuggestedTools: [
+        "search_symbols",
+        "find_symbol_usage",
+        "retarget_vertex_symbol",
+      ],
+    };
+  }
+
+  /**
    * Verify handoff BOs appear on both producer and consumer models
    * (same symbol UUID). Optionally checks FLOW I/O roles via detail scope.
+   *
+   * Accepts legacy `handoffs`, IMS `contract` (producer/consumer aliases),
+   * and/or `autoDiscover` (pairwise primary outputs ∩ inputs).
    */
   async verifyHandoffs(args: {
     repositoryId: string;
-    handoffs: Array<{
+    handoffs?: Array<{
       fromModelId: string;
       toModelId: string;
       symbolId?: string;
@@ -212,10 +329,151 @@ export class QualityService {
       /** When true (default), require symbol as from-output and to-input. */
       checkIo?: boolean;
     }>;
+    /** IMS handoff-contract alias: producer→from, consumer→to. */
+    contract?: Array<{
+      producerModelId: string;
+      consumerModelId: string;
+      symbolId?: string;
+      title?: string;
+      checkIo?: boolean;
+    }>;
+    /** Derive checks from primary outputs(A) ∩ inputs(B) for each ordered pair. */
+    autoDiscover?: {
+      modelIds: string[];
+      checkIo?: boolean;
+    };
   }) {
+    type HandoffCheck = {
+      fromModelId: string;
+      toModelId: string;
+      symbolId?: string;
+      title?: string;
+      checkIo?: boolean;
+      source?: "handoffs" | "contract" | "autoDiscover";
+    };
+
+    const normalized: HandoffCheck[] = [];
+    for (const h of args.handoffs ?? []) {
+      normalized.push({ ...h, source: "handoffs" });
+    }
+    for (const c of args.contract ?? []) {
+      normalized.push({
+        fromModelId: c.producerModelId,
+        toModelId: c.consumerModelId,
+        symbolId: c.symbolId,
+        title: c.title,
+        checkIo: c.checkIo,
+        source: "contract",
+      });
+    }
+
+    const discovered: Array<{
+      fromModelId: string;
+      toModelId: string;
+      symbolId: string;
+      title?: string;
+    }> = [];
+    const emptyIntersections: Array<{
+      fromModelId: string;
+      toModelId: string;
+      reason: string;
+    }> = [];
+
+    if (args.autoDiscover?.modelIds?.length) {
+      const ids = [...new Set(args.autoDiscover.modelIds)];
+      const checkIo = args.autoDiscover.checkIo;
+      const scopeCache = new Map<
+        string,
+        Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>> | null
+      >();
+      for (const id of ids) {
+        try {
+          scopeCache.set(
+            id,
+            await this.reader.getDetailProcessScope({
+              repositoryId: args.repositoryId,
+              modelId: id,
+            }),
+          );
+        } catch {
+          scopeCache.set(id, null);
+        }
+      }
+
+      for (const fromId of ids) {
+        for (const toId of ids) {
+          if (fromId === toId) continue;
+          const fromScope = scopeCache.get(fromId);
+          const toScope = scopeCache.get(toId);
+          if (!fromScope || !toScope) {
+            emptyIntersections.push({
+              fromModelId: fromId,
+              toModelId: toId,
+              reason: !fromScope
+                ? "producer scope unavailable"
+                : "consumer scope unavailable",
+            });
+            continue;
+          }
+          // Primary outputs only — overview/handoff spine (not secondaryOutputs).
+          const outById = new Map(
+            fromScope.outputs
+              .filter((o) => o.symbolId)
+              .map((o) => [o.symbolId!, o.title] as const),
+          );
+          const shared: Array<{ symbolId: string; title?: string }> = [];
+          for (const inp of toScope.inputs) {
+            if (!inp.symbolId || !outById.has(inp.symbolId)) continue;
+            shared.push({
+              symbolId: inp.symbolId,
+              title: inp.title ?? outById.get(inp.symbolId),
+            });
+          }
+          if (shared.length === 0) {
+            emptyIntersections.push({
+              fromModelId: fromId,
+              toModelId: toId,
+              reason: "no primary output ∩ input",
+            });
+            continue;
+          }
+          for (const s of shared) {
+            discovered.push({
+              fromModelId: fromId,
+              toModelId: toId,
+              symbolId: s.symbolId,
+              title: s.title,
+            });
+            // Dedupe against already queued explicit checks
+            const dup = normalized.some(
+              (n) =>
+                n.fromModelId === fromId &&
+                n.toModelId === toId &&
+                n.symbolId === s.symbolId,
+            );
+            if (dup) continue;
+            normalized.push({
+              fromModelId: fromId,
+              toModelId: toId,
+              symbolId: s.symbolId,
+              title: s.title,
+              checkIo: checkIo !== false,
+              source: "autoDiscover",
+            });
+          }
+        }
+      }
+    }
+
+    if (normalized.length === 0) {
+      throw new Error(
+        "verify_handoffs requires handoffs[], contract[], and/or autoDiscover.modelIds that yield at least one check",
+      );
+    }
+
     const results: Array<Record<string, unknown>> = [];
 
-    for (const h of args.handoffs) {
+    for (const h of normalized) {
       let symbolId = h.symbolId;
       let title = h.title;
       if (!symbolId && title) {
@@ -238,7 +496,11 @@ export class QualityService {
       }
       if (!symbolId) {
         results.push({
-          ...h,
+          fromModelId: h.fromModelId,
+          toModelId: h.toModelId,
+          symbolId: h.symbolId,
+          title: h.title,
+          source: h.source,
           pass: false,
           error: "Could not resolve symbolId or title",
         });
@@ -261,8 +523,6 @@ export class QualityService {
       const usageCount = usage.usages?.length ?? 0;
 
       let ioOk: boolean | undefined;
-      let fromOutputs: string[] = [];
-      let toInputs: string[] = [];
       if (h.checkIo !== false) {
         try {
           const fromScope = await this.reader.getDetailProcessScope({
@@ -273,13 +533,13 @@ export class QualityService {
             repositoryId: args.repositoryId,
             modelId: h.toModelId,
           });
-          fromOutputs = [
+          const fromOutputs = [
             ...fromScope.outputs,
             ...fromScope.secondaryOutputs,
           ]
             .map((o) => o.symbolId)
             .filter((x): x is string => Boolean(x));
-          toInputs = toScope.inputs
+          const toInputs = toScope.inputs
             .map((i) => i.symbolId)
             .filter((x): x is string => Boolean(x));
           ioOk =
@@ -291,6 +551,7 @@ export class QualityService {
             toModelId: h.toModelId,
             symbolId,
             title: title ?? usage.symbol?.title,
+            source: h.source,
             onFrom,
             onTo,
             usageCount,
@@ -308,6 +569,7 @@ export class QualityService {
         toModelId: h.toModelId,
         symbolId,
         title: title ?? usage.symbol?.title,
+        source: h.source,
         onFrom,
         onTo,
         usageCount,
@@ -323,15 +585,26 @@ export class QualityService {
         passCount,
         total: results.length,
         allPass: passCount === results.length,
+        ...(discovered.length || emptyIntersections.length
+          ? {
+              autoDiscover: {
+                discoveredCount: discovered.length,
+                discovered,
+                emptyIntersections,
+              },
+            }
+          : {}),
       },
       methodologyNotes: [
         "Handoff = same business-object UUID on producer and consumer — never 'similar title'.",
         "ioOk checks from-model primary/secondary outputs and to-model inputs via get_detail_process_scope.",
+        "contract[] is an IMS alias (producerModelId/consumerModelId). autoDiscover uses primary outputs ∩ inputs only.",
       ],
       nextSuggestedTools: [
         "search_symbols",
         "set_step_io",
         "get_detail_process_scope",
+        "list_orphan_symbols",
       ],
     };
   }

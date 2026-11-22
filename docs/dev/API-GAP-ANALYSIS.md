@@ -72,6 +72,10 @@ fortfarande medvetet utanför fas 1.
 - `set_activity_controls` (CONTROLS ovanför aktivitet)
 - `retarget_vertex_symbol` skickar label bounds via `placeVertex` (fix 400 Label bounds)
 
+### Tillagt efter S2 (P0 quality, 2026-11-22)
+- `list_orphan_symbols` (canvas-diff; `titlePrefix` t.ex. ZZ_)
+- `verify_handoffs` utökad: `contract[]` + `autoDiscover.modelIds` (primary out ∩ in)
+
 ### Relevanta men ofullständiga
 - Model/symbol/vertex **properties** (provider/key) — ej egna verktyg
 - Symbol **versions** list/get

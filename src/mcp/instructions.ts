@@ -42,7 +42,7 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 22. get_detail_process_scope outputs = primary (main-path) terminals; secondaryOutputs = branch ends. Overview handoffs use primary only. Side loops need FLOW in from a state BO, not full spine I/O.
 23. Vägval layout: Ja continues on spine to the next **real** activity; Nej/side targets are real activities BELOW the or — never invent post-vägval filler steps. Never draw or→activity edges that cross through spine objects. Never vägval→BO; never BO→BO; never BO→activity while that BO also feeds a vägval.
 24. Languages: call list_languages once; any languageId works for writes — the server also writes label bounds/titles for the repo default language. Prefer the language that matches the text you are writing (e.g. Swedish text → Swedish languageId).
-25. Quality gates (large builds): **verify_handoffs** for shared BO UUIDs between models; **get_navigation_tree** for L0→… and missing upward links (prefer over get_breakdowns on overviews); **verify_process_coverage** for process-register rows → models; **create_document_type** before mass link_document when types are empty.
+25. Quality gates (large builds): **verify_handoffs** (contract[] and/or autoDiscover.modelIds) for shared BO UUIDs; **list_orphan_symbols** (e.g. titlePrefix ZZ_) before area close; **get_navigation_tree** for L0→… and missing upward links (prefer over get_breakdowns on overviews); **verify_process_coverage** for process-register rows → models; **create_document_type** before mass link_document when types are empty.
 26. link_breakdown immediately after each non-root model is created — do not defer to final Q4.
 
 ## Suggested workflows
@@ -55,8 +55,8 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 - Process map: get_methodology process-map → get_detail_process_scope → create_process_map({ detailModelIds }) → describe_process_map(detailModelIds) → **review_process_model(detailModelIds)** before done
 - Document-to-model: propose_model_from_document → same path
 - New sandbox repo: create_repository → list_languages → create_document_type (if empty) → text-to-model
-- Close an area: review_process_model → list_untranslated_symbols → link_breakdown → verify_handoffs for that area → update STATE
-- Consolidation: get_navigation_tree + verify_process_coverage + verify_handoffs (full handoff contract)
+- Close an area: review_process_model → list_untranslated_symbols → list_orphan_symbols → link_breakdown → verify_handoffs(contract|autoDiscover) → update STATE
+- Consolidation: get_navigation_tree + verify_process_coverage + verify_handoffs (contract / autoDiscover)
 
 ## Consume tips
 - get_process_flow includes titles and grouped relations — do not N+1 fetch for titles.

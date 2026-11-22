@@ -22,7 +22,8 @@ Använd dessa efter varje modell och inför stängning av område / IMS.
 
 ## Handoffs och coverage
 
-- `verify_handoffs` — samma BO-UUID på producent och konsument  
+- `verify_handoffs` — samma BO-UUID på producent och konsument (`handoffs[]`, `contract[]`, och/eller `autoDiscover.modelIds`)  
+- `list_orphan_symbols` — canvas-orphans (t.ex. `titlePrefix: "ZZ_"`) inför stängning  
 - `verify_process_coverage` — processregisterrader → modeller (+ reachability från L0)
 
 ## Område / IMS
