@@ -58,7 +58,7 @@ export function resolveBranchingObjectType(ask: string): BranchingResolveResult 
       methodologyNameSv: null,
       methodologyNameEn: null,
       answer:
-        "Använd INTE Join/Förbinda. Det symbolen ska aldrig skapas. För vägval (exklusivt val) använd objectType \"or\" (Regel Eller). För parallell split använd objectType \"and\" (Regel Och).",
+        'Använd INTE Join/Förbinda. Det symbolen ska aldrig skapas. För vägval (exklusivt val) använd objectType "or" (Regel Eller). För parallell split använd objectType "and" (Regel Och).',
       naming: null,
       edgeLabels: null,
       neverUse: ["join", "förbinda", "forbinda", "gateway"],
@@ -96,11 +96,7 @@ export function resolveBranchingObjectType(ask: string): BranchingResolveResult 
         methodologyNameSv: "Regel (Eller)",
         when: "När exakt en gren ska fortsätta (vägval / exclusive choice)",
       },
-      nextSuggestedTools: [
-        "add_process_step",
-        "propose_model_from_text",
-        "create_canvas_edge",
-      ],
+      nextSuggestedTools: ["add_process_step", "propose_model_from_text", "create_canvas_edge"],
     };
   }
 

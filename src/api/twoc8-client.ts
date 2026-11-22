@@ -59,12 +59,7 @@ export class TwoC8Client {
     const response = await fetch(url, init);
     const text = await response.text();
     if (!response.ok) {
-      throw new TwoC8ApiError(
-        response.status,
-        text || response.statusText,
-        method,
-        path,
-      );
+      throw new TwoC8ApiError(response.status, text || response.statusText, method, path);
     }
 
     // Empty HTTP 200/204 is success for many PATCH/DELETE endpoints.

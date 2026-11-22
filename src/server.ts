@@ -5,10 +5,10 @@ import { DocumentsService } from "./domain/documents.js";
 import { ProcessReader } from "./domain/process-reader.js";
 import { ProcessWriter } from "./domain/process-writer.js";
 import { QualityService } from "./domain/quality.js";
-import { loadMethodologyPack } from "./methodology/loader.js";
 import { SERVER_INSTRUCTIONS } from "./mcp/instructions.js";
 import { registerMethodologyPrompts } from "./mcp/prompts.js";
 import { registerMethodologyResources } from "./mcp/resources.js";
+import { loadMethodologyPack } from "./methodology/loader.js";
 import type { ToolContext } from "./tools/context.js";
 import { registerAllTools } from "./tools/index.js";
 

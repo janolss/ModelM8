@@ -1,19 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import {
+  type ModelProposal,
   normalizeProposal,
   proposeModelFromDocument,
   proposeModelFromText,
-  type ModelProposal,
 } from "../domain/proposals.js";
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
-import {
-  languageId,
-  permissionGroupHeader,
-  repositoryId,
-  uuid,
-} from "./schemas.js";
+import { languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
 
 const proposedStepSchema = z.object({
   title: z.string(),
@@ -45,9 +40,7 @@ const branchSchema = z.object({
   fromTitle: z.string().describe("Vägval / gateway / decision title"),
   label: z.string().optional().describe("FLOW edge label, e.g. Ja / Nej"),
   toTitle: z.string(),
-  toKind: z
-    .enum(["businessObject", "activity", "gateway", "and", "process"])
-    .optional(),
+  toKind: z.enum(["businessObject", "activity", "gateway", "and", "process"]).optional(),
   objectType: z.string().optional(),
 });
 
@@ -76,10 +69,7 @@ const proposalSchema = z.object({
   nextSuggestedTools: z.array(z.string()).optional(),
 });
 
-export function registerProposeTools(
-  server: McpServer,
-  ctx: ToolContext,
-): void {
+export function registerProposeTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "propose_model_from_text",
     {
@@ -91,9 +81,7 @@ export function registerProposeTools(
       },
     },
     async ({ text, modelType }) =>
-      runTool(async () =>
-        proposeModelFromText(ctx.pack, text, modelType ?? "process"),
-      ),
+      runTool(async () => proposeModelFromText(ctx.pack, text, modelType ?? "process")),
   );
 
   server.registerTool(
@@ -107,8 +95,7 @@ export function registerProposeTools(
         sourceUrl: z.string().optional(),
       },
     },
-    async (args) =>
-      runTool(async () => proposeModelFromDocument(ctx.pack, args)),
+    async (args) => runTool(async () => proposeModelFromDocument(ctx.pack, args)),
   );
 
   server.registerTool(
@@ -125,8 +112,7 @@ export function registerProposeTools(
         title: z.string().optional().describe("Suggested overview title"),
       },
     },
-    async (args) =>
-      runTool(() => ctx.reader.proposeProcessMapFromModels(args)),
+    async (args) => runTool(() => ctx.reader.proposeProcessMapFromModels(args)),
   );
 
   server.registerTool(
@@ -148,8 +134,7 @@ export function registerProposeTools(
           .min(1),
       },
     },
-    async (args) =>
-      runTool(() => ctx.reader.validateProcessMapBoBridges(args)),
+    async (args) => runTool(() => ctx.reader.validateProcessMapBoBridges(args)),
   );
 
   if (ctx.writer) {
@@ -162,9 +147,7 @@ export function registerProposeTools(
           repositoryId,
           languageId,
           proposal: proposalSchema,
-          modelId: uuid
-            .optional()
-            .describe("Existing model to append to; otherwise creates new"),
+          modelId: uuid.optional().describe("Existing model to append to; otherwise creates new"),
           permissionGroup: permissionGroupHeader,
           owner: uuid.optional(),
           group: uuid.optional(),

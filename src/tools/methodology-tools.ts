@@ -11,15 +11,12 @@ import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { repositoryId } from "./schemas.js";
 
-export function registerMethodologyTools(
-  server: McpServer,
-  ctx: ToolContext,
-): void {
+export function registerMethodologyTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "resolve_branching_object_type",
     {
       description:
-        "REQUIRED before creating a branch/choice symbol. Translates agent jargon (gateway, vägval, decision, xor, parallel, …) into the real 2c8 methodology object type. 2c8 has NO gateway type — exclusive choice = Regel (Eller) objectType \"or\"; parallel = Regel (Och) objectType \"and\". Join is forbidden. Pass ask (or query) e.g. {\"ask\":\"gateway\"} or {\"query\":\"gateway\"}.",
+        'REQUIRED before creating a branch/choice symbol. Translates agent jargon (gateway, vägval, decision, xor, parallel, …) into the real 2c8 methodology object type. 2c8 has NO gateway type — exclusive choice = Regel (Eller) objectType "or"; parallel = Regel (Och) objectType "and". Join is forbidden. Pass ask (or query) e.g. {"ask":"gateway"} or {"query":"gateway"}.',
       inputSchema: {
         ask: z
           .string()
@@ -33,11 +30,7 @@ export function registerMethodologyTools(
           .min(1)
           .optional()
           .describe("Alias for ask — many agents send query instead of ask"),
-        topic: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Alias for ask"),
+        topic: z.string().min(1).optional().describe("Alias for ask"),
       },
     },
     async (args) =>
@@ -73,8 +66,7 @@ export function registerMethodologyTools(
           ),
       },
     },
-    async ({ topic }) =>
-      runTool(async () => getMethodologyTopic(ctx.pack, topic)),
+    async ({ topic }) => runTool(async () => getMethodologyTopic(ctx.pack, topic)),
   );
 
   server.registerTool(
@@ -99,19 +91,11 @@ export function registerMethodologyTools(
           fromConfiguration: Boolean(config),
           allowed: extracted,
           methodologyPhase1: {
-            modelTypes: ctx.pack.modelTypes
-              .filter((m) => m.phase1)
-              .map((m) => m.id),
-            objectTypes: ctx.pack.objectTypes
-              .filter((o) => o.phase1)
-              .map((o) => o.id),
+            modelTypes: ctx.pack.modelTypes.filter((m) => m.phase1).map((m) => m.id),
+            objectTypes: ctx.pack.objectTypes.filter((o) => o.phase1).map((o) => o.id),
           },
           ...(includeRawConfig ? { rawConfiguration: config } : {}),
-          nextSuggestedTools: [
-            "get_methodology",
-            "validate_against_methodology",
-            "find_models",
-          ],
+          nextSuggestedTools: ["get_methodology", "validate_against_methodology", "find_models"],
         };
       }),
   );
@@ -135,9 +119,7 @@ export function registerMethodologyTools(
     },
     async ({ repositoryId: id, objectType, title, previousActivityTitle }) =>
       runTool(async () => {
-        const repoConfig = id
-          ? await loadRepoConfiguration(ctx.client, id)
-          : null;
+        const repoConfig = id ? await loadRepoConfiguration(ctx.client, id) : null;
         const result = validateProposedSymbol(ctx.pack, {
           objectType,
           title,

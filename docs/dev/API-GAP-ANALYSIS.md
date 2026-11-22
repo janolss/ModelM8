@@ -38,7 +38,7 @@ fortfarande medvetet utanför fas 1.
 |--------|--------|
 | Repository configuration | `list_allowed_types` → `GET …/configuration` |
 | Breakdowns | `get_breakdowns`, `create_breakdown` |
-| Documents / roots / types / sources | list + `link_document` (mt-documents + symbol.documents) |
+| Documents / roots / types / sources | list + `link_document` + `create_document_root` / `create_document_type` |
 | Matrices | `get_matrices`, `get_matrix`, `execute_matrix` |
 | Relations execute | `execute_relation` |
 | Lists get-by-id | `get_list` |
@@ -53,7 +53,8 @@ fortfarande medvetet utanför fas 1.
 | `search_symbols` / `reuse_symbol` | symbols + canvas/vertices |
 | `add_process_step` | symbols + vertices + edges |
 | `set_activity_performer` / `set_step_io` | vertices + edges |
-| `link_document` | mt-documents + PATCH symbol |
+| `link_document` | mt-documents (+ optional `prefix`=root key) + PATCH symbol |
+| `create_document_root` | `POST …/document-roots` (`key`, `value`, `titles`) |
 | `propose_*` / `apply_model_proposal` | narrativ propose + batch write (symbols/vertices/edges: flow, raciresponsible, controls, isusedby) |
 | `create_repository` | `POST /api/v1/repositories` |
 | `create_canvas_edge` | `POST …/canvas/edges` |
@@ -66,6 +67,28 @@ fortfarande medvetet utanför fas 1.
 - `create_document_type`, `retarget_vertex_symbol`
 - `move_canvas_vertices` auto-reorthogonalize; empty HTTP 200 → `{ ok: true }`
 - `get_breakdowns` 404→tom + pekar på navigation tree
+
+### Tillagt efter S1 (P0 write-helpers, 2026-11-22)
+- `set_activity_used_by` (IS_USED_BY under aktivitet)
+- `set_activity_controls` (CONTROLS ovanför aktivitet)
+- `retarget_vertex_symbol` skickar label bounds via `placeVertex` (fix 400 Label bounds)
+
+### Tillagt efter S2 (P0 quality, 2026-11-22)
+- `list_orphan_symbols` (canvas-diff; `titlePrefix` t.ex. ZZ_)
+- `verify_handoffs` utökad: `contract[]` + `autoDiscover.modelIds` (primary out ∩ in)
+
+### Tillagt efter S3 (P1 spårbarhet, 2026-11-22)
+- `get_model_descriptions` / `get_symbol_descriptions`
+- `create_description_type`
+- `delete_breakdown` (länk only; writes, ej ALLOW_DELETES)
+- `unlink_document` (symbol.documents subtract)
+
+### Tillagt efter S4 (P2 produktion, 2026-11-22)
+- Properties read: `get_symbol_properties`, `get_model_properties`, `get_vertex_properties` (GET only)
+- Versions: `list_model_versions`, `get_model_version`, `create_model_version`, `update_model_version`, `list_symbol_versions`
+- Layers: `list_layers`, `create_layer`, `delete_layer`
+- `update_swimlane_settings` (PATCH canvas.swimlaneSettings)
+- `create_process_map` layout `threeBand` (ledning/kärna/stöd)
 
 ### Relevanta men ofullständiga
 - Model/symbol/vertex **properties** (provider/key) — ej egna verktyg

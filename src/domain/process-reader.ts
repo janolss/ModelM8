@@ -10,17 +10,14 @@ import type {
   SymbolView,
   VertexView,
 } from "../api/types.js";
-import {
-  extractQuickdrawDistance,
-  loadRepoConfiguration,
-} from "../methodology/rules-engine.js";
-import { pickTitle, titleMatches } from "../util/titles.js";
+import { extractQuickdrawDistance, loadRepoConfiguration } from "../methodology/rules-engine.js";
 import {
   GATEWAY_SEARCH_HINT,
   isForbiddenJoinType,
   isGatewayAlias,
   matchesObjectTypeFilter,
 } from "../util/object-types.js";
+import { pickTitle, titleMatches } from "../util/titles.js";
 import { reviewProcessCanvas } from "./process-review.js";
 
 const PROCESS_TYPE_HINTS = ["process", "swimlane", "simbane"];
@@ -55,12 +52,7 @@ const DECISION_TYPES = new Set([
   "vagval",
 ]);
 
-const APPLICATION_TYPES = new Set([
-  "application",
-  "applikation",
-  "it",
-  "system",
-]);
+const APPLICATION_TYPES = new Set(["application", "applikation", "it", "system"]);
 
 const BUSINESS_OBJECT_TYPES = new Set([
   "businessobject",
@@ -79,12 +71,7 @@ const RESPONSIBLE_EDGE_TYPES = new Set([
   "performs",
   "utför",
 ]);
-const APPLICATION_EDGE_TYPES = new Set([
-  "is_used_by",
-  "uses",
-  "used_by",
-  "application",
-]);
+const APPLICATION_EDGE_TYPES = new Set(["is_used_by", "uses", "used_by", "application"]);
 const CONTROLS_EDGE_TYPES = new Set(["controls", "control", "styr"]);
 
 function isProcessLike(modelType: string | undefined): boolean {
@@ -120,9 +107,7 @@ function titleOf(vertex: VertexView): string | undefined {
   // Canvas returns titles on labels; vertices?projection=ALL expands symbol.titles
   return (
     pickTitle(vertex.labels) ??
-    pickTitle(
-      typeof vertex.symbol === "object" ? vertex.symbol?.titles : undefined,
-    ) ??
+    pickTitle(typeof vertex.symbol === "object" ? vertex.symbol?.titles : undefined) ??
     pickTitle((vertex as { titles?: VertexView["labels"] }).titles)
   );
 }
@@ -193,9 +178,7 @@ export class ProcessReader {
           startAt: String(cursor),
           maxResults: String(Math.min(100, pageSize)),
           projection: "ALL",
-          ...(args.query
-            ? { filter: toWildcardFilter(args.query), filterFields: "titles" }
-            : {}),
+          ...(args.query ? { filter: toWildcardFilter(args.query), filterFields: "titles" } : {}),
         },
       });
       apiTotal = page.total;
@@ -207,9 +190,7 @@ export class ProcessReader {
       let filtered = batch;
       if (args.modelType) {
         const mt = args.modelType.toLowerCase();
-        filtered = filtered.filter((m) =>
-          (m.modelType ?? "").toLowerCase().includes(mt),
-        );
+        filtered = filtered.filter((m) => (m.modelType ?? "").toLowerCase().includes(mt));
       } else {
         filtered = filtered.filter((m) => isProcessLike(m.modelType));
       }
@@ -320,9 +301,7 @@ export class ProcessReader {
 
     const vertices = canvas.vertices ?? [];
     const edges = canvas.edges ?? [];
-    const byId = new Map(
-      vertices.filter((v) => v.uuid).map((v) => [v.uuid!, v]),
-    );
+    const byId = new Map(vertices.filter((v) => v.uuid).map((v) => [v.uuid!, v]));
 
     const outgoing = new Map<string, EdgeView[]>();
     const incoming = new Map<string, EdgeView[]>();
@@ -374,16 +353,10 @@ export class ProcessReader {
         return "flow";
       }
       // Heuristic fallback from endpoint types
-      if (
-        RESPONSIBILITY_TYPES.has(normType(fromOt)) ||
-        RESPONSIBILITY_TYPES.has(normType(toOt))
-      ) {
+      if (RESPONSIBILITY_TYPES.has(normType(fromOt)) || RESPONSIBILITY_TYPES.has(normType(toOt))) {
         return "responsible";
       }
-      if (
-        APPLICATION_TYPES.has(normType(fromOt)) ||
-        APPLICATION_TYPES.has(normType(toOt))
-      ) {
+      if (APPLICATION_TYPES.has(normType(fromOt)) || APPLICATION_TYPES.has(normType(toOt))) {
         return "application";
       }
       return "other";
@@ -483,9 +456,7 @@ export class ProcessReader {
     };
 
     // Order: left-to-right by x, with flow-chain walk as secondary preference
-    const starts = vertices.filter(
-      (v) => v.uuid && !(incoming.get(v.uuid)?.length),
-    );
+    const starts = vertices.filter((v) => v.uuid && !incoming.get(v.uuid)?.length);
     const orderedIds: string[] = [];
     const visited = new Set<string>();
     const queue = [
@@ -506,14 +477,9 @@ export class ProcessReader {
         visited.add(current);
         orderedIds.push(current);
         const flowNext = (outgoing.get(current) ?? [])
-          .filter((e) =>
-            FLOW_EDGE_TYPES.has(normType(e.edgeType)) || !e.edgeType,
-          )
+          .filter((e) => FLOW_EDGE_TYPES.has(normType(e.edgeType)) || !e.edgeType)
           .map((e) => e.toVertex)
-          .filter(
-            (id): id is string =>
-              typeof id === "string" && id.length > 0 && !visited.has(id),
-          )
+          .filter((id): id is string => typeof id === "string" && id.length > 0 && !visited.has(id))
           .sort((a, b) => (byId.get(a)?.x ?? 0) - (byId.get(b)?.x ?? 0));
         current = flowNext[0];
       }
@@ -548,10 +514,7 @@ export class ProcessReader {
     };
   }
 
-  private async enrichDocuments(
-    repositoryId: string,
-    steps: FlowStep[],
-  ): Promise<FlowStep[]> {
+  private async enrichDocuments(repositoryId: string, steps: FlowStep[]): Promise<FlowStep[]> {
     const needDocs = steps.filter((s) => s.hasDocument && s.symbolId);
     if (needDocs.length === 0) {
       return steps;
@@ -559,13 +522,9 @@ export class ProcessReader {
 
     const symbols = await this.resolveSymbols({
       repositoryId,
-      symbolIds: [
-        ...new Set(needDocs.map((s) => s.symbolId!).filter(Boolean)),
-      ],
+      symbolIds: [...new Set(needDocs.map((s) => s.symbolId!).filter(Boolean))],
     });
-    const byId = new Map(
-      symbols.symbols.map((s) => [s.uuid as string, s] as const),
-    );
+    const byId = new Map(symbols.symbols.map((s) => [s.uuid as string, s] as const));
 
     return steps.map((step) => {
       if (!step.hasDocument || !step.symbolId) {
@@ -594,22 +553,13 @@ export class ProcessReader {
     ]);
 
     const steps = flow.steps;
-    const activities = steps.filter((s) =>
-      ACTIVITY_TYPES.has(normType(s.objectType)),
-    );
-    const businessObjects = steps.filter((s) =>
-      BUSINESS_OBJECT_TYPES.has(normType(s.objectType)),
-    );
-    const decisions = steps.filter((s) =>
-      DECISION_TYPES.has(normType(s.objectType)),
-    );
+    const activities = steps.filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)));
+    const businessObjects = steps.filter((s) => BUSINESS_OBJECT_TYPES.has(normType(s.objectType)));
+    const decisions = steps.filter((s) => DECISION_TYPES.has(normType(s.objectType)));
 
     // Start inputs: business objects not produced by an in-model activity
     const processInputs = businessObjects.filter(
-      (bo) =>
-        !(bo.inputs ?? []).some((i) =>
-          ACTIVITY_TYPES.has(normType(i.objectType)),
-        ),
+      (bo) => !(bo.inputs ?? []).some((i) => ACTIVITY_TYPES.has(normType(i.objectType))),
     );
 
     /** FLOW peer that continues the value stream (not a terminal leaf). */
@@ -638,12 +588,8 @@ export class ProcessReader {
       .slice()
       .sort((a, b) => (b.x ?? 0) - (a.x ?? 0) || (a.y ?? 0) - (b.y ?? 0));
     const primaryX = sortedTerminals[0]?.x ?? 0;
-    const processOutputs = sortedTerminals.filter(
-      (bo) => Math.abs((bo.x ?? 0) - primaryX) < 40,
-    );
-    const secondaryOutputs = sortedTerminals.filter(
-      (bo) => Math.abs((bo.x ?? 0) - primaryX) >= 40,
-    );
+    const processOutputs = sortedTerminals.filter((bo) => Math.abs((bo.x ?? 0) - primaryX) < 40);
+    const secondaryOutputs = sortedTerminals.filter((bo) => Math.abs((bo.x ?? 0) - primaryX) >= 40);
 
     const narrativeSteps = activities
       .slice()
@@ -699,7 +645,10 @@ export class ProcessReader {
     summaryLines.push(`${modelTitle}:`);
     if (processInputs.length) {
       summaryLines.push(
-        `Indata: ${processInputs.map((i) => i.title).filter(Boolean).join("; ")}.`,
+        `Indata: ${processInputs
+          .map((i) => i.title)
+          .filter(Boolean)
+          .join("; ")}.`,
       );
     }
     for (const step of narrativeSteps) {
@@ -719,18 +668,23 @@ export class ProcessReader {
       summaryLines.push(`- ${parts.join(" ")}`);
     }
     for (const d of decisionNarrative) {
-      const branches =
-        d.branches.length > 0 ? ` → ${d.branches.join(" | ")}` : "";
+      const branches = d.branches.length > 0 ? ` → ${d.branches.join(" | ")}` : "";
       summaryLines.push(`- Vägval: ${d.title ?? "(utan titel)"}${branches}`);
     }
     if (processOutputs.length) {
       summaryLines.push(
-        `Slutresultat: ${processOutputs.map((o) => o.title).filter(Boolean).join("; ")}.`,
+        `Slutresultat: ${processOutputs
+          .map((o) => o.title)
+          .filter(Boolean)
+          .join("; ")}.`,
       );
     }
     if (secondaryOutputs.length) {
       summaryLines.push(
-        `Sidogren-resultat: ${secondaryOutputs.map((o) => o.title).filter(Boolean).join("; ")}.`,
+        `Sidogren-resultat: ${secondaryOutputs
+          .map((o) => o.title)
+          .filter(Boolean)
+          .join("; ")}.`,
       );
     }
 
@@ -805,12 +759,8 @@ export class ProcessReader {
       loadRepoConfiguration(this.client, args.repositoryId),
     ]);
 
-    const activities = flow.steps.filter((s) =>
-      ACTIVITY_TYPES.has(normType(s.objectType)),
-    );
-    const processes = flow.steps.filter((s) =>
-      PROCESS_OBJECT_TYPES.has(normType(s.objectType)),
-    );
+    const activities = flow.steps.filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)));
+    const processes = flow.steps.filter((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)));
     const modelKind =
       activities.length === 0 && processes.length > 0
         ? "process-map"
@@ -838,8 +788,7 @@ export class ProcessReader {
         severity: "error",
         category: "methodology",
         message,
-        suggestion:
-          "Fix detail I/O handoffs or rebuild with create_process_map(detailModelIds).",
+        suggestion: "Fix detail I/O handoffs or rebuild with create_process_map(detailModelIds).",
       }));
     }
 
@@ -852,9 +801,7 @@ export class ProcessReader {
     const summaryLines = [
       `${flow.modelTitle ?? "Modell"} — granskning (${modelKind}):`,
       `${errorCount} error(s), ${warningCount} warning(s), ${infoCount} info.`,
-      ...findings
-        .slice(0, 50)
-        .map((f) => `- [${f.severity}/${f.category}] ${f.message}`),
+      ...findings.slice(0, 50).map((f) => `- [${f.severity}/${f.category}] ${f.message}`),
     ];
     if (findings.length > 50) {
       summaryLines.push(`… och ${findings.length - 50} till.`);
@@ -909,21 +856,15 @@ export class ProcessReader {
       .filter((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)))
       .slice()
       .sort((a, b) => (a.x ?? 0) - (b.x ?? 0) || (a.y ?? 0) - (b.y ?? 0));
-    const businessObjects = steps.filter((s) =>
-      BUSINESS_OBJECT_TYPES.has(normType(s.objectType)),
-    );
+    const businessObjects = steps.filter((s) => BUSINESS_OBJECT_TYPES.has(normType(s.objectType)));
 
     // Spine midY from BOs (stable) — never average in side-loop processes
-    const boMids = businessObjects.map(
-      (b) => (b.y ?? 0) + (b.height ?? 18) / 2,
-    );
+    const boMids = businessObjects.map((b) => (b.y ?? 0) + (b.height ?? 18) / 2);
     const spineMidY =
       boMids.length > 0
         ? boMids.reduce((s, m) => s + m, 0) / boMids.length
         : processes.length > 0
-          ? Math.min(
-              ...processes.map((p) => (p.y ?? 0) + (p.height ?? 50) / 2),
-            )
+          ? Math.min(...processes.map((p) => (p.y ?? 0) + (p.height ?? 50) / 2))
           : 178;
 
     const mainProcesses = processes.filter((p) => {
@@ -964,14 +905,10 @@ export class ProcessReader {
     }
 
     // Order main chain left-to-right mixing primary BO and process by x
-    const spine = [...primaryBosByColumn, ...mainProcesses].sort(
-      (a, b) => (a.x ?? 0) - (b.x ?? 0),
-    );
+    const spine = [...primaryBosByColumn, ...mainProcesses].sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
 
     const chainNarrative = spine.map((s) => ({
-      kind: PROCESS_OBJECT_TYPES.has(normType(s.objectType))
-        ? "process"
-        : "businessObject",
+      kind: PROCESS_OBJECT_TYPES.has(normType(s.objectType)) ? "process" : "businessObject",
       title: s.title,
       symbolId: s.symbolId,
       vertexId: s.vertexId,
@@ -979,13 +916,10 @@ export class ProcessReader {
     }));
 
     const sideLoopNarrative = sideLoops.map((p) => {
-      const linkedBos = [
-        ...(p.inputs ?? []),
-        ...(p.outputs ?? []),
-      ].filter((x) => BUSINESS_OBJECT_TYPES.has(normType(x.objectType)));
-      const boTitles = [
-        ...new Set(linkedBos.map((b) => b.title).filter(Boolean)),
-      ];
+      const linkedBos = [...(p.inputs ?? []), ...(p.outputs ?? [])].filter((x) =>
+        BUSINESS_OBJECT_TYPES.has(normType(x.objectType)),
+      );
+      const boTitles = [...new Set(linkedBos.map((b) => b.title).filter(Boolean))];
       return {
         title: p.title,
         symbolId: p.symbolId,
@@ -998,8 +932,7 @@ export class ProcessReader {
     let breakdowns = breakdownsResult.breakdowns;
     if (
       args.detailModelIds?.length &&
-      (!Array.isArray(breakdowns) ||
-        (breakdowns as unknown[]).length === 0)
+      (!Array.isArray(breakdowns) || (breakdowns as unknown[]).length === 0)
     ) {
       const resolved: unknown[] = [];
       for (const detailId of args.detailModelIds) {
@@ -1008,9 +941,7 @@ export class ProcessReader {
             repositoryId: args.repositoryId,
             modelId: detailId,
           });
-          const list = Array.isArray(page.breakdowns)
-            ? page.breakdowns
-            : [];
+          const list = Array.isArray(page.breakdowns) ? page.breakdowns : [];
           for (const b of list as unknown[]) {
             resolved.push({ detailModelId: detailId, breakdown: b });
           }
@@ -1021,13 +952,10 @@ export class ProcessReader {
       breakdowns = resolved;
     }
 
-    const modelTitle =
-      flow.modelTitle ?? (overview.title as string) ?? "Processkarta";
+    const modelTitle = flow.modelTitle ?? (overview.title as string) ?? "Processkarta";
     const summaryLines: string[] = [`${modelTitle} (processkarta):`];
     if (chainNarrative.length) {
-      summaryLines.push(
-        `Huvudkedja: ${chainNarrative.map((n) => n.title).join(" → ")}.`,
-      );
+      summaryLines.push(`Huvudkedja: ${chainNarrative.map((n) => n.title).join(" → ")}.`);
     }
     for (const p of mainProcesses) {
       const inputs = (p.inputs ?? [])
@@ -1052,9 +980,7 @@ export class ProcessReader {
     let scopeViolations: string[] = [];
     let scopeChecks: Array<Record<string, unknown>> = [];
     if (args.detailModelIds?.length) {
-      const orderedProcesses = mainProcesses.slice().sort(
-        (a, b) => (a.x ?? 0) - (b.x ?? 0),
-      );
+      const orderedProcesses = mainProcesses.slice().sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
       const chainForValidation: Array<{
         kind: "businessObject" | "process";
         title: string;
@@ -1064,15 +990,12 @@ export class ProcessReader {
       // Rebuild approximate spine with detail ids by process index
       for (const s of spine) {
         if (PROCESS_OBJECT_TYPES.has(normType(s.objectType))) {
-          const idx = orderedProcesses.findIndex(
-            (p) => p.vertexId === s.vertexId,
-          );
+          const idx = orderedProcesses.findIndex((p) => p.vertexId === s.vertexId);
           chainForValidation.push({
             kind: "process",
             title: s.title ?? "",
             symbolId: s.symbolId,
-            detailModelId:
-              idx >= 0 ? args.detailModelIds[idx] : undefined,
+            detailModelId: idx >= 0 ? args.detailModelIds[idx] : undefined,
           });
         } else {
           chainForValidation.push({
@@ -1094,9 +1017,7 @@ export class ProcessReader {
           summaryLines.push(`- ${e}`);
         }
       } else {
-        summaryLines.push(
-          "Scope OK: overview I/O matches provided detail models.",
-        );
+        summaryLines.push("Scope OK: overview I/O matches provided detail models.");
       }
     }
 
@@ -1150,9 +1071,7 @@ export class ProcessReader {
   }): Promise<Record<string, unknown>> {
     const flow = await this.getFlow(args);
     const steps = flow.steps;
-    const performers = steps.filter((s) =>
-      RESPONSIBILITY_TYPES.has(normType(s.objectType)),
-    );
+    const performers = steps.filter((s) => RESPONSIBILITY_TYPES.has(normType(s.objectType)));
     const activities = steps
       .filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)))
       .map((a) => ({
@@ -1175,9 +1094,7 @@ export class ProcessReader {
       assignments: activities.map((a) => ({
         activity: a.title,
         responsible: (a.responsible ?? []).map((r) => r.title).filter(Boolean),
-        applications: (a.applications ?? [])
-          .map((r) => r.title)
-          .filter(Boolean),
+        applications: (a.applications ?? []).map((r) => r.title).filter(Boolean),
       })),
       swimlaneSettings: flow.swimlaneSettings,
       methodologyNotes: [
@@ -1237,10 +1154,7 @@ export class ProcessReader {
    * Canonical scope of a detail process model: its process chevron + FLOW inputs/outputs.
    * Overview maps must reuse these same BO symbols — never invent overview-only I/O.
    */
-  async getDetailProcessScope(args: {
-    repositoryId: string;
-    modelId: string;
-  }): Promise<{
+  async getDetailProcessScope(args: { repositoryId: string; modelId: string }): Promise<{
     modelId: string;
     processTitle: string;
     processSymbolId?: string;
@@ -1267,14 +1181,9 @@ export class ProcessReader {
       }>;
     };
     const processChevron = (described.steps ?? []).find(
-      (s) =>
-        PROCESS_OBJECT_TYPES.has(normType(s.objectType)) &&
-        (s.x ?? 999) < 100,
+      (s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)) && (s.x ?? 999) < 100,
     );
-    const processTitle =
-      processChevron?.title ??
-      described.overview?.title ??
-      "Okänd process";
+    const processTitle = processChevron?.title ?? described.overview?.title ?? "Okänd process";
     const inputs = (described.inputs ?? [])
       .filter((i): i is { title: string; symbolId?: string } => Boolean(i.title))
       .map((i) => ({ title: i.title, symbolId: i.symbolId }));
@@ -1352,8 +1261,7 @@ export class ProcessReader {
     uncertainLinks: string[];
     readyForCreate: boolean;
   }> {
-    const scopes: Array<Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>> =
-      [];
+    const scopes: Array<Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>> = [];
     for (const modelId of args.modelIds) {
       scopes.push(
         await this.getDetailProcessScope({
@@ -1375,10 +1283,7 @@ export class ProcessReader {
               !remaining.some(
                 (o) =>
                   o !== m &&
-                  o.outputs.some(
-                    (out) =>
-                      this.normTitle(out.title) === this.normTitle(i.title),
-                  ),
+                  o.outputs.some((out) => this.normTitle(out.title) === this.normTitle(i.title)),
               ),
           ),
         );
@@ -1442,9 +1347,7 @@ export class ProcessReader {
         if (shared) {
           const fromPrev = prev.outputs.find(
             (out) =>
-              (shared.symbolId &&
-                out.symbolId &&
-                shared.symbolId === out.symbolId) ||
+              (shared.symbolId && out.symbolId && shared.symbolId === out.symbolId) ||
               this.normTitle(out.title) === this.normTitle(shared.title),
           );
           chain.push({
@@ -1507,8 +1410,7 @@ export class ProcessReader {
       chain,
       scopes: ordered,
       uncertainLinks,
-      readyForCreate:
-        uncertainLinks.filter((u) => u.startsWith("BLOCKING:")).length === 0,
+      readyForCreate: uncertainLinks.filter((u) => u.startsWith("BLOCKING:")).length === 0,
     };
   }
 
@@ -1537,9 +1439,7 @@ export class ProcessReader {
     uncertainLinks: string[];
     readyForCreate: boolean;
   }> {
-    const processes = args.chain.filter(
-      (n) => n.kind === "process" && n.detailModelId,
-    );
+    const processes = args.chain.filter((n) => n.kind === "process" && n.detailModelId);
     if (processes.length === 0) {
       return {
         chain: args.chain,
@@ -1589,10 +1489,7 @@ export class ProcessReader {
     errors: string[];
     methodologyNotes: string[];
   }> {
-    const cache = new Map<
-      string,
-      Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>
-    >();
+    const cache = new Map<string, Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>>();
     const loadScope = async (modelId: string) => {
       const hit = cache.get(modelId);
       if (hit) return hit;
@@ -1611,7 +1508,7 @@ export class ProcessReader {
     // Per-process scope: left neighbor = detail input, right neighbor = detail output
     for (let i = 0; i < chain.length; i++) {
       const node = chain[i];
-      if (!node || node.kind !== "process" || !node.detailModelId) continue;
+      if (node?.kind !== "process" || !node.detailModelId) continue;
       const scope = await loadScope(node.detailModelId);
       const left = chain[i - 1];
       const right = chain[i + 1];
@@ -1631,9 +1528,7 @@ export class ProcessReader {
         ? this.matchBo(rightBo, scope.outputs)
         : { hit: scope.outputs.length === 0, by: null as null };
 
-      const ok = Boolean(
-        (!leftBo || inputOk.hit) && (!rightBo || outputOk.hit),
-      );
+      const ok = Boolean((!leftBo || inputOk.hit) && (!rightBo || outputOk.hit));
       checks.push({
         kind: "process-scope",
         processTitle: node.title,
@@ -1679,13 +1574,11 @@ export class ProcessReader {
     // Handoff between two detailed processes
     for (let i = 0; i < chain.length; i++) {
       const node = chain[i];
-      if (!node || node.kind !== "businessObject") continue;
+      if (node?.kind !== "businessObject") continue;
       const prev = chain[i - 1];
       const next = chain[i + 1];
-      const prevDetail =
-        prev?.kind === "process" ? prev.detailModelId : undefined;
-      const nextDetail =
-        next?.kind === "process" ? next.detailModelId : undefined;
+      const prevDetail = prev?.kind === "process" ? prev.detailModelId : undefined;
+      const nextDetail = next?.kind === "process" ? next.detailModelId : undefined;
 
       if (prevDetail && nextDetail) {
         const prevIo = await loadScope(prevDetail);
@@ -1816,10 +1709,7 @@ export class ProcessReader {
     throw new Error("Provide symbolId and/or modelId");
   }
 
-  async resolveSymbols(args: {
-    repositoryId: string;
-    symbolIds: string[];
-  }): Promise<{
+  async resolveSymbols(args: { repositoryId: string; symbolIds: string[] }): Promise<{
     symbols: Array<Record<string, unknown>>;
     missing: string[];
   }> {
@@ -1909,9 +1799,7 @@ export class ProcessReader {
       };
     }
 
-    const gatewayNotes = objectType && isGatewayAlias(objectType)
-      ? [GATEWAY_SEARCH_HINT]
-      : [];
+    const gatewayNotes = objectType && isGatewayAlias(objectType) ? [GATEWAY_SEARCH_HINT] : [];
 
     // Scope to symbols placed on a model canvas when modelId is set
     if (args.modelId) {
@@ -1971,17 +1859,13 @@ export class ProcessReader {
         startAt: args.startAt,
         maxResults: args.maxResults ?? (objectType && isGatewayAlias(objectType) ? "500" : "100"),
         projection: "ALL",
-        ...(useTitleFilter
-          ? { filter: toWildcardFilter(query!), filterFields: "titles" }
-          : {}),
+        ...(useTitleFilter ? { filter: toWildcardFilter(query!), filterFields: "titles" } : {}),
       },
     });
 
     let symbols = page.data ?? [];
     if (objectType) {
-      symbols = symbols.filter((s) =>
-        matchesObjectTypeFilter(s.objectType, objectType!),
-      );
+      symbols = symbols.filter((s) => matchesObjectTypeFilter(s.objectType, objectType!));
     }
     if (query && useTitleFilter) {
       symbols = symbols.filter((s) => titleMatches(s.titles, query!));
@@ -2032,9 +1916,7 @@ export class ProcessReader {
         maxResults: "20",
       });
       const exact = (found.symbols as Array<Record<string, unknown>>).find(
-        (s) =>
-          String(s.title ?? "").toLowerCase() ===
-          args.titleQuery!.trim().toLowerCase(),
+        (s) => String(s.title ?? "").toLowerCase() === args.titleQuery!.trim().toLowerCase(),
       );
       const pick = exact ?? (found.symbols as Array<Record<string, unknown>>)[0];
       if (!pick?.uuid) {
@@ -2043,9 +1925,7 @@ export class ProcessReader {
           usages: [],
           candidates: found.symbols,
           enrich,
-          methodologyNotes: [
-            "No symbol matched titleQuery. Refine search_symbols first.",
-          ],
+          methodologyNotes: ["No symbol matched titleQuery. Refine search_symbols first."],
         };
       }
       symbolId = String(pick.uuid);
@@ -2096,9 +1976,7 @@ export class ProcessReader {
           });
           const roleStep = flow.steps.find((s) => s.symbolId === symbolId);
           const responsibleFor = flow.steps
-            .filter((s) =>
-              (s.responsible ?? []).some((r) => r.symbolId === symbolId),
-            )
+            .filter((s) => (s.responsible ?? []).some((r) => r.symbolId === symbolId))
             .map((s) => {
               const base: Record<string, unknown> = {
                 title: s.title,
@@ -2153,11 +2031,7 @@ export class ProcessReader {
           ? "enrich=full adds inputs/outputs/controlledBy refs from the same model only (no cross-model chain inference)."
           : "Pass enrich=full for per-activity inputs/outputs in the same model.",
       ],
-      nextSuggestedTools: [
-        "describe_role_introduction",
-        "describe_role",
-        "describe_process",
-      ],
+      nextSuggestedTools: ["describe_role_introduction", "describe_role", "describe_process"],
     };
   }
 
@@ -2180,11 +2054,13 @@ export class ProcessReader {
     const processLines: string[] = [];
 
     for (const u of usages) {
-      const acts =
-        (u.responsibleForActivities as Array<Record<string, unknown>>) ?? [];
+      const acts = (u.responsibleForActivities as Array<Record<string, unknown>>) ?? [];
       processLines.push(
         `${u.modelTitle}: ${
-          acts.map((a) => a.title).filter(Boolean).join("; ") || "(placerad, ej RACI-ägare)"
+          acts
+            .map((a) => a.title)
+            .filter(Boolean)
+            .join("; ") || "(placerad, ej RACI-ägare)"
         }`,
       );
       for (const a of acts) {
@@ -2215,9 +2091,7 @@ export class ProcessReader {
         ? `Förekommer i ${usages.length} processmodell(er).`
         : "Förekommer inte på någon processmodell-canvas.",
       ...processLines.map((l) => `- ${l}`),
-      applications.size
-        ? `IT-stöd: ${[...applications].join(", ")}.`
-        : undefined,
+      applications.size ? `IT-stöd: ${[...applications].join(", ")}.` : undefined,
       controllingDocs.size
         ? `Styrdokument kopplade till aktiviteter: ${[...controllingDocs].join(", ")}.`
         : undefined,
@@ -2240,11 +2114,7 @@ export class ProcessReader {
         "Role ownership is based on RACI_RESPONSIBLE links, not just canvas placement.",
         "For onboarding: combine describe_role with get_controlling_documents on HR activities like 'Genomföra introduktion'.",
       ],
-      nextSuggestedTools: [
-        "get_controlling_documents",
-        "describe_process",
-        "search_documents",
-      ],
+      nextSuggestedTools: ["get_controlling_documents", "describe_process", "search_documents"],
     };
   }
 
@@ -2261,9 +2131,7 @@ export class ProcessReader {
       includeDocuments: true,
     });
 
-    let activities = flow.steps.filter((s) =>
-      ACTIVITY_TYPES.has(normType(s.objectType)),
-    );
+    let activities = flow.steps.filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)));
     if (args.activityVertexId) {
       activities = activities.filter((s) => s.vertexId === args.activityVertexId);
     } else if (args.activitySymbolId) {
@@ -2271,7 +2139,9 @@ export class ProcessReader {
     } else if (args.activityTitle) {
       const q = args.activityTitle.toLowerCase();
       activities = activities.filter((s) =>
-        String(s.title ?? "").toLowerCase().includes(q),
+        String(s.title ?? "")
+          .toLowerCase()
+          .includes(q),
       );
     }
 
@@ -2295,11 +2165,7 @@ export class ProcessReader {
         "CONTROLS edges link steering documents (e.g. CORE_DOCUMENT checklists) to activities.",
         "Use resolve_documents / get_document_content with document ids from the document symbol or search_documents by title.",
       ],
-      nextSuggestedTools: [
-        "search_documents",
-        "resolve_documents",
-        "get_document_content",
-      ],
+      nextSuggestedTools: ["search_documents", "resolve_documents", "get_document_content"],
     };
   }
 
@@ -2326,9 +2192,7 @@ export class ProcessReader {
       return {
         ...usage,
         methodologyNotes: [
-          ...(Array.isArray(usage.methodologyNotes)
-            ? usage.methodologyNotes
-            : []),
+          ...(Array.isArray(usage.methodologyNotes) ? usage.methodologyNotes : []),
           "describe_role_introduction requires a resolvable role symbol.",
         ],
       };
@@ -2340,22 +2204,14 @@ export class ProcessReader {
       symbolId: String(symbol.uuid),
     });
     // Re-attach enriched usages from the usage call
-    operational.processes = (usage.usages as Array<Record<string, unknown>>).map(
-      (u) => ({
-        modelId: u.modelId,
-        modelTitle: u.modelTitle,
-        source: "fromRaci",
-        activities: u.responsibleForActivities,
-      }),
-    );
+    operational.processes = (usage.usages as Array<Record<string, unknown>>).map((u) => ({
+      modelId: u.modelId,
+      modelTitle: u.modelTitle,
+      source: "fromRaci",
+      activities: u.responsibleForActivities,
+    }));
 
-    const hrQueries = [
-      "rekrytera",
-      "anställa",
-      "introduktion",
-      "onboarding",
-      "personal",
-    ];
+    const hrQueries = ["rekrytera", "anställa", "introduktion", "onboarding", "personal"];
     const hrModelsMap = new Map<string, Record<string, unknown>>();
     for (const q of hrQueries) {
       const found = await this.findModels({
@@ -2376,12 +2232,9 @@ export class ProcessReader {
 
     for (const model of hrModelsMap.values()) {
       const modelId = String(model.uuid);
-      const roleIsRaciOwnerHere = (
-        usage.usages as Array<Record<string, unknown>>
-      ).some(
+      const roleIsRaciOwnerHere = (usage.usages as Array<Record<string, unknown>>).some(
         (u) =>
-          u.modelId === modelId &&
-          ((u.responsibleForActivities as unknown[]) ?? []).length > 0,
+          u.modelId === modelId && ((u.responsibleForActivities as unknown[]) ?? []).length > 0,
       );
 
       const ctrl = await this.getControllingDocuments({
@@ -2391,9 +2244,7 @@ export class ProcessReader {
       const isStrongHrTitle = /rekrytera|anställ|introduktion|onboarding/i.test(
         String(model.title ?? ""),
       );
-      const introNamed = (
-        (ctrl.results as Array<Record<string, unknown>>) ?? []
-      ).filter((r) => {
+      const introNamed = ((ctrl.results as Array<Record<string, unknown>>) ?? []).filter((r) => {
         const title = String(
           (r.activity as { title?: string } | undefined)?.title ?? "",
         ).toLowerCase();
@@ -2404,11 +2255,8 @@ export class ProcessReader {
         introNamed.length > 0
           ? introNamed
           : isStrongHrTitle
-            ? (
-                (ctrl.results as Array<Record<string, unknown>>) ?? []
-              ).filter(
-                (r) =>
-                  ((r.controllingDocuments as unknown[]) ?? []).length > 0,
+            ? ((ctrl.results as Array<Record<string, unknown>>) ?? []).filter(
+                (r) => ((r.controllingDocuments as unknown[]) ?? []).length > 0,
               )
             : [];
 
@@ -2421,9 +2269,7 @@ export class ProcessReader {
         modelId,
         includeDocuments: false,
       });
-      const roleOnCanvas = flow.steps.some(
-        (s) => s.symbolId === String(symbol.uuid),
-      );
+      const roleOnCanvas = flow.steps.some((s) => s.symbolId === String(symbol.uuid));
 
       const introductionActivities =
         introResults.length > 0
@@ -2491,9 +2337,7 @@ export class ProcessReader {
           continue;
         }
         if (
-          !(usage.usages as Array<Record<string, unknown>>).some(
-            (u) => u.modelId === mid,
-          ) &&
+          !(usage.usages as Array<Record<string, unknown>>).some((u) => u.modelId === mid) &&
           !hrModelsMap.has(mid)
         ) {
           seenSupport.add(mid);
@@ -2517,10 +2361,7 @@ export class ProcessReader {
       formalProcesses.length
         ? formalProcesses
             .map((p) => {
-              const acts = (
-                (p.introductionActivities as Array<Record<string, unknown>>) ??
-                []
-              )
+              const acts = ((p.introductionActivities as Array<Record<string, unknown>>) ?? [])
                 .map(
                   (r) =>
                     (r.activity as { title?: string } | undefined)?.title ??

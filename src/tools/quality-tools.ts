@@ -4,10 +4,7 @@ import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { repositoryId, uuid } from "./schemas.js";
 
-export function registerQualityTools(
-  server: McpServer,
-  ctx: ToolContext,
-): void {
+export function registerQualityTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "list_untranslated_symbols",
     {
@@ -18,9 +15,7 @@ export function registerQualityTools(
         languageId: uuid.describe("Language to check (e.g. English)"),
         compareLanguageId: uuid
           .optional()
-          .describe(
-            "Usually primary/default language; flags titles identical to this with åäö",
-          ),
+          .describe("Usually primary/default language; flags titles identical to this with åäö"),
         objectType: z.string().optional(),
         maxResults: z.number().int().positive().optional(),
       },
@@ -29,10 +24,33 @@ export function registerQualityTools(
   );
 
   server.registerTool(
+    "list_orphan_symbols",
+    {
+      description:
+        "List symbols not placed on any model canvas (orphans). Useful for ZZ_UTGÅR cleanup and reuse-first audits. Canvas-only — documents panel / breakdowns may still reference symbols.",
+      inputSchema: {
+        repositoryId,
+        languageId: uuid.optional().describe("Preferred language for title pick"),
+        titlePrefix: z
+          .string()
+          .optional()
+          .describe('Filter titles starting with prefix, e.g. "ZZ_"'),
+        objectType: z.string().optional(),
+        includeUsedOnCanvas: z
+          .boolean()
+          .optional()
+          .describe("Default false — only orphans; true also returns used"),
+        maxResults: z.number().int().positive().optional(),
+      },
+    },
+    async (args) => runTool(() => ctx.quality.listOrphanSymbols(args)),
+  );
+
+  server.registerTool(
     "verify_handoffs",
     {
       description:
-        "Verify process handoffs: each BO (symbolId or title) must appear on fromModel and toModel. Default also checks FLOW I/O via get_detail_process_scope (from outputs ∩ to inputs).",
+        "Verify process handoffs: each BO (symbolId or title) must appear on producer and consumer. Provide handoffs[] and/or contract[] (producer/consumer aliases) and/or autoDiscover.modelIds (pairwise primary outputs ∩ inputs). Default also checks FLOW I/O via get_detail_process_scope.",
       inputSchema: {
         repositoryId,
         handoffs: z
@@ -48,7 +66,26 @@ export function registerQualityTools(
                 .describe("Default true — require output on from and input on to"),
             }),
           )
-          .min(1),
+          .optional(),
+        contract: z
+          .array(
+            z.object({
+              producerModelId: uuid,
+              consumerModelId: uuid,
+              symbolId: uuid.optional(),
+              title: z.string().optional(),
+              checkIo: z.boolean().optional(),
+            }),
+          )
+          .optional()
+          .describe("IMS handoff-contract alias for handoffs[]"),
+        autoDiscover: z
+          .object({
+            modelIds: z.array(uuid).min(2),
+            checkIo: z.boolean().optional().describe("Default true for discovered pairs"),
+          })
+          .optional()
+          .describe("Derive checks from primary outputs(A) ∩ inputs(B) for each ordered pair"),
       },
     },
     async (args) => runTool(() => ctx.quality.verifyHandoffs(args)),
@@ -61,9 +98,7 @@ export function registerQualityTools(
         "Build model navigation L0→… from detail broken-down-from links. Prefer this over get_breakdowns(overview) which is often empty. Reports missingUpwardLinks.",
       inputSchema: {
         repositoryId,
-        rootModelId: uuid
-          .optional()
-          .describe("Optional L0 / root model UUID to anchor the tree"),
+        rootModelId: uuid.optional().describe("Optional L0 / root model UUID to anchor the tree"),
       },
     },
     async (args) => runTool(() => ctx.quality.getNavigationTree(args)),

@@ -60,12 +60,7 @@ export function matchesObjectTypeFilter(
     return false;
   }
   if (isExclusiveBranchAlias(filter)) {
-    return (
-      sym === "or" ||
-      sym === "eller" ||
-      sym === "decision" ||
-      sym === "gateway"
-    );
+    return sym === "or" || sym === "eller" || sym === "decision" || sym === "gateway";
   }
   if (isAndAlias(filter)) {
     return sym === "and" || sym === "och";

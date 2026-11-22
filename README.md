@@ -75,9 +75,18 @@ docker pull ghcr.io/<owner>/modelm8:1.2.0
 ```bash
 npm run dev:http
 npm run typecheck
+npm run lint            # Biome
+npm run test            # Vitest
+npm run ci              # typecheck + lint + test (samma som PR-CI)
 ```
 
 API-täckning: [docs/dev/API-GAP-ANALYSIS.md](docs/dev/API-GAP-ANALYSIS.md)  
 Felkoder: [docs/dev/mcp-errors.md](docs/dev/mcp-errors.md)
 
-Kräver Node.js 26+.
+Kräver Node.js 26+. PR/push till `main` kör `.github/workflows/ci.yml`.
+
+## Licens
+
+Licensierad under [Apache License 2.0](LICENSE).
+
+Namnet **modelM8** och tillhörande branding får inte användas utan tillstånd (se Apache 2.0 §6 Trademarks).

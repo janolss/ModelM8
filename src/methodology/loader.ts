@@ -67,26 +67,20 @@ function listYamlFiles(dir: string): string[] {
 export function loadMethodologyPack(knowledgeDir?: string): MethodologyPack {
   const root = resolveKnowledgeDir(knowledgeDir);
 
-  const objectIndex = readYamlFile(
-    path.join(root, "object-types", "index.yaml"),
-  ) as { objectTypes?: ObjectTypeDef[] };
+  const objectIndex = readYamlFile(path.join(root, "object-types", "index.yaml")) as {
+    objectTypes?: ObjectTypeDef[];
+  };
 
-  const processModel = readYamlFile(
-    path.join(root, "model-types", "process.yaml"),
-  ) as ModelTypeDef;
-  const processMapModel = fs.existsSync(
-    path.join(root, "model-types", "process-map.yaml"),
-  )
-    ? (readYamlFile(
-        path.join(root, "model-types", "process-map.yaml"),
-      ) as ModelTypeDef)
+  const processModel = readYamlFile(path.join(root, "model-types", "process.yaml")) as ModelTypeDef;
+  const processMapModel = fs.existsSync(path.join(root, "model-types", "process-map.yaml"))
+    ? (readYamlFile(path.join(root, "model-types", "process-map.yaml")) as ModelTypeDef)
     : null;
   const swimlaneModel = readYamlFile(
     path.join(root, "model-types", "swimlane.yaml"),
   ) as ModelTypeDef;
-  const stubs = readYamlFile(
-    path.join(root, "model-types", "stubs.yaml"),
-  ) as { modelTypes?: ModelTypeDef[] };
+  const stubs = readYamlFile(path.join(root, "model-types", "stubs.yaml")) as {
+    modelTypes?: ModelTypeDef[];
+  };
 
   const naming = fs.existsSync(path.join(root, "rules", "naming.yaml"))
     ? (readYamlFile(path.join(root, "rules", "naming.yaml")) as NamingRules)
@@ -164,10 +158,7 @@ export function loadMethodologyPack(knowledgeDir?: string): MethodologyPack {
   };
 }
 
-export function readKnowledgeResource(
-  pack: MethodologyPack,
-  relativePath: string,
-): string {
+export function readKnowledgeResource(pack: MethodologyPack, relativePath: string): string {
   const abs = path.join(pack.root, relativePath);
   if (!abs.startsWith(pack.root) || !fs.existsSync(abs)) {
     throw new Error(`Unknown methodology resource: ${relativePath}`);

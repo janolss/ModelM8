@@ -17,15 +17,16 @@ MCP-prompt: `document_to_process_model`
 
 ## Steg
 
-1. `get_methodology` — `process`, `documents-on-process`, `naming`, `reuse-first`
-2. `propose_model_from_document` (eller `propose_model_from_text` om texten redan är städad)
-3. Presentera förslaget; skriv om status-lika BO till värde/artefakt
-4. `search_symbols` + `validate_against_methodology`
-5. `apply_model_proposal` — `businessObjectCount > 0`
-6. `link_document` där det går (rätt `type`, `source: mt.documents`)
-7. `describe_process` + **`review_process_model`** → fixa → om
-8. `update_titles` / `confirm_translations` för sekundärspråk
-9. `link_breakdown` om modellen har en översiktsförälder
+1. `get_methodology` — `process`, `documents-on-process`, `document-roots`, `naming`, `reuse-first`
+2. Om källdokument delar bas-URL/mapp: `list_document_roots` → föreslå/skapa rot med `create_document_root` (`key` + `value`)
+3. `propose_model_from_document` (eller `propose_model_from_text` om texten redan är städad)
+4. Presentera förslaget; skriv om status-lika BO till värde/artefakt
+5. `search_symbols` + `validate_against_methodology`
+6. `apply_model_proposal` — `businessObjectCount > 0`
+7. `link_document` där det går (`type`, ev. `prefix`=rot-`key` + relativ `content`; symbol-länk `{ id, source: mt.documents }`)
+8. `describe_process` + **`review_process_model`** → fixa → om
+9. `update_titles` / `confirm_translations` för sekundärspråk
+10. `link_breakdown` om modellen har en översiktsförälder
 
 ## Definition of done
 

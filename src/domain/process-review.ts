@@ -62,12 +62,7 @@ const DOC_LINK_EDGE_TYPES = new Set([
   "usedby",
   "anvandsav",
 ]);
-const DOCUMENT_OBJECT_TYPES = new Set([
-  "coredocument",
-  "document",
-  "dokument",
-  "styrdokument",
-]);
+const DOCUMENT_OBJECT_TYPES = new Set(["coredocument", "document", "dokument", "styrdokument"]);
 const APPLICATION_OBJECT_TYPES = new Set(["application", "applikation"]);
 const MAP_LEFT_MARGIN = 80;
 
@@ -230,23 +225,14 @@ export function reviewProcessCanvas(args: {
   const steps = args.steps;
   const vertices = args.canvas.vertices ?? [];
   const edges = args.canvas.edges ?? [];
-  const byId = new Map(
-    vertices.filter((v) => v.uuid).map((v) => [v.uuid!, v]),
-  );
+  const byId = new Map(vertices.filter((v) => v.uuid).map((v) => [v.uuid!, v]));
   const gapX = Math.max(args.distance?.left ?? 40, args.distance?.right ?? 40, 30);
 
-  const activities = steps.filter((s) =>
-    ACTIVITY_TYPES.has(normType(s.objectType)),
-  );
-  const processes = steps.filter((s) =>
-    PROCESS_OBJECT_TYPES.has(normType(s.objectType)),
-  );
-  const bos = steps.filter((s) =>
-    BUSINESS_OBJECT_TYPES.has(normType(s.objectType)),
-  );
+  const activities = steps.filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)));
+  const processes = steps.filter((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)));
+  const bos = steps.filter((s) => BUSINESS_OBJECT_TYPES.has(normType(s.objectType)));
   const isMap =
-    args.modelKind === "process-map" ||
-    (processes.length > 0 && activities.length === 0);
+    args.modelKind === "process-map" || (processes.length > 0 && activities.length === 0);
 
   // --- Methodology ---
   if (!isMap) {
@@ -369,9 +355,7 @@ export function reviewProcessCanvas(args: {
       boMids.length > 0
         ? median(boMids)
         : median(
-            processes
-              .filter((p) => !((p.x ?? 0) < 80 && (p.y ?? 0) < 80))
-              .map((p) => midY(p)),
+            processes.filter((p) => !((p.x ?? 0) < 80 && (p.y ?? 0) < 80)).map((p) => midY(p)),
           );
     for (const p of processes) {
       const flowIn = (p.inputs ?? []).filter((i) =>
@@ -518,14 +502,11 @@ export function reviewProcessCanvas(args: {
       if (!sid) continue;
       const edgeNorm = normType(e.edgeType);
       const key = `${sid}|${edgeNorm}|${isDoc ? "doc" : "app"}`;
-      const toTitle =
-        steps.find((s) => s.vertexId === to.uuid)?.title ?? vertexTitle(to);
+      const toTitle = steps.find((s) => s.vertexId === to.uuid)?.title ?? vertexTitle(to);
       const cur = bySymbol.get(key) ?? {
         title: vertexTitle(from),
         objectType: isDoc ? "document" : "application",
-        edgeType: edgeNorm.includes("control") || edgeNorm === "styr"
-          ? "CONTROLS"
-          : "IS_USED_BY",
+        edgeType: edgeNorm.includes("control") || edgeNorm === "styr" ? "CONTROLS" : "IS_USED_BY",
         activityTitles: new Set<string>(),
         vertexIds: [],
       };
@@ -605,11 +586,7 @@ export function reviewProcessCanvas(args: {
   // Gold layout: activity y=119 h=50 and BO y=135 h=18 share midY≈144.
   const spineCandidates = steps.filter((s) => {
     const ot = normType(s.objectType);
-    return (
-      ACTIVITY_TYPES.has(ot) ||
-      PROCESS_OBJECT_TYPES.has(ot) ||
-      BUSINESS_OBJECT_TYPES.has(ot)
-    );
+    return ACTIVITY_TYPES.has(ot) || PROCESS_OBJECT_TYPES.has(ot) || BUSINESS_OBJECT_TYPES.has(ot);
   });
   const activityMids = activities
     .filter((a) => !((a.x ?? 0) < 80 && (a.y ?? 0) < 80))
@@ -623,9 +600,7 @@ export function reviewProcessCanvas(args: {
       : processMidsOnMap.length > 0
         ? median(processMidsOnMap)
         : median(spineCandidates.map((s) => midY(s)));
-  const onSpine = spineCandidates.filter(
-    (s) => Math.abs(midY(s) - spineMidRef) < 55,
-  );
+  const onSpine = spineCandidates.filter((s) => Math.abs(midY(s) - spineMidRef) < 55);
 
   for (const s of spineCandidates) {
     const ot = normType(s.objectType);
@@ -662,8 +637,7 @@ export function reviewProcessCanvas(args: {
         severity: "warning",
         category: "layout",
         message: `"${s.title ?? "?"}" is ${Math.round(dy)}px off the main FLOW midline.`,
-        suggestion:
-          "Align activities/processes (and primary BOs) on one horizontal baseline.",
+        suggestion: "Align activities/processes (and primary BOs) on one horizontal baseline.",
         titles: [s.title ?? ""],
         vertexIds: s.vertexId ? [s.vertexId] : [],
       });
@@ -679,9 +653,7 @@ export function reviewProcessCanvas(args: {
     const fromOt = normType(fromStep.objectType);
     const toOt = normType(toStep.objectType);
     const spineTypes = (ot: string) =>
-      ACTIVITY_TYPES.has(ot) ||
-      BUSINESS_OBJECT_TYPES.has(ot) ||
-      PROCESS_OBJECT_TYPES.has(ot);
+      ACTIVITY_TYPES.has(ot) || BUSINESS_OBJECT_TYPES.has(ot) || PROCESS_OBJECT_TYPES.has(ot);
     if (!spineTypes(fromOt) || !spineTypes(toOt)) continue;
     // Only consecutive forward spine edges
     if ((toStep.x ?? 0) <= (fromStep.x ?? 0)) continue;
@@ -692,19 +664,14 @@ export function reviewProcessCanvas(args: {
       severity: "warning",
       category: "layout",
       message: `FLOW "${fromStep.title}" → "${toStep.title}" zigzags (midY delta ${Math.round(dyMid)}px) — spine symbols should share one midline.`,
-      suggestion:
-        "Align BO and activity midY, then update_canvas_edges with reorthogonalize:true.",
+      suggestion: "Align BO and activity midY, then update_canvas_edges with reorthogonalize:true.",
       titles: [fromStep.title ?? "", toStep.title ?? ""],
-      vertexIds: [fromStep.vertexId, toStep.vertexId].filter(
-        Boolean,
-      ) as string[],
+      vertexIds: [fromStep.vertexId, toStep.vertexId].filter(Boolean) as string[],
     });
   }
 
   // --- Layout: horizontal spacing between consecutive spine L→R objects ---
-  const spineOrdered = onSpine
-    .slice()
-    .sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+  const spineOrdered = onSpine.slice().sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
   for (let i = 0; i < spineOrdered.length - 1; i++) {
     const a = spineOrdered[i]!;
     const b = spineOrdered[i + 1]!;
@@ -783,10 +750,7 @@ export function reviewProcessCanvas(args: {
     const toOt = normType(toStep?.objectType);
 
     if (pts.length >= 2) {
-      if (
-        ACTIVITY_TYPES.has(fromOt) ||
-        PROCESS_OBJECT_TYPES.has(fromOt)
-      ) {
+      if (ACTIVITY_TYPES.has(fromOt) || PROCESS_OBJECT_TYPES.has(fromOt)) {
         const side = attachSide(from ?? {}, pts[0]!);
         if (side === "top" || side === "bottom") {
           findings.push({

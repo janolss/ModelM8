@@ -24,10 +24,7 @@ function fileUrlToPath(link: string): string | null {
   }
 }
 
-function metaValue(
-  metadata: unknown[] | undefined,
-  id: string,
-): string | undefined {
+function metaValue(metadata: unknown[] | undefined, id: string): string | undefined {
   for (const m of metadata ?? []) {
     if (m && typeof m === "object" && (m as { id?: string }).id === id) {
       const data = (m as { data?: string }).data;
@@ -56,6 +53,37 @@ export class DocumentsService {
     };
   }
 
+  /**
+   * Create a document root (shared base URL/folder). Links use prefix=<key>
+   * and relative content paths in createDocumentBody / link_document.
+   * Body: { key, value, titles: { [languageId]: { title } } }
+   */
+  async createDocumentRoot(repositoryId: string, body: Record<string, unknown>) {
+    const created = await this.client.request<DocumentRootView>({
+      method: "POST",
+      path: "/api/v1/repositories/{repositoryId}/document-roots",
+      pathParams: { repositoryId },
+      body,
+    });
+    return {
+      data: {
+        uuid: created.uuid,
+        title: pickTitle(created.titles),
+        titles: created.titles,
+        type: created.type ?? "mtDocumentRoot",
+        key: created.key,
+        value: created.value,
+        raw: created,
+      },
+      methodologyNotes: [
+        "Document root = shared base path. Update value once when host/folder moves.",
+        "When linking MT docs: set prefix to this key and languages.*.content to the path relative to the root (not the full URL).",
+        "Omit showInPanel on documents unless panel/iframe open is wanted (MCP defaults to false).",
+      ],
+      nextSuggestedTools: ["list_document_roots", "link_document"],
+    };
+  }
+
   async listTypes(repositoryId: string) {
     const page = await this.client.request<Page<DocumentTypeView>>({
       path: "/api/v1/repositories/{repositoryId}/document-types",
@@ -74,10 +102,7 @@ export class DocumentsService {
    * Create a document type (category for MT documents / panel filtering).
    * Body: { titles: { [languageId]: { title } } }
    */
-  async createDocumentType(
-    repositoryId: string,
-    body: Record<string, unknown>,
-  ) {
+  async createDocumentType(repositoryId: string, body: Record<string, unknown>) {
     const created = await this.client.request<DocumentTypeView>({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/document-types",
@@ -94,6 +119,7 @@ export class DocumentsService {
       methodologyNotes: [
         "Document types categorise MT documents. Pass uuid in createDocumentBody.documentTypes when creating documents.",
         "MT documents also require type: 'URL' | 'file' (separate from documentTypes).",
+        "Omit showInPanel unless the link should open in the web 2c8 panel/iframe; default is new tab.",
       ],
       nextSuggestedTools: ["list_document_types", "link_document"],
     };
@@ -107,16 +133,12 @@ export class DocumentsService {
   }
 
   async defaultLanguageId(repositoryId: string): Promise<string | undefined> {
-    const page = await this.client.request<
-      Page<{ uuid?: string; defaultLanguage?: boolean }>
-    >({
+    const page = await this.client.request<Page<{ uuid?: string; defaultLanguage?: boolean }>>({
       path: "/api/v1/repositories/{repositoryId}/languages",
       pathParams: { repositoryId },
     });
     const data = page.data ?? [];
-    return (
-      data.find((l) => l.defaultLanguage)?.uuid ?? data[0]?.uuid ?? undefined
-    );
+    return data.find((l) => l.defaultLanguage)?.uuid ?? data[0]?.uuid ?? undefined;
   }
 
   async listDocumentKeys(args: {
@@ -125,8 +147,7 @@ export class DocumentsService {
     languageId?: string;
   }): Promise<{ sourceId: string; keys: string[] }> {
     const sourceId = args.sourceId ?? "mt.documents";
-    const language =
-      args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
+    const language = args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
     const keys = await this.client.request<string[]>({
       path: "/api/v1/repositories/{repositoryId}/documents/sources/{sourceId}/documents",
       pathParams: { repositoryId: args.repositoryId, sourceId },
@@ -142,8 +163,7 @@ export class DocumentsService {
     languageId?: string;
   }): Promise<{ sourceId: string; documents: ResolvedDocView[] }> {
     const sourceId = args.sourceId ?? "mt.documents";
-    const language =
-      args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
+    const language = args.languageId ?? (await this.defaultLanguageId(args.repositoryId));
     if (!language) {
       throw new Error("Could not resolve repository default language");
     }
@@ -241,9 +261,7 @@ export class DocumentsService {
     languageId?: string;
     maxChars?: number;
   }): Promise<Record<string, unknown>> {
-    const keys =
-      args.documentKeys ??
-      (args.documentId ? [args.documentId] : undefined);
+    const keys = args.documentKeys ?? (args.documentId ? [args.documentId] : undefined);
     if (!keys?.length) {
       throw new Error("Provide documentId or documentKeys");
     }
@@ -356,19 +374,23 @@ export class DocumentsService {
   }
 
   async createMtDocument(repositoryId: string, body: unknown) {
+    // API defaults showInPanel to true; prefer new-tab unless caller opts in.
+    let payload = body;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const b = body as Record<string, unknown>;
+      if (!("showInPanel" in b)) {
+        payload = { ...b, showInPanel: false };
+      }
+    }
     return this.client.request({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/mt-documents",
       pathParams: { repositoryId },
-      body,
+      body: payload,
     });
   }
 
-  async updateMtDocument(
-    repositoryId: string,
-    documentId: string,
-    body: unknown,
-  ) {
+  async updateMtDocument(repositoryId: string, documentId: string, body: unknown) {
     return this.client.request({
       method: "PATCH",
       path: "/api/v1/repositories/{repositoryId}/mt-documents/{documentId}",
@@ -407,9 +429,7 @@ export class DocumentsService {
         },
         query: { projection: "ALL" },
       });
-      const prev = (existing.documents ?? [])
-        .map(extractId)
-        .filter((x): x is string => Boolean(x));
+      const prev = (existing.documents ?? []).map(extractId).filter((x): x is string => Boolean(x));
       ids = [...new Set([...prev, ...ids])];
     }
 
@@ -427,6 +447,90 @@ export class DocumentsService {
       ok: true as const,
       symbolId: args.symbolId,
       documents: ids.map(toRef),
+    };
+  }
+
+  /** Remove MT document refs from a symbol (documents panel). */
+  async unlinkDocumentsFromSymbol(args: {
+    repositoryId: string;
+    symbolId: string;
+    documentIds: string[];
+  }) {
+    const toRef = (id: string) => ({ id, source: "mt.documents" as const });
+    const extractId = (d: unknown): string | null => {
+      if (typeof d === "string") return d;
+      if (d && typeof d === "object" && "uuid" in d) {
+        return String((d as { uuid: string }).uuid);
+      }
+      if (d && typeof d === "object" && "id" in d) {
+        return String((d as { id: string }).id);
+      }
+      return null;
+    };
+
+    const remove = new Set(args.documentIds);
+    const existing = await this.client.request<{ documents?: unknown[] }>({
+      path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        symbolId: args.symbolId,
+      },
+      query: { projection: "ALL" },
+    });
+    const prev = (existing.documents ?? []).map(extractId).filter((x): x is string => Boolean(x));
+    const remaining = prev.filter((id) => !remove.has(id));
+    const removed = prev.filter((id) => remove.has(id));
+
+    await this.client.request({
+      method: "PATCH",
+      path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        symbolId: args.symbolId,
+      },
+      body: { documents: remaining.map(toRef) },
+    });
+
+    return {
+      ok: true as const,
+      symbolId: args.symbolId,
+      removed,
+      documents: remaining.map(toRef),
+      note:
+        removed.length < args.documentIds.length
+          ? "Some documentIds were not linked on the symbol"
+          : undefined,
+    };
+  }
+
+  /**
+   * Create a description type (syfte/scope/ägare fields etc.).
+   * Body: MtbDescriptionTypeDto — typically { titles: { [languageId]: { title } } }
+   */
+  async createDescriptionType(repositoryId: string, body: Record<string, unknown>) {
+    const created = await this.client.request<{
+      uuid?: string;
+      titles?: Record<string, { title?: string }>;
+    }>({
+      method: "POST",
+      path: "/api/v1/repositories/{repositoryId}/description-types",
+      pathParams: { repositoryId },
+      body,
+    });
+    return {
+      data: {
+        uuid: created.uuid,
+        title: pickTitle(created.titles as never),
+        titles: created.titles,
+      },
+      methodologyNotes: [
+        "New repos may lack description types until the 2c8 client opens them — create before update_*_description.",
+      ],
+      nextSuggestedTools: [
+        "list_description_types",
+        "update_model_description",
+        "update_symbol_description",
+      ],
     };
   }
 }

@@ -10,9 +10,12 @@ attachment:
   ui: Drag from Documents panel onto object/model, or Properties > Documents
   api: Symbol documents array on MtbSymbolDto (PATCH symbol); create via POST/PATCH mt-documents
 guidance:
-  - Prefer document roots for shared base paths so moves do not break every link
+  - Prefer document roots when many links share one base URL/folder; change the
+    root once on host/path move instead of rewriting every link (see document-roots)
+  - With a root: createDocumentBody.prefix = root key; content = path relative to root
   - Tag links with document types for filtering in lists and publications
   - Linked files must be reachable by publication end users
+  - showInPanel: MCP defaults to false (new tab). Set true only for web 2c8 panel/iframe.
   - Canvas CONTROLS/IS_USED_BY under activities = step-specific only; process-wide
     governing docs attach as symbol/model document links (or once on the process
     chevron), not as satellites on every activity — see documents-on-process

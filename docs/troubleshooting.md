@@ -19,6 +19,8 @@ Många PATCH returnerar tom body. modelM8 tolkar det som `{ ok: true }`. Det är
 | `Document type must be provided` | Fältet `type`: `"URL"` eller `"file"` (inte samma sak som `documentTypes`) |
 | 400 vid länk | Använd `{ id, source: "mt.documents" }` — inte rena UUID-strängar |
 | Inga dokumenttyper i nytt repo | `create_document_type` efter `list_document_types` |
+| `Key cannot be null or empty` (document-roots) | `create_document_root` kräver `key` + `value` (+ titles) |
+| Absolut URL upprepas på många docs | Föreslå/skapa dokumentrot; använd `prefix` + relativ path |
 
 ## Översättningar / globber i 2c8 UI
 

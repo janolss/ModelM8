@@ -26,7 +26,5 @@ export function titleMatches(
   if (!q || !titles) {
     return false;
   }
-  return Object.values(titles).some((t) =>
-    (t?.title ?? "").toLowerCase().includes(q),
-  );
+  return Object.values(titles).some((t) => (t?.title ?? "").toLowerCase().includes(q));
 }

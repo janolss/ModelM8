@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { config as loadEnv } from "dotenv";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { config as loadEnv } from "dotenv";
 import { loadConfig } from "./config.js";
 import { startHttpServer } from "./http.js";
 import { createServer } from "./server.js";

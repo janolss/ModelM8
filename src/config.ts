@@ -38,16 +38,14 @@ function requireEnv(name: string): string {
 
 export function loadConfig(argv: string[] = process.argv.slice(2)): AppConfig {
   const wantsHttp =
-    argv.includes("--http") ||
-    process.env.MCP_TRANSPORT?.trim().toLowerCase() === "http";
+    argv.includes("--http") || process.env.MCP_TRANSPORT?.trim().toLowerCase() === "http";
 
   const baseUrl = requireEnv("TWO_C8_BASE_URL").replace(/\/+$/, "");
   const apiKey = requireEnv("TWO_C8_API_KEY");
   const allowWrites = parseBool(process.env.TWO_C8_ALLOW_WRITES, false);
   const allowDeletes = parseBool(process.env.TWO_C8_ALLOW_DELETES, false);
   const writeModeRaw = process.env.TWO_C8_WRITE_MODE?.trim().toLowerCase();
-  const writeMode: WriteMode =
-    writeModeRaw === "direct" ? "direct" : "draft";
+  const writeMode: WriteMode = writeModeRaw === "direct" ? "direct" : "draft";
   const port = Number.parseInt(process.env.PORT ?? "3000", 10);
   const host = process.env.HOST?.trim() || "127.0.0.1";
   const knowledgeDir = process.env.KNOWLEDGE_DIR?.trim() || undefined;
