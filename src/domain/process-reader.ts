@@ -905,7 +905,9 @@ export class ProcessReader {
     }
 
     // Order main chain left-to-right mixing primary BO and process by x
-    const spine = [...primaryBosByColumn, ...mainProcesses].sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+    const spine = [...primaryBosByColumn, ...mainProcesses].toSorted(
+      (a, b) => (a.x ?? 0) - (b.x ?? 0),
+    );
 
     const chainNarrative = spine.map((s) => ({
       kind: PROCESS_OBJECT_TYPES.has(normType(s.objectType)) ? "process" : "businessObject",
@@ -980,7 +982,7 @@ export class ProcessReader {
     let scopeViolations: string[] = [];
     let scopeChecks: Array<Record<string, unknown>> = [];
     if (args.detailModelIds?.length) {
-      const orderedProcesses = mainProcesses.slice().sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+      const orderedProcesses = mainProcesses.toSorted((a, b) => (a.x ?? 0) - (b.x ?? 0));
       const chainForValidation: Array<{
         kind: "businessObject" | "process";
         title: string;

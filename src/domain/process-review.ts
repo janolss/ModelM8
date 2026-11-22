@@ -135,7 +135,7 @@ function midX(v: { x?: number; width?: number }): number {
 
 function median(nums: number[]): number {
   if (nums.length === 0) return 0;
-  const s = [...nums].sort((a, b) => a - b);
+  const s = nums.toSorted((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 }
@@ -671,7 +671,7 @@ export function reviewProcessCanvas(args: {
   }
 
   // --- Layout: horizontal spacing between consecutive spine L→R objects ---
-  const spineOrdered = onSpine.slice().sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+  const spineOrdered = onSpine.toSorted((a, b) => (a.x ?? 0) - (b.x ?? 0));
   for (let i = 0; i < spineOrdered.length - 1; i++) {
     const a = spineOrdered[i]!;
     const b = spineOrdered[i + 1]!;
@@ -705,7 +705,7 @@ export function reviewProcessCanvas(args: {
 
   // --- Layout: multi-I/O BOs in horizontal sequence (should be stacked) ---
   const boOnBand = bos.filter((b) => Math.abs(midY(b) - spineMidRef) < 55);
-  const boSorted = boOnBand.slice().sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+  const boSorted = boOnBand.toSorted((a, b) => (a.x ?? 0) - (b.x ?? 0));
   for (let i = 0; i < boSorted.length - 1; i++) {
     const a = boSorted[i]!;
     const b = boSorted[i + 1]!;

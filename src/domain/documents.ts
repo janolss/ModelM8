@@ -478,8 +478,9 @@ export class DocumentsService {
       query: { projection: "ALL" },
     });
     const prev = (existing.documents ?? []).map(extractId).filter((x): x is string => Boolean(x));
-    const remaining = prev.filter((id) => !remove.has(id));
-    const removed = prev.filter((id) => remove.has(id));
+    const prevSet = new Set(prev);
+    const remaining = [...prevSet.difference(remove)];
+    const removed = [...prevSet.intersection(remove)];
 
     await this.client.request({
       method: "PATCH",

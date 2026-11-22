@@ -32,6 +32,14 @@ const Y_GATEWAY = 129;
 const BRANCH_Y_OFFSET = 160;
 /** Shared vertical midline for FLOW spine (BO + process/activity). */
 const SPINE_MID_Y = 178;
+/**
+ * Vertical gap from spine midline to management/support band midlines (threeBand).
+ * With default SPINE_MID_Y=178 and process height 50 this would yield y≈−7 —
+ * 2c8 rejects Vertex y < 0, so threeBand raises the spine (see below).
+ */
+const THREE_BAND_GAP = 160;
+/** 2c8 canvas requires Vertex y >= 0; keep a small top margin for labels. */
+const MIN_VERTEX_Y = 8;
 /** Never place spine/side-loop content left of this (avoids x≈14 spaghetti). */
 const MAP_LEFT_MARGIN = 80;
 /** Start X for FLOW spine on new maps / detail models. */
@@ -1529,6 +1537,14 @@ export class ProcessWriter {
         spineMidY = Math.round(maxBottom + rowGap);
       }
     }
+    // threeBand places management above the spine; raise midline so y >= MIN_VERTEX_Y.
+    if (args.layout?.mode === "threeBand") {
+      const procH = this.sizeFor(repoConfig, "process").height;
+      const minSpineMidY = MIN_VERTEX_Y + THREE_BAND_GAP + Math.ceil(procH / 2);
+      if (spineMidY < minSpineMidY) {
+        spineMidY = minSpineMidY;
+      }
+    }
 
     const placed: Array<{
       title: string;
@@ -2093,7 +2109,7 @@ export class ProcessWriter {
   }> {
     const repoConfig = await this.getRepoConfig(args.repositoryId);
     const procSize = this.sizeFor(repoConfig, "process");
-    const bandGap = 160;
+    const bandGap = THREE_BAND_GAP;
     const placed: Array<{
       title: string;
       kind: string;
@@ -2111,10 +2127,13 @@ export class ProcessWriter {
 
     const placeBand = async (modelIds: string[], band: "management" | "support") => {
       if (!modelIds.length) return;
-      const y =
+      // Clamp: 2c8 API rejects Vertex y < 0 (FB-001).
+      const y = Math.max(
+        MIN_VERTEX_Y,
         band === "management"
           ? Math.round(args.spineMidY - bandGap - procSize.height / 2)
-          : Math.round(args.spineMidY + bandGap - procSize.height / 2);
+          : Math.round(args.spineMidY + bandGap - procSize.height / 2),
+      );
       let x = SPINE_START_X;
       for (const detailModelId of modelIds) {
         let title = "Process";
@@ -2236,8 +2255,7 @@ export class ProcessWriter {
 
     const spineOrdered = args.placed
       .filter((p) => p.kind === "process" || p.kind === "businessObject")
-      .slice()
-      .sort((a, b) => a.x - b.x || a.y - b.y);
+      .toSorted((a, b) => a.x - b.x || a.y - b.y);
 
     for (let i = 0; i < spineOrdered.length; i++) {
       const proc = spineOrdered[i]!;
@@ -2248,10 +2266,9 @@ export class ProcessWriter {
         modelId: proc.detailModelId,
       });
 
-      const leftBo = [...spineOrdered]
+      const leftBo = spineOrdered
         .slice(0, i)
-        .reverse()
-        .find((p) => p.kind === "businessObject" && Math.abs(p.y - proc.y) < 60);
+        .findLast((p) => p.kind === "businessObject" && Math.abs(p.y - proc.y) < 60);
       const rightBo = spineOrdered
         .slice(i + 1)
         .find((p) => p.kind === "businessObject" && Math.abs(p.y - proc.y) < 60);
