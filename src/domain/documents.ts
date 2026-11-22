@@ -56,6 +56,40 @@ export class DocumentsService {
     };
   }
 
+  /**
+   * Create a document root (shared base URL/folder). Links use prefix=<key>
+   * and relative content paths in createDocumentBody / link_document.
+   * Body: { key, value, titles: { [languageId]: { title } } }
+   */
+  async createDocumentRoot(
+    repositoryId: string,
+    body: Record<string, unknown>,
+  ) {
+    const created = await this.client.request<DocumentRootView>({
+      method: "POST",
+      path: "/api/v1/repositories/{repositoryId}/document-roots",
+      pathParams: { repositoryId },
+      body,
+    });
+    return {
+      data: {
+        uuid: created.uuid,
+        title: pickTitle(created.titles),
+        titles: created.titles,
+        type: created.type ?? "mtDocumentRoot",
+        key: created.key,
+        value: created.value,
+        raw: created,
+      },
+      methodologyNotes: [
+        "Document root = shared base path. Update value once when host/folder moves.",
+        "When linking MT docs: set prefix to this key and languages.*.content to the path relative to the root (not the full URL).",
+        "Omit showInPanel on documents unless panel/iframe open is wanted (MCP defaults to false).",
+      ],
+      nextSuggestedTools: ["list_document_roots", "link_document"],
+    };
+  }
+
   async listTypes(repositoryId: string) {
     const page = await this.client.request<Page<DocumentTypeView>>({
       path: "/api/v1/repositories/{repositoryId}/document-types",
@@ -94,6 +128,7 @@ export class DocumentsService {
       methodologyNotes: [
         "Document types categorise MT documents. Pass uuid in createDocumentBody.documentTypes when creating documents.",
         "MT documents also require type: 'URL' | 'file' (separate from documentTypes).",
+        "Omit showInPanel unless the link should open in the web 2c8 panel/iframe; default is new tab.",
       ],
       nextSuggestedTools: ["list_document_types", "link_document"],
     };
@@ -356,11 +391,19 @@ export class DocumentsService {
   }
 
   async createMtDocument(repositoryId: string, body: unknown) {
+    // API defaults showInPanel to true; prefer new-tab unless caller opts in.
+    let payload = body;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const b = body as Record<string, unknown>;
+      if (!("showInPanel" in b)) {
+        payload = { ...b, showInPanel: false };
+      }
+    }
     return this.client.request({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/mt-documents",
       pathParams: { repositoryId },
-      body,
+      body: payload,
     });
   }
 

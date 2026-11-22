@@ -58,7 +58,7 @@ Navigering uppifrån och ned:
 | `ROLE_AND_SYSTEM_NAMES` | Behåll källans namn | Om källan är på annat språk än process-titlar. |
 | `UNREGISTERED_PRACTICES` | Modellera + logga i GAPS | Practices utan rad i processregistret. |
 | `SCOPE_OPTIONAL_AREAS` | Chevron + dokument | Områden utan certifiering / ofärdigt material. |
-| `DOC_BASE_URL` | `{{DOC_BASE_URL}}` | Tom = inga externa länkar. |
+| `DOC_BASE_URL` | `{{DOC_BASE_URL}}` | Gemensam bas för dokumentlänkar → `create_document_root`. Tom = absoluta/lokala länkar utan rot (eller föreslå rot från inventerad mapp). |
 | `PILOT_AREA` | `{{PILOT_AREA}}` | Första vertikala snittet. |
 | `STOP_AFTER_PILOT` | Ja | Stanna efter G3 / klient-OK. |
 | `WORK_DIR` | `{{WORK_DIR}}` | STATE, GAPS, cards, extract, … |
@@ -99,7 +99,7 @@ Bekräfta att modelM8 är ansluten. Kör `list_repositories`, `get_api_versions`
 | Orientering | `list_repositories`, `list_languages`, `list_description_types`, `list_document_types`, `list_allowed_types` (högst 1×) |
 | Metodik | `get_methodology`, `resolve_branching_object_type`, `validate_against_methodology` |
 | Konsumera | `find_models`, `describe_process`, `describe_process_map`, `get_detail_process_scope`, `search_symbols`, `find_symbol_usage`, `describe_role` |
-| Föreslå/skriv | `propose_model_from_text`, `apply_model_proposal`, `create_process_model`, `create_process_map`, `add_process_step`, `reuse_symbol`, `set_activity_performer`, `set_step_io`, `link_breakdown`, `link_document`, `create_document_type`, `update_titles`, `update_model_description` |
+| Föreslå/skriv | `propose_model_from_text`, `apply_model_proposal`, `create_process_model`, `create_process_map`, `add_process_step`, `reuse_symbol`, `set_activity_performer`, `set_step_io`, `link_breakdown`, `link_document`, `create_document_type`, `create_document_root`, `update_titles`, `update_model_description` |
 | Rätta layout | `delete_canvas_edge`, `move_canvas_vertices` (auto-reortho), `update_canvas_edges`, `delete_canvas_vertex`, `retarget_vertex_symbol` |
 | Kvalitet (v1.2+) | `review_process_model`, `list_untranslated_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage` |
 
@@ -185,6 +185,7 @@ Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_
 - **Namn:** infinitiv + substantiv (process/aktivitet). BO = värde/artefakt, inte status-eko av aktiviteten.
 - **Performer:** `RACI_RESPONSIBLE` per aktivitet (`set_activity_performer`). Roll under varje aktivitet — inte en vertex till många.
 - **Dokument:** CONTROLS / IS_USED_BY stegspecifika; processövergripande på processymbolen.
+- **Dokumentrötter:** gemensam bas → `create_document_root`; länkar med `prefix`=key + relativ path (se methodology document-roots).
 - **`usedByTypes`:** mallar/register = `core_document`; system = `application` (rätta engelska “Template” innan apply).
 - **Layout:** vänster→höger, FLOW in vänster / ut höger; multi-IO staplas under primär (samma X); vägval Nej under ryggraden.
 - **Beskrivningar:** syfte, scope, ägare, källa, mätetal, ISO-klausul.
@@ -197,7 +198,7 @@ Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_
 ### Fas 0 — Förberedelse (inga skrivningar)
 
 1. Läs modelM8 instructions + verktygsscheman; verifiera miljö.
-2. `get_methodology` (process, process-map, naming, business-objects, documents-on-process, breakdowns, gateways); `resolve_branching_object_type("vägval")`.
+2. `get_methodology` (process, process-map, naming, business-objects, documents-on-process, document-roots, breakdowns, gateways); `resolve_branching_object_type("vägval")`.
 3. Extrahera källor → `WORK_DIR/extract/` (inkl. bildkonvertering om EMF).
 4. Skapa arbetsfiler (avsnitt 11); seed `GAPS.md`.
 5. Bekräfta parametrar.
@@ -209,9 +210,10 @@ Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_
 1. Läs processregister, roller, governance, clause-log.
 2. Processkort per kandidatmodell i `cards/<ID>.md`.
 3. `CATALOG.md`: roller, system, dokument, delade BO.
-4. Stäm av inventarium; designkontroll (in/ut/ansvarig/namn).
+4. **Dokumentrötter (föreslå i planen):** inventera gemensamma baser i `{{SOURCE_DIR}}` / `DOC_BASE_URL` (t.ex. en SharePoint-biblioteks-URL eller nätverksmapp som många filer delar). Skriv föreslagna rötter i `CATALOG.md` / STATE: `key`, föreslagen `value`, titel, vilka dokument/områden som omfattas. Skapa dem **inte** förrän fas 2.
+5. Stäm av inventarium; designkontroll (in/ut/ansvarig/namn).
 
-**G1:** kort + katalog + SOURCE-MAP-skelett komplett.
+**G1:** kort + katalog + SOURCE-MAP-skelett + föreslagna dokumentrötter komplett.
 
 ### Fas 1b — Handoff-kontrakt (inga modellskrivningar, gärna symbol-UUID efter fas 2)
 
@@ -225,10 +227,11 @@ Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_
 2. `create_repository` med språk (primary default + secondary).
 3. `list_languages`, `list_description_types`, `list_document_types`, `list_document_roots`.
 4. Saknas dokumenttyp: `create_document_type`.
-5. **Smoke-test:** en dummy-symbol → `update_model_description` / `link_document` → rätta DTO innan pilot.
-6. `find_models` = 0 (eller avstämt mot STATE vid återupptagning).
+5. **Dokumentrötter:** skapa föreslagna rötter från fas 1 / `DOC_BASE_URL` med `create_document_root` (`key` + `value`). Verifiera med `list_document_roots`.
+6. **Smoke-test:** en dummy-symbol → `update_model_description` / `link_document` (gärna med `prefix`=rot-key + relativ path) → rätta DTO innan pilot.
+7. `find_models` = 0 (eller avstämt mot STATE vid återupptagning).
 
-**G2:** `repositoryId` + språk-ID i STATE; smoke OK.
+**G2:** `repositoryId` + språk-ID + dokumentrots-`key` i STATE; smoke OK.
 
 ### Fas 3 — Pilot `{{PILOT_AREA}}`
 
@@ -323,7 +326,7 @@ Före stängning av pilot/område: öppna modell i 2c8 MT — dokumentpanel, sek
 | `STATE.md` | Parametrar, repositoryId, språk-ID, modelltabell, undantag, lärdomar |
 | `GAPS.md` | MOTSÄGELSE / LUCKA / ANTAGANDE / FRÅGA / BESLUT |
 | `SOURCE-MAP.md` | Dokument-avsnitt → modell / status |
-| `CATALOG.md` | Roller, system, dokument, handoff-BO (+ UUID) |
+| `CATALOG.md` | Roller, system, dokument, handoff-BO (+ UUID), föreslagna dokumentrötter (`key`/`value`) |
 | `MCP-FEEDBACK.md` | modelM8-/API-fel med request/response |
 | `cards/<ID>.md` | Processkort |
 | `extract/` | Extraherad text/bilder |

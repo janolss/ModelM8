@@ -47,6 +47,8 @@ Mönster: `aktivitet → BO → or → nästa aktivitet`.
 - **CONTROLS / IS_USED_BY** = stegspecifika.
 - Processövergripande policyer: på processymbolen / dokumentpanelen, inte fan-out på varje steg.
 - MT-dokument: `type: URL|file`; länk via `{ id, source: "mt.documents" }`.
+- `showInPanel`: utelämna som default (ny flik). `true` = öppna i webb-2c8 panel/iframe.
+- Dokumentrot: gemensam bas-URL/mapp (`create_document_root`: `key` + `value`). Länkar: `prefix`=key + relativ `content`. Flytt av host/path → ändra bara rotens `value`.
 
 ## Kvalitet
 

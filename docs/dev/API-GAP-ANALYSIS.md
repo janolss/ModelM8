@@ -38,7 +38,7 @@ fortfarande medvetet utanför fas 1.
 |--------|--------|
 | Repository configuration | `list_allowed_types` → `GET …/configuration` |
 | Breakdowns | `get_breakdowns`, `create_breakdown` |
-| Documents / roots / types / sources | list + `link_document` (mt-documents + symbol.documents) |
+| Documents / roots / types / sources | list + `link_document` + `create_document_root` / `create_document_type` |
 | Matrices | `get_matrices`, `get_matrix`, `execute_matrix` |
 | Relations execute | `execute_relation` |
 | Lists get-by-id | `get_list` |
@@ -53,7 +53,8 @@ fortfarande medvetet utanför fas 1.
 | `search_symbols` / `reuse_symbol` | symbols + canvas/vertices |
 | `add_process_step` | symbols + vertices + edges |
 | `set_activity_performer` / `set_step_io` | vertices + edges |
-| `link_document` | mt-documents + PATCH symbol |
+| `link_document` | mt-documents (+ optional `prefix`=root key) + PATCH symbol |
+| `create_document_root` | `POST …/document-roots` (`key`, `value`, `titles`) |
 | `propose_*` / `apply_model_proposal` | narrativ propose + batch write (symbols/vertices/edges: flow, raciresponsible, controls, isusedby) |
 | `create_repository` | `POST /api/v1/repositories` |
 | `create_canvas_edge` | `POST …/canvas/edges` |

@@ -410,7 +410,8 @@ export function registerConsumeTools(
   server.registerTool(
     "list_document_roots",
     {
-      description: "List document roots in a repository",
+      description:
+        "List document roots in a repository. A root is a shared base URL/folder for relative document links — update the root once when the host or library path moves.",
       inputSchema: { repositoryId },
     },
     async ({ repositoryId: id }) =>

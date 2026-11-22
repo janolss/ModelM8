@@ -186,6 +186,72 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
+    "create_document_root",
+    {
+      description:
+        "Create a document root (shared base URL/folder). Required: key (stable id) + value (base path). Links use prefix=<key> and relative content. Prefer when many docs share one library path so host/folder moves only update the root.",
+      inputSchema: {
+        repositoryId,
+        languageId: languageId.optional(),
+        title: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Display title; builds titles for languageId when body omitted"),
+        key: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Stable root id used as MT document prefix (e.g. ims-docs)"),
+        value: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Base URL or folder path, e.g. https://example.com/docs/"),
+        body: jsonBody
+          .optional()
+          .describe(
+            "Full body: { key, value, titles: { [languageId]: { title } } }. Overrides shorthand fields when set.",
+          ),
+      },
+    },
+    async (args) =>
+      runTool(async () => {
+        let body = args.body ? { ...args.body } : undefined;
+        if (!body) {
+          if (!args.key || !args.value || !args.title || !args.languageId) {
+            throw new Error(
+              "create_document_root requires body or (key + value + title + languageId)",
+            );
+          }
+          body = {
+            key: args.key,
+            value: args.value,
+            titles: {
+              [args.languageId]: { title: args.title },
+            },
+          };
+        } else {
+          if (args.key && body.key === undefined) body.key = args.key;
+          if (args.value && body.value === undefined) body.value = args.value;
+          if (
+            args.title &&
+            args.languageId &&
+            (body.titles === undefined ||
+              typeof body.titles !== "object" ||
+              body.titles === null)
+          ) {
+            body.titles = { [args.languageId]: { title: args.title } };
+          }
+        }
+        if (!body.key || !body.value) {
+          throw new Error("create_document_root requires key and value");
+        }
+        return ctx.documents.createDocumentRoot(args.repositoryId, body);
+      }),
+  );
+
+  server.registerTool(
     "create_description_type",
     {
       description:
@@ -757,14 +823,16 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "link_document",
     {
       description:
-        "Create/update an MT document and/or attach document IDs to a symbol. Prefer existing document roots/types. Symbol PATCH uses MtbDocumentIdDto [{ id, source: 'mt.documents' }] — never plain UUID strings.",
+        "Create/update an MT document and/or attach document IDs to a symbol. Prefer existing document roots/types. With a root: set prefix to the root key and languages.*.content to the relative path. Symbol PATCH uses MtbDocumentIdDto [{ id, source: 'mt.documents' }] — never plain UUID strings. showInPanel defaults to false (new tab); set true only for web 2c8 panel/iframe.",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
         documentIds: z.array(z.string()).optional(),
         createDocumentBody: jsonBody
           .optional()
-          .describe("Body for POST mt-documents"),
+          .describe(
+            "Body for POST mt-documents. Optional prefix=<document root key> + relative content. showInPanel omitted → false.",
+          ),
         updateDocumentId: uuid.optional(),
         updateDocumentBody: jsonBody.optional(),
       },
