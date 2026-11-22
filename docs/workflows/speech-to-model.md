@@ -24,7 +24,7 @@ Samma som [text-to-model](text-to-model.md), plus att klienten kan leverera till
 
 1. Ta emot / sammanfatta taldiktatet som strukturerad text (gärna prefixad)
 2. Låt användaren bekräfta sammanfattningen vid oklara vägval eller roller
-3. Fortsätt exakt enligt [text-to-model](text-to-model.md) från `propose_model_from_text`
+3. Fortsätt exakt enligt [text-to-model](text-to-model.md) från `propose_model_from_text` (inkl. källbaserade aktivitetsbeskrivningar — gissa inte från tal som saknar syfte/hänsyn)
 
 ## Definition of done
 

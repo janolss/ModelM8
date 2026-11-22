@@ -6,7 +6,8 @@ Använd dessa efter varje modell och inför stängning av område / IMS.
 
 1. `describe_process` eller `describe_process_map`  
 2. **`review_process_model`** — åtgärda fel (saknad BO, aktivitet→aktivitet, performers, layout)  
-3. Kör om review tills OK eller loggat undantag
+3. Kör om review tills OK eller loggat undantag  
+4. **Aktivitetsbeskrivningar** (detaljmodeller): om underlag ger syfte/varför/hänsyn → `update_symbol_description` enligt `activity.descriptionGuidance` (komplettera canvas; ingen gissning). Annars tomt.
 
 ## Översättningar
 

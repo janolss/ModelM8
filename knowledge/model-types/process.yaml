@@ -26,6 +26,7 @@ modelingGuidance:
   - Detail models under a process use activities with performers; link via breakdown
   - Exclusive/parallel branching uses Regel (Eller/Och) only — NEVER Join/Förbinda. See topic gateways / resolve_branching_object_type; not on process maps
   - Documents under activities must be step-specific (CONTROLS = styrning, IS_USED_BY = mall/stöd). Process-wide docs go on the process/model — see documents-on-process
+  - Activity descriptions (update_symbol_description): short purpose / why / caveats from sources only — do not restate RACI, documents, or BO in/out (see get_methodology topic activity → descriptionGuidance). Skip if sources lack that text.
 
 phase1: true
 sources:

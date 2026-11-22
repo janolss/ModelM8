@@ -9,6 +9,8 @@ export interface ObjectTypeDef {
   title?: { sv?: string; en?: string };
   naming?: string;
   usage?: string;
+  /** How to write symbol descriptions for this type (e.g. activity purpose vs canvas context). */
+  descriptionGuidance?: string;
   requiresPerformer?: boolean;
   specializations?: string[];
   phase1?: boolean;

@@ -15,4 +15,7 @@ Typ: <URL | file | innehåll i chatten>
    Symbol-länk: { id, source: mt.documents }
 7. Dokument på aktiviteter: CONTROLS/IS_USED_BY endast steg-specifikt —
    processövergripande styrning på modellnivå, inte fan-out på alla steg
+8. Aktivitetsbeskrivningar från källan: update_symbol_description (syfte/varför/hänsyn) —
+   komplettera canvas; upprepa inte RACI/dokument/BO. Finns det inte i underlaget → skriv inte
+   (get_methodology activity.descriptionGuidance).
 ```

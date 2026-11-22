@@ -50,6 +50,16 @@ Mönster: `aktivitet → BO → or → nästa aktivitet`.
 - `showInPanel`: utelämna som default (ny flik). `true` = öppna i webb-2c8 panel/iframe.
 - Dokumentrot: gemensam bas-URL/mapp (`create_document_root`: `key` + `value`). Länkar: `prefix`=key + relativ `content`. Flytt av host/path → ändra bara rotens `value`.
 
+## Aktivitetsbeskrivningar
+
+Beskrivningen **kompletterar** canvas. Användaren ser redan:
+
+- **Roller** → vem som ansvarar  
+- **Dokument** (CONTROLS / IS_USED_BY) → vad som styr eller stödjer  
+- **Verksamhetsobjekt** in/ut → vad som triggar/förädlas respektive lämnas vidare  
+
+Skriv därför en **kort** text om syfte/varför och viktiga hänsyn — **bara** om det går att läsa ut ur underlagen. Upprepa inte RACI/dokument/BO. Saknas underlag → lämna tomt (hitta inte på). Verktyg: `update_symbol_description`. Metodik: `get_methodology` topic `activity` → `descriptionGuidance`.
+
 ## Kvalitet
 
 Ingen modell är klar utan `review_process_model`. Se [quality-gates.md](quality-gates.md).

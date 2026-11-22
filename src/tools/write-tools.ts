@@ -936,7 +936,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "update_symbol_description",
     {
-      description: "Create or update a symbol description",
+      description:
+        "Create or update a symbol description. For activities: short purpose/why/caveats from sources only — do not restate RACI, documents, or BO in/out (get_methodology topic activity → descriptionGuidance). Skip if sources lack that text.",
       inputSchema: {
         repositoryId,
         symbolId: uuid,

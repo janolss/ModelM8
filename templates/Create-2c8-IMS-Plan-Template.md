@@ -99,7 +99,7 @@ Bekräfta att modelM8 är ansluten. Kör `list_repositories`, `get_api_versions`
 | Orientering | `list_repositories`, `list_languages`, `list_description_types`, `list_document_types`, `list_allowed_types` (högst 1×) |
 | Metodik | `get_methodology`, `resolve_branching_object_type`, `validate_against_methodology` |
 | Konsumera | `find_models`, `describe_process`, `describe_process_map`, `get_detail_process_scope`, `search_symbols`, `find_symbol_usage`, `describe_role` |
-| Föreslå/skriv | `propose_model_from_text`, `apply_model_proposal`, `create_process_model`, `create_process_map`, `add_process_step`, `reuse_symbol`, `set_activity_performer`, `set_step_io`, `link_breakdown`, `link_document`, `create_document_type`, `create_document_root`, `update_titles`, `update_model_description` |
+| Föreslå/skriv | `propose_model_from_text`, `apply_model_proposal`, `create_process_model`, `create_process_map`, `add_process_step`, `reuse_symbol`, `set_activity_performer`, `set_step_io`, `link_breakdown`, `link_document`, `create_document_type`, `create_document_root`, `update_titles`, `update_model_description`, `update_symbol_description` |
 | Rätta layout | `delete_canvas_edge`, `move_canvas_vertices` (auto-reortho), `update_canvas_edges`, `delete_canvas_vertex`, `retarget_vertex_symbol` |
 | Kvalitet (v1.2+) | `review_process_model`, `list_untranslated_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage` |
 
@@ -188,7 +188,7 @@ Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_
 - **Dokumentrötter:** gemensam bas → `create_document_root`; länkar med `prefix`=key + relativ path (se methodology document-roots).
 - **`usedByTypes`:** mallar/register = `core_document`; system = `application` (rätta engelska “Template” innan apply).
 - **Layout:** vänster→höger, FLOW in vänster / ut höger; multi-IO staplas under primär (samma X); vägval Nej under ryggraden.
-- **Beskrivningar:** syfte, scope, ägare, källa, mätetal, ISO-klausul.
+- **Beskrivningar (aktivitet):** komplettera canvas — upprepa inte RACI, styr-/stöddokument eller BO in/ut. Kort syfte/varför + viktiga hänsyn **endast** om det finns i underlag (`update_symbol_description`; se `get_methodology` topic `activity` → `descriptionGuidance`). Hitta inte på. Modell-/processbeskrivning: syfte, scope, ägare, källa, mätetal, ISO-klausul där underlag finns.
 - **Översättning:** `update_titles` med `titles: { primaryId, secondaryId }` i samma anrop när möjligt.
 
 ---
@@ -198,7 +198,7 @@ Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_
 ### Fas 0 — Förberedelse (inga skrivningar)
 
 1. Läs modelM8 instructions + verktygsscheman; verifiera miljö.
-2. `get_methodology` (process, process-map, naming, business-objects, documents-on-process, document-roots, breakdowns, gateways); `resolve_branching_object_type("vägval")`.
+2. `get_methodology` (process, process-map, **activity**, naming, business-objects, documents-on-process, document-roots, breakdowns, gateways) — läs särskilt `activity.descriptionGuidance`; `resolve_branching_object_type("vägval")`.
 3. Extrahera källor → `WORK_DIR/extract/` (inkl. bildkonvertering om EMF).
 4. Skapa arbetsfiler (avsnitt 11); seed `GAPS.md`.
 5. Bekräfta parametrar.
@@ -282,9 +282,10 @@ Q4–Q5 + slutrapport (avsnitt 12).
 | 7 | `review_process_model` → fix → om | 0 fel / loggat undantag |
 | 8 | `get_detail_process_scope` → STATE | |
 | 9 | `link_breakdown` till förälder **nu** | |
-| 10 | Beskrivning + `link_document` | |
-| 11 | `update_titles` (primär + sekundär) | |
-| 12 | STATE status | |
+| 10 | Aktivitetsbeskrivningar: `update_symbol_description` **endast** där underlag ger syfte/varför/hänsyn — komplettera canvas, upprepa inte RACI/dokument/BO (`get_methodology` → `activity.descriptionGuidance`). Tomt > gissning. | |
+| 11 | Modellbeskrivning (`update_model_description`) + `link_document` där underlag finns | |
+| 12 | `update_titles` (primär + sekundär) | |
+| 13 | STATE status | |
 
 Layoutfix: `move_canvas_vertices` (reortho default); symbolbyte: `retarget_vertex_symbol`.
 
@@ -303,7 +304,7 @@ Layoutfix: `move_canvas_vertices` (reortho default); symbolbyte: `retarget_verte
 | Grind | När | Krav |
 |---|---|---|
 | **Q1** | Varje modell | `review_process_model` 0 fel / undantag |
-| **Q2** | Detalj | **Stickprov + riskbaserat** (nya områden, vägval, handoffs). Full rad-för-rad endast om budgeterat. |
+| **Q2** | Detalj | **Stickprov + riskbaserat** (nya områden, vägval, handoffs). Aktivitetsbeskrivningar: finns underlag → fyllda enligt `descriptionGuidance`; saknas underlag → tomt (inte påhitt). Full rad-för-rad endast om budgeterat. |
 | **Q3** | Område | scopeOk; breakdowns; `list_untranslated_symbols` tomt; handoffs för området |
 | **Q4** | Fas 7 | `get_navigation_tree` + `verify_process_coverage` + `verify_handoffs` (hela 6.4) |
 | **Q5** | Fas 7 | SOURCE-MAP komplett |
@@ -352,7 +353,7 @@ Före stängning av pilot/område: öppna modell i 2c8 MT — dokumentpanel, sek
 2. Handoff-kontrakt (titlar → UUID efter repo)  
 3. Skapa repo + smoke (dokumenttyp, link_document, beskrivning)  
 4. Pilot → klient-OK  
-5. Per område: kort → propose/apply → review → EN+docs → **breakdown** → handoff-verify → STATE  
+5. Per område: kort → propose/apply → review → aktivitetsbeskrivningar (källbaserat) + EN+docs → **breakdown** → handoff-verify → STATE  
 6. L0 (stub tidigt eller sist)  
 7. Konsolidering = handoff + dubbletter + untranslated + coverage — inte “börja översätta”  
 8. Q4/Q5 + slutrapport  

@@ -24,6 +24,7 @@ Nyckelpunkter från leveranser:
 
 - **Handoff-kontrakt** (samma BO-UUID) *före* mass-text-to-model  
 - I analysfasen: identifiera gemensamma dokumentbaser (`DOC_BASE_URL`, biblioteksmapp) och **föreslå dokumentrötter** i planen; skapa med `create_document_root` i fas 2 innan mass-`link_document`  
+- **Aktivitetsbeskrivningar:** efter review, `update_symbol_description` endast när underlag ger syfte/varför/hänsyn — komplettera canvas (inte RACI/dokument/BO). Mall §7 + `get_methodology` topic `activity` → `descriptionGuidance`. Tomt > gissning.  
 - Översätt och sätt `translated: true` tidigt (`update_titles` / `confirm_translations`, inkl. edge-labels)  
 - `link_breakdown` direkt efter varje icke-rot-modell  
 - `get_navigation_tree` + `verify_handoffs` + `verify_process_coverage` i slutkontroll  

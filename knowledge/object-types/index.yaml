@@ -11,7 +11,20 @@ objectTypes:
     apiObjectTypeHints: [activity, Activity, aktivitet]
     title: { sv: Aktivitet, en: Activity }
     naming: "Infinitive verb + noun, e.g. 'Registrera order', 'Upprätta ansökan'"
-    usage: Planned event within a process. Always has a performer. Inherits input from its process and always creates a result.
+    usage: >
+      Planned event within a process. Always has a performer. Inherits input from
+      its process and always creates a result.
+    descriptionGuidance: >
+      The activity description complements what the user already sees on the
+      canvas — it must not repeat that context. Roles show who is responsible;
+      CONTROLS / IS_USED_BY documents above/below show what steers or supports
+      the step; FLOW business objects show what triggers/feeds the activity and
+      what result it hands to the next step. Write a short textual summary of
+      why the activity exists, its purpose, and any important considerations
+      when performing it. Only summarise what can be read from the given source
+      materials. If that information is not in the sources, leave the description
+      empty — do not invent or guess. Traceability to sources matters more than
+      filling every field. Use update_symbol_description when writing.
     requiresPerformer: true
     phase1: true
 
