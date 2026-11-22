@@ -549,6 +549,22 @@ export function getMethodologyTopic(
     return { kind: "objectType", ...object };
   }
 
+  // Process-wide vs step-specific document placement
+  const docOnProcessAliases = new Set([
+    "documents-on-process",
+    "document-on-process",
+    "process-wide-documents",
+    "document-fan-out",
+    "documents-fan-out",
+    "styrdokument-placering",
+  ]);
+  if (docOnProcessAliases.has(t) || docOnProcessAliases.has(tFold)) {
+    const rule = pack.rules["documents-on-process"];
+    if (rule) {
+      return { kind: "rule", ...(rule as object) };
+    }
+  }
+
   if (pack.rules[t]) {
     return { kind: "rule", ...(pack.rules[t] as object) };
   }

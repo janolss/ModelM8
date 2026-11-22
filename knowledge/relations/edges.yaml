@@ -11,9 +11,10 @@ guidance:
   - RACI_RESPONSIBLE (API: raciresponsible) — role/position → activity ownership; do not infer from placement alone
   - Same role for N activities → N canvas placements under each activity (shared symbol UUID); never one vertex with multiple RACI edges
   - FLOW on process/activity: left-in / right-out only (never top/bottom attach)
-  - CONTROLS — core_document → activity when the document steers how the activity is performed
-  - IS_USED_BY (API: isusedby) — application or template document → activity when it is used as support, not governance
+  - CONTROLS — core_document → activity when the document steers how THIS activity is performed (step-specific)
+  - IS_USED_BY (API: isusedby) — application or template document → activity when it is used as support for THIS step, not governance
   - Never invent a role→checklist CONTROLS link; checklists govern activities, not roles
+  - Do not CONTROLS/IS_USED_BY the same process-wide document onto most/all activities (Leveransrutin, policy, dokumentstyrning, …). Put those on the process/model instead — see documents-on-process
 commonEdgeTypes:
   - api: flow
     meaning: Process/input-output chain (also gateway branches; label = answer)

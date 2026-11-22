@@ -1191,19 +1191,38 @@ export class ProcessReader {
     repositoryId: string;
     modelId: string;
   }): Promise<Record<string, unknown>> {
-    const page = await this.client.request<Page<BreakdownView>>({
-      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from",
-      pathParams: {
-        repositoryId: args.repositoryId,
-        modelId: args.modelId,
-      },
-    });
-    return {
-      breakdowns: page.data ?? page,
-      methodologyNotes: [
-        "Breakdowns navigate from high-level processes to detailed activity models.",
-      ],
-    };
+    try {
+      const page = await this.client.request<Page<BreakdownView>>({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/broken-down-from",
+        pathParams: {
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+        },
+      });
+      return {
+        breakdowns: page.data ?? page,
+        methodologyNotes: [
+          "Breakdowns are stored on DETAIL models (broken-down-from → overview symbol).",
+          "For full L0→… tree and missing links, prefer get_navigation_tree.",
+        ],
+        nextSuggestedTools: ["get_navigation_tree", "link_breakdown"],
+      };
+    } catch (err) {
+      const status =
+        err && typeof err === "object" && "status" in err
+          ? Number((err as { status: number }).status)
+          : undefined;
+      if (status === 404) {
+        return {
+          breakdowns: [],
+          methodologyNotes: [
+            "404 on broken-down-from — typical for overview/root models. Use get_navigation_tree.",
+          ],
+          nextSuggestedTools: ["get_navigation_tree"],
+        };
+      }
+      throw err;
+    }
   }
 
   private normTitle(s: string): string {

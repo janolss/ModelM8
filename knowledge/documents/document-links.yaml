@@ -13,6 +13,9 @@ guidance:
   - Prefer document roots for shared base paths so moves do not break every link
   - Tag links with document types for filtering in lists and publications
   - Linked files must be reachable by publication end users
+  - Canvas CONTROLS/IS_USED_BY under activities = step-specific only; process-wide
+    governing docs attach as symbol/model document links (or once on the process
+    chevron), not as satellites on every activity — see documents-on-process
 api:
   sources: GET /api/v1/repositories/{repositoryId}/documents/sources
   listKeys: GET /api/v1/repositories/{repositoryId}/documents/sources/{sourceId}/documents

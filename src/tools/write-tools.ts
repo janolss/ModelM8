@@ -112,7 +112,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "move_canvas_vertices",
     {
       description:
-        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. Use after review flags spacing / left-margin / misalignment. Then update_canvas_edges with reorthogonalize for attached FLOW.",
+        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. By default reorthogonalizes attached edges in the same call (set reorthogonalizeEdges:false to skip).",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -127,9 +127,62 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             }),
           )
           .min(1),
+        reorthogonalizeEdges: z
+          .boolean()
+          .optional()
+          .describe("Default true — rebuild orthogonal routes for attached edges"),
       },
     },
     async (args) => runTool(() => writer.moveCanvasVertices(args)),
+  );
+
+  server.registerTool(
+    "retarget_vertex_symbol",
+    {
+      description:
+        "Replace the symbol on a canvas vertex while keeping position and recreating edges. Use when renaming/consolidating aliases (e.g. HRM → HR-system). API cannot PATCH vertex.symbol.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        vertexId: uuid,
+        newSymbolId: uuid.describe("Existing symbol UUID to place on the vertex"),
+        languageId,
+      },
+    },
+    async (args) => runTool(() => writer.retargetVertexSymbol(args)),
+  );
+
+  server.registerTool(
+    "create_document_type",
+    {
+      description:
+        "Create a document type (category) in the repository. Body: { titles: { [languageId]: { title } } }. Use uuid in link_document createDocumentBody.documentTypes.",
+      inputSchema: {
+        repositoryId,
+        languageId: languageId.optional(),
+        title: z.string().min(1).optional().describe("Shorthand: builds titles for languageId"),
+        body: jsonBody
+          .optional()
+          .describe("Full MtbDocumentTypeDto — titles map required if title omitted"),
+      },
+    },
+    async (args) =>
+      runTool(async () => {
+        let body = args.body;
+        if (!body) {
+          if (!args.title || !args.languageId) {
+            throw new Error(
+              "create_document_type requires body or (title + languageId)",
+            );
+          }
+          body = {
+            titles: {
+              [args.languageId]: { title: args.title },
+            },
+          };
+        }
+        return ctx.documents.createDocumentType(args.repositoryId, body);
+      }),
   );
 
   server.registerTool(
@@ -443,7 +496,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "link_document",
     {
       description:
-        "Create/update an MT document and/or attach document IDs to a symbol. Prefer existing document roots/types.",
+        "Create/update an MT document and/or attach document IDs to a symbol. Prefer existing document roots/types. Symbol PATCH uses MtbDocumentIdDto [{ id, source: 'mt.documents' }] — never plain UUID strings.",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
@@ -458,12 +511,17 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     async (args) =>
       runTool(async () => {
         const results: Record<string, unknown> = {};
+        let linked = false;
         if (args.createDocumentBody) {
           results.created = await ctx.documents.createMtDocument(
             args.repositoryId,
             args.createDocumentBody,
           );
-          const createdId = (results.created as { uuid?: string })?.uuid;
+          const created = results.created as {
+            uuid?: string;
+            id?: string;
+          };
+          const createdId = created?.uuid ?? created?.id;
           if (createdId && args.symbolId) {
             results.linked = await ctx.documents.linkDocumentsToSymbol({
               repositoryId: args.repositoryId,
@@ -473,6 +531,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
                 createdId,
               ],
             });
+            linked = true;
           }
         } else if (args.updateDocumentId && args.updateDocumentBody) {
           results.updated = await ctx.documents.updateMtDocument(
@@ -481,7 +540,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             args.updateDocumentBody,
           );
         }
-        if (args.symbolId && args.documentIds?.length && !results.linked) {
+        if (args.symbolId && args.documentIds?.length && !linked) {
           results.linked = await ctx.documents.linkDocumentsToSymbol({
             repositoryId: args.repositoryId,
             symbolId: args.symbolId,
@@ -491,7 +550,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         return {
           data: results,
           methodologyNotes: [
-            "Document links on symbols appear in publications; ensure end-user reachability.",
+            "Document links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is treated as success.",
           ],
           nextSuggestedTools: ["get_object_documents"],
         };
@@ -499,10 +558,28 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
+    "confirm_translations",
+    {
+      description:
+        "Mark existing titles as translated (translated:true) without changing text — symbols, models, and canvas edge labels (Ja/Nej etc.). Clears GUI Translation status globes. Pass languageId (e.g. English).",
+      inputSchema: {
+        repositoryId,
+        languageId,
+        includeModels: z
+          .boolean()
+          .optional()
+          .describe("Also confirm model titles (default true)"),
+        maxSymbols: z.number().int().positive().optional(),
+      },
+    },
+    async (args) => runTool(() => writer.confirmTranslations(args)),
+  );
+
+  server.registerTool(
     "update_titles",
     {
       description:
-        "Update model/symbol titles (translations). Writes title + rawTitle and sets translated:false (clears the GUI 'needs review' marker). Prefer items[] to batch many symbols in ONE call.",
+        "Update model/symbol titles (translations). Writes title + rawTitle and sets translated:true (marks language as translated — clears GUI globe). Prefer items[] to batch many symbols in ONE call.",
       inputSchema: {
         repositoryId,
         languageId: languageId.optional().describe("Default language for single or items without per-item languageId"),

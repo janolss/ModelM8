@@ -235,23 +235,24 @@ export class ProcessWriter {
    * Both title and rawTitle must be set for GUI language switching.
    * GUI renders rawTitle; API/MCP often surface title — mismatch = SV on canvas, EN in API.
    *
-   * `translated: false` = confirmed title (clears the "needs review" marker).
-   * On create the API forces translated:true on the default language when it
-   * auto-copies text — do not send translated on create (400). Use update path
-   * / titleEntryConfirmed after an explicit translation write.
+   * Translation status (non-default language):
+   * - `translated: true`  = confirmed translation → GUI globe / "needs translation" OFF
+   * - `translated: false` = not translated / pending → GUI globe ON
+   * Default language omits the field. Do not send `translated` on create (400).
+   * After an explicit translation write, use titleEntryConfirmed (sets true).
    */
   private titleEntry(title: string): { title: string; rawTitle: string } {
     const plain = stripSoftBreaks(title).trim();
     return { title: plain, rawTitle: applySoftBreaks(title) };
   }
 
-  /** Explicit symbol translation/edit: title + rawTitle + clear review flag. */
+  /** Explicit symbol translation/edit: title + rawTitle + mark as translated. */
   private titleEntryConfirmed(title: string): {
     title: string;
     rawTitle: string;
-    translated: false;
+    translated: true;
   } {
-    return { ...this.titleEntry(title), translated: false };
+    return { ...this.titleEntry(title), translated: true };
   }
 
   /**
@@ -259,11 +260,11 @@ export class ProcessWriter {
    */
   private modelTitleEntryConfirmed(title: string): {
     title: string;
-    translated: false;
+    translated: true;
   } {
     return {
       title: stripSoftBreaks(title).trim(),
-      translated: false,
+      translated: true,
     };
   }
 
@@ -625,7 +626,7 @@ export class ProcessWriter {
           // Models reject rawTitle — title + translated:false only.
           const modelTitles: Record<
             string,
-            { title: string; translated: false }
+            { title: string; translated: true }
           > = {
             [languageId]: this.modelTitleEntryConfirmed(item.title),
           };
@@ -643,10 +644,10 @@ export class ProcessWriter {
           });
         }
         if (item.symbolId) {
-          // Symbols need title + rawTitle; translated:false clears review marker.
+          // Symbols need title + rawTitle; translated:true clears GUI globe.
           const symbolTitles: Record<
             string,
-            { title: string; rawTitle: string; translated: false }
+            { title: string; rawTitle: string; translated: true }
           > = {
             [languageId]: this.titleEntryConfirmed(item.title),
           };
@@ -682,12 +683,318 @@ export class ProcessWriter {
     return {
       data: { updated, okCount, total: updated.length },
       methodologyNotes: [
-        "Writes title + rawTitle and sets translated:false (clears GUI review marker for that language).",
+        "Writes title + rawTitle and sets translated:true (marks language as translated — clears GUI globe).",
         "Batch via items[{ modelId|symbolId, title, languageId? }] — one call for all translations.",
         "Pass Swedish languageId to add Swedish without changing English.",
         "Symbol title is shared across models; model title is per-model.",
+        "To only flip the flag on existing titles without rewriting text: confirm_translations.",
       ],
-      nextSuggestedTools: ["find_models", "search_symbols", "resolve_symbols"],
+      nextSuggestedTools: [
+        "confirm_translations",
+        "list_untranslated_symbols",
+        "search_symbols",
+      ],
+    };
+  }
+
+  /**
+   * Mark existing titles as translated (translated:true) without changing text.
+   * Fixes GUI globes after earlier writes that incorrectly set translated:false.
+   */
+  async confirmTranslations(args: {
+    repositoryId: string;
+    languageId: string;
+    /** When true, also PATCH model titles. Default true. */
+    includeModels?: boolean;
+    maxSymbols?: number;
+  }) {
+    const max = args.maxSymbols ?? 2000;
+    const updated: Array<{
+      kind: "symbol" | "model";
+      id: string;
+      ok: boolean;
+      error?: string;
+      skipped?: string;
+    }> = [];
+    let confirmedSymbols = 0;
+
+    let startAt = 0;
+    const pageSize = 100;
+    for (;;) {
+      if (confirmedSymbols >= max) break;
+      const page = await this.client.request<{
+        data?: Array<{
+          uuid?: string;
+          titles?: Record<
+            string,
+            { title?: string; rawTitle?: string; translated?: boolean }
+          >;
+        }>;
+        total?: number;
+      }>({
+        path: "/api/v1/repositories/{repositoryId}/symbols",
+        pathParams: { repositoryId: args.repositoryId },
+        query: {
+          startAt: String(startAt),
+          maxResults: String(pageSize),
+          projection: "ALL",
+        },
+      });
+      const batch = page.data ?? [];
+      if (batch.length === 0) break;
+
+      for (const s of batch) {
+        if (!s.uuid) continue;
+        if (confirmedSymbols >= max) break;
+        const entry = s.titles?.[args.languageId];
+        if (!entry?.title?.trim()) {
+          updated.push({
+            kind: "symbol",
+            id: s.uuid,
+            ok: false,
+            skipped: "missing-title",
+          });
+          continue;
+        }
+        if (entry.translated === true) {
+          updated.push({
+            kind: "symbol",
+            id: s.uuid,
+            ok: true,
+            skipped: "already-true",
+          });
+          continue;
+        }
+        try {
+          const title = entry.title.trim();
+          const rawTitle = (entry.rawTitle ?? title).trim();
+          await this.client.request({
+            method: "PATCH",
+            path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+            pathParams: {
+              repositoryId: args.repositoryId,
+              symbolId: s.uuid,
+            },
+            body: {
+              titles: {
+                [args.languageId]: {
+                  title,
+                  rawTitle,
+                  translated: true,
+                },
+              },
+            },
+          });
+          confirmedSymbols += 1;
+          updated.push({ kind: "symbol", id: s.uuid, ok: true });
+        } catch (err) {
+          updated.push({
+            kind: "symbol",
+            id: s.uuid,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      startAt += batch.length;
+      if (startAt >= (page.total ?? startAt)) break;
+    }
+
+    if (args.includeModels !== false) {
+      let mStart = 0;
+      for (;;) {
+        const page = await this.client.request<{
+          data?: Array<{
+            uuid?: string;
+            titles?: Record<
+              string,
+              { title?: string; translated?: boolean }
+            >;
+          }>;
+          total?: number;
+        }>({
+          path: "/api/v1/repositories/{repositoryId}/models",
+          pathParams: { repositoryId: args.repositoryId },
+          query: {
+            startAt: String(mStart),
+            maxResults: String(pageSize),
+            projection: "ALL",
+          },
+        });
+        const batch = page.data ?? [];
+        if (batch.length === 0) break;
+        for (const m of batch) {
+          if (!m.uuid) continue;
+          const entry = m.titles?.[args.languageId];
+          if (!entry?.title?.trim()) continue;
+          if (entry.translated === true) continue;
+          try {
+            await this.client.request({
+              method: "PATCH",
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}",
+              pathParams: {
+                repositoryId: args.repositoryId,
+                modelId: m.uuid,
+              },
+              body: {
+                titles: {
+                  [args.languageId]: {
+                    title: entry.title.trim(),
+                    translated: true,
+                  },
+                },
+              },
+            });
+            updated.push({ kind: "model", id: m.uuid, ok: true });
+          } catch (err) {
+            updated.push({
+              kind: "model",
+              id: m.uuid,
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        mStart += batch.length;
+        if (mStart >= (page.total ?? mStart)) break;
+      }
+    }
+
+    // Canvas edge labels (Ja/Nej etc.) — not on symbols; walk every model canvas.
+    let edgeConfirmed = 0;
+    let edgeAlready = 0;
+    let edgeFailed = 0;
+    let edgeModels = 0;
+    {
+      let mStart = 0;
+      for (;;) {
+        const page = await this.client.request<{
+          data?: Array<{ uuid?: string }>;
+          total?: number;
+        }>({
+          path: "/api/v1/repositories/{repositoryId}/models",
+          pathParams: { repositoryId: args.repositoryId },
+          query: {
+            startAt: String(mStart),
+            maxResults: String(pageSize),
+            projection: "ALL",
+          },
+        });
+        const batch = page.data ?? [];
+        if (batch.length === 0) break;
+
+        for (const m of batch) {
+          if (!m.uuid) continue;
+          try {
+            const canvas = (await this.client.request({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+              pathParams: {
+                repositoryId: args.repositoryId,
+                modelId: m.uuid,
+              },
+            })) as {
+              edges?: Array<{
+                uuid?: string;
+                points?: Array<{ x?: number; y?: number }>;
+                breakdowns?: unknown[];
+                labels?: Record<
+                  string,
+                  {
+                    title?: string;
+                    rawTitle?: string;
+                    translated?: boolean;
+                    x?: number;
+                    y?: number;
+                    width?: number;
+                    height?: number;
+                  }
+                >;
+              }>;
+            };
+            const patchEdges: Array<Record<string, unknown>> = [];
+            for (const e of canvas.edges ?? []) {
+              if (!e.uuid || !e.labels) continue;
+              const entry = e.labels[args.languageId];
+              if (!entry?.title?.trim()) continue;
+              if (entry.translated === true) {
+                edgeAlready += 1;
+                continue;
+              }
+              const nextLabels: Record<string, unknown> = {};
+              for (const [lang, lab] of Object.entries(e.labels)) {
+                if (lang === args.languageId) {
+                  nextLabels[lang] = { ...lab, translated: true };
+                } else {
+                  nextLabels[lang] = lab;
+                }
+              }
+              patchEdges.push({
+                uuid: e.uuid,
+                points: e.points ?? [],
+                labels: nextLabels,
+                breakdowns: e.breakdowns ?? [],
+              });
+            }
+            if (patchEdges.length === 0) continue;
+            await this.client.request({
+              method: "PATCH",
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+              pathParams: {
+                repositoryId: args.repositoryId,
+                modelId: m.uuid,
+              },
+              body: { edges: patchEdges },
+            });
+            edgeConfirmed += patchEdges.length;
+            edgeModels += 1;
+            updated.push({
+              kind: "model",
+              id: m.uuid,
+              ok: true,
+              skipped: `edges:${patchEdges.length}`,
+            });
+          } catch (err) {
+            edgeFailed += 1;
+            updated.push({
+              kind: "model",
+              id: m.uuid,
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        mStart += batch.length;
+        if (mStart >= (page.total ?? mStart)) break;
+      }
+    }
+
+    const confirmed = updated.filter((u) => u.ok && !u.skipped).length;
+    const already = updated.filter((u) => u.skipped === "already-true").length;
+    const failed = updated.filter((u) => !u.ok && !u.skipped).length;
+    return {
+      data: {
+        languageId: args.languageId,
+        confirmed,
+        alreadyTrue: already,
+        failed,
+        edges: {
+          confirmed: edgeConfirmed,
+          alreadyTrue: edgeAlready,
+          failedModels: edgeFailed,
+          modelsPatched: edgeModels,
+        },
+        totalTouched: updated.length,
+        // Cap detail list for MCP payload size
+        sample: updated.filter((u) => !u.skipped || u.skipped === "missing-title" || u.skipped?.startsWith("edges:")).slice(0, 30),
+      },
+      methodologyNotes: [
+        "Sets translated:true on symbol/model titles and canvas edge labels (same text) so GUI globes clear.",
+        "Edge labels (e.g. Ja/Nej / Yes/No) live on the canvas — not on symbols; included here.",
+        "translated:false = not translated (globe ON); translated:true = confirmed (globe OFF).",
+      ],
+      nextSuggestedTools: ["list_untranslated_symbols", "update_titles"],
     };
   }
 
@@ -2364,7 +2671,7 @@ export class ProcessWriter {
     const midY = Math.floor(((points[0]?.y ?? 0) + (points[points.length - 1]?.y ?? 0)) / 2) - 10;
     const labelText = (args.label ?? "").trim();
     const labelWidth = Math.max(40, Math.min(120, Math.ceil(labelText.length * 6) + 12));
-    const edgeLabel = {
+    const edgeLabelBase = {
       title: labelText,
       rawTitle: labelText,
       x: midX - Math.floor(labelWidth / 2),
@@ -2372,11 +2679,17 @@ export class ProcessWriter {
       width: labelWidth,
       height: 20,
     };
-    const labels = await this.labelsForLanguages(
-      args.repositoryId,
-      args.languageId,
-      edgeLabel,
-    );
+    // Default language omits translated; other languages get translated:true when we write them.
+    const defLang = await this.defaultLanguageId(args.repositoryId);
+    const labels: Record<string, Record<string, unknown>> = {
+      [args.languageId]:
+        defLang && defLang === args.languageId
+          ? { ...edgeLabelBase }
+          : { ...edgeLabelBase, translated: true },
+    };
+    if (defLang && defLang !== args.languageId) {
+      labels[defLang] = { ...edgeLabelBase };
+    }
 
     const edge = await this.client.request({
       method: "POST",
@@ -2421,6 +2734,11 @@ export class ProcessWriter {
       width?: number;
       height?: number;
     }>;
+    /**
+     * When true (default), reorthogonalize all edges attached to moved vertices
+     * in the same call — avoids stale control points → 400 on later patches.
+     */
+    reorthogonalizeEdges?: boolean;
   }) {
     if (!args.vertices.length) {
       throw new Error("move_canvas_vertices requires at least one vertex");
@@ -2441,6 +2759,11 @@ export class ProcessWriter {
         zOrder?: number;
         breakdowns?: unknown[];
       }>;
+      edges?: Array<{
+        uuid?: string;
+        fromVertex?: string;
+        toVertex?: string;
+      }>;
     };
     const byId = new Map(
       (canvas.vertices ?? [])
@@ -2449,6 +2772,7 @@ export class ProcessWriter {
     );
     const patchVertices: Array<Record<string, unknown>> = [];
     const missing: string[] = [];
+    const movedIds = new Set<string>();
     for (const mv of args.vertices) {
       const cur = byId.get(mv.vertexId);
       if (!cur) {
@@ -2464,6 +2788,7 @@ export class ProcessWriter {
         zOrder: cur.zOrder ?? 0,
         breakdowns: cur.breakdowns ?? [],
       });
+      movedIds.add(mv.vertexId);
     }
     if (missing.length) {
       throw new Error(
@@ -2479,10 +2804,47 @@ export class ProcessWriter {
       },
       body: { vertices: patchVertices },
     });
+
+    const reortho = args.reorthogonalizeEdges !== false;
+    let reorthogonalized: string[] = [];
+    if (reortho) {
+      const edgeIds = [
+        ...new Set(
+          (canvas.edges ?? [])
+            .filter(
+              (e) =>
+                e.uuid &&
+                ((e.fromVertex && movedIds.has(e.fromVertex)) ||
+                  (e.toVertex && movedIds.has(e.toVertex))),
+            )
+            .map((e) => e.uuid!),
+        ),
+      ];
+      if (edgeIds.length) {
+        const updated = await this.updateCanvasEdges({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          edges: edgeIds.map((edgeId) => ({
+            edgeId,
+            reorthogonalize: true,
+          })),
+        });
+        reorthogonalized =
+          (updated.data as { updated?: string[] })?.updated ?? edgeIds;
+      }
+    }
+
     return {
-      data: { moved: patchVertices.map((v) => v.uuid), count: patchVertices.length },
+      data: {
+        moved: patchVertices.map((v) => v.uuid),
+        count: patchVertices.length,
+        reorthogonalized,
+      },
       methodologyNotes: [
-        "Moved vertices via PATCH /canvas. Re-route attached FLOW with update_canvas_edges if routes look wrong.",
+        "Moved vertices via PATCH /canvas.",
+        reortho
+          ? "Attached edges were reorthogonalized automatically (reorthogonalizeEdges defaults to true)."
+          : "Pass reorthogonalizeEdges:true (default) or call update_canvas_edges with reorthogonalize:true to fix stale routes.",
         "After layout fixes: review_process_model.",
       ],
       nextSuggestedTools: [
@@ -2490,6 +2852,138 @@ export class ProcessWriter {
         "review_process_model",
         "describe_process",
       ],
+    };
+  }
+
+  /**
+   * Replace the symbol on a canvas vertex while keeping position and edges.
+   * API treats vertex.symbol as read-only on PATCH — implement via
+   * delete edges → delete vertex → create vertex → recreate edges.
+   */
+  async retargetVertexSymbol(args: {
+    repositoryId: string;
+    modelId: string;
+    vertexId: string;
+    newSymbolId: string;
+    languageId: string;
+  }) {
+    const canvas = (await this.client.request({
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+      },
+    })) as {
+      vertices?: Array<{
+        uuid?: string;
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
+        zOrder?: number;
+        symbol?: string | { uuid?: string };
+        breakdowns?: unknown[];
+      }>;
+      edges?: Array<{
+        uuid?: string;
+        edgeType?: string;
+        fromVertex?: string;
+        toVertex?: string;
+        labels?: Record<string, { title?: string }>;
+      }>;
+    };
+
+    const vertex = (canvas.vertices ?? []).find((v) => v.uuid === args.vertexId);
+    if (!vertex) {
+      throw new Error(`Unknown vertexId on canvas: ${args.vertexId}`);
+    }
+    const oldSymbol =
+      typeof vertex.symbol === "string"
+        ? vertex.symbol
+        : vertex.symbol?.uuid;
+
+    const attached = (canvas.edges ?? []).filter(
+      (e) =>
+        e.fromVertex === args.vertexId || e.toVertex === args.vertexId,
+    );
+
+    if (attached.length) {
+      await this.deleteCanvasEdges({
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        edgeIds: attached.map((e) => e.uuid!).filter(Boolean),
+      });
+    }
+
+    await this.client.request({
+      method: "DELETE",
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas/vertices/{vertexId}",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        vertexId: args.vertexId,
+      },
+    });
+
+    const created = (await this.client.request({
+      method: "POST",
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas/vertices",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+      },
+      body: {
+        x: vertex.x ?? 0,
+        y: vertex.y ?? 0,
+        width: vertex.width ?? DEFAULT_WIDTH,
+        height: vertex.height ?? DEFAULT_HEIGHT,
+        symbol: args.newSymbolId,
+      },
+    })) as { uuid?: string };
+
+    const newVertexId = created.uuid;
+    if (!newVertexId) {
+      throw new Error("retarget_vertex_symbol: create vertex returned no uuid");
+    }
+
+    const recreated: string[] = [];
+    for (const e of attached) {
+      const fromVertex =
+        e.fromVertex === args.vertexId ? newVertexId : e.fromVertex;
+      const toVertex =
+        e.toVertex === args.vertexId ? newVertexId : e.toVertex;
+      if (!fromVertex || !toVertex || !e.edgeType) continue;
+      const label =
+        Object.values(e.labels ?? {}).find((l) => l.title?.trim())?.title ??
+        undefined;
+      const edge = await this.createCanvasEdge({
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        fromVertexId: fromVertex,
+        toVertexId: toVertex,
+        edgeType: e.edgeType,
+        languageId: args.languageId,
+        label,
+      });
+      const eid = (edge.data as { uuid?: string })?.uuid;
+      if (eid) recreated.push(eid);
+    }
+
+    return {
+      data: {
+        oldVertexId: args.vertexId,
+        newVertexId,
+        oldSymbolId: oldSymbol,
+        newSymbolId: args.newSymbolId,
+        edgesRecreated: recreated.length,
+        edgeIds: recreated,
+      },
+      methodologyNotes: [
+        "Vertex.symbol is read-only on PATCH /canvas — retarget deletes+recreates the vertex and its edges.",
+        "Old symbol UUID remains in the repository (search_symbols / reuse_symbol).",
+        "Prefer this over manual delete_canvas_edge + delete_canvas_vertex + reuse_symbol.",
+      ],
+      nextSuggestedTools: ["review_process_model", "find_symbol_usage"],
     };
   }
 

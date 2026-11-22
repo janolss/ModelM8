@@ -54,6 +54,21 @@ const RESPONSIBLE_EDGE_TYPES = new Set([
   "performs",
   "utför",
 ]);
+const DOC_LINK_EDGE_TYPES = new Set([
+  "controls",
+  "control",
+  "styr",
+  "isusedby",
+  "usedby",
+  "anvandsav",
+]);
+const DOCUMENT_OBJECT_TYPES = new Set([
+  "coredocument",
+  "document",
+  "dokument",
+  "styrdokument",
+]);
+const APPLICATION_OBJECT_TYPES = new Set(["application", "applikation"]);
 const MAP_LEFT_MARGIN = 80;
 
 function normType(value: string | undefined): string {
@@ -67,6 +82,39 @@ function isFlowEdge(et: string | undefined): boolean {
 
 function isRaciEdge(et: string | undefined): boolean {
   return RESPONSIBLE_EDGE_TYPES.has(normType(et));
+}
+
+function isDocLinkEdge(et: string | undefined): boolean {
+  return DOC_LINK_EDGE_TYPES.has(normType(et));
+}
+
+function symbolIdOf(v: VertexView): string {
+  const sym = v.symbol;
+  if (typeof sym === "string" && sym) return sym;
+  if (sym && typeof sym === "object" && typeof sym.uuid === "string") {
+    return sym.uuid;
+  }
+  return v.uuid ?? "";
+}
+
+function vertexTitle(v: VertexView): string {
+  for (const lab of Object.values(v.labels ?? {})) {
+    if (lab && typeof lab === "object" && typeof lab.title === "string" && lab.title) {
+      return lab.title;
+    }
+  }
+  return "?";
+}
+
+function objectTypeOf(v: VertexView, steps: FlowStep[]): string {
+  const step = steps.find((s) => s.vertexId === v.uuid);
+  if (step?.objectType) return step.objectType;
+  if (typeof v.objectType === "string") return v.objectType;
+  const sym = v.symbol;
+  if (sym && typeof sym === "object" && typeof sym.objectType === "string") {
+    return sym.objectType;
+  }
+  return "";
 }
 
 function boxesOverlap(
@@ -212,6 +260,8 @@ export function reviewProcessCanvas(args: {
       const flowOut = (a.outputs ?? []).filter((o) =>
         BUSINESS_OBJECT_TYPES.has(normType(o.objectType)),
       );
+      // Vägval pattern: activity → BO → or → activity. FLOW from vägval to
+      // activity is correct; decision-only input does not require an extra BO.
       if (flowInBo.length === 0 && flowInDecision.length === 0) {
         findings.push({
           id: "activity-missing-input-bo",
@@ -220,17 +270,6 @@ export function reviewProcessCanvas(args: {
           message: `Activity "${a.title ?? "?"}" has no FLOW business-object input.`,
           suggestion:
             "Add a value/artefact BO on the left of the activity and connect with FLOW (left-in).",
-          titles: [a.title ?? ""],
-          vertexIds: a.vertexId ? [a.vertexId] : [],
-        });
-      } else if (flowInBo.length === 0 && flowInDecision.length > 0) {
-        findings.push({
-          id: "activity-input-from-decision-only",
-          severity: "warning",
-          category: "methodology",
-          message: `Activity "${a.title ?? "?"}" takes FLOW only from a vägval — prefer a BO between the decision and the activity.`,
-          suggestion:
-            "Place a value/artefact BO after the vägval (or reuse the prior BO) before the activity.",
           titles: [a.title ?? ""],
           vertexIds: a.vertexId ? [a.vertexId] : [],
         });
@@ -257,6 +296,24 @@ export function reviewProcessCanvas(args: {
             "Place a role under the activity and link with set_activity_performer (one placement per activity).",
           titles: [a.title ?? ""],
           vertexIds: a.vertexId ? [a.vertexId] : [],
+        });
+      }
+    }
+    // Vägval → BO is wrong; decision is taken in the activity before the or,
+    // carried in that activity's output BO. Pattern: activity → BO → or → activity.
+    for (const d of steps) {
+      if (!DECISION_TYPES.has(normType(d.objectType))) continue;
+      for (const out of d.outputs ?? []) {
+        if (!BUSINESS_OBJECT_TYPES.has(normType(out.objectType))) continue;
+        findings.push({
+          id: "vägval-flow-to-bo",
+          severity: "error",
+          category: "methodology",
+          message: `FLOW from vägval "${d.title ?? "?"}" to business object "${out.title ?? "?"}" — branches must target activities.`,
+          suggestion:
+            "Vägval is a reader aid: activity → BO → or → real next activity. The BO before the or carries the decision; do not emit a new BO from the vägval, and do not invent filler activities after it.",
+          titles: [d.title ?? "", out.title ?? ""],
+          vertexIds: [d.vertexId, out.vertexId].filter(Boolean) as string[],
         });
       }
     }
@@ -431,6 +488,79 @@ export function reviewProcessCanvas(args: {
           "Place a separate role vertex under each activity (shared symbol UUID, separate placements).",
         titles: [role?.title ?? "", ...uniq],
         vertexIds: [vid],
+      });
+    }
+  }
+
+  // Process-wide document fan-out: same CORE_DOCUMENT CONTROLS/IS_USED_BY on most activities
+  if (!isMap) {
+    const activityCount = activities.length;
+    type DocFan = {
+      title: string;
+      objectType: string;
+      edgeType: string;
+      activityTitles: Set<string>;
+      vertexIds: string[];
+    };
+    const bySymbol = new Map<string, DocFan>();
+    for (const e of edges) {
+      if (!isDocLinkEdge(e.edgeType)) continue;
+      const from = byId.get(e.fromVertex ?? "");
+      const to = byId.get(e.toVertex ?? "");
+      if (!from || !to) continue;
+      const fromOt = normType(objectTypeOf(from, steps));
+      const toOt = normType(objectTypeOf(to, steps));
+      if (!ACTIVITY_TYPES.has(toOt)) continue;
+      const isDoc = DOCUMENT_OBJECT_TYPES.has(fromOt);
+      const isApp = APPLICATION_OBJECT_TYPES.has(fromOt);
+      if (!isDoc && !isApp) continue;
+      const sid = symbolIdOf(from) || from.uuid || "";
+      if (!sid) continue;
+      const edgeNorm = normType(e.edgeType);
+      const key = `${sid}|${edgeNorm}|${isDoc ? "doc" : "app"}`;
+      const toTitle =
+        steps.find((s) => s.vertexId === to.uuid)?.title ?? vertexTitle(to);
+      const cur = bySymbol.get(key) ?? {
+        title: vertexTitle(from),
+        objectType: isDoc ? "document" : "application",
+        edgeType: edgeNorm.includes("control") || edgeNorm === "styr"
+          ? "CONTROLS"
+          : "IS_USED_BY",
+        activityTitles: new Set<string>(),
+        vertexIds: [],
+      };
+      cur.activityTitles.add(toTitle);
+      if (from.uuid) cur.vertexIds.push(from.uuid);
+      bySymbol.set(key, cur);
+    }
+    const halfThreshold = Math.max(3, Math.ceil(activityCount / 2));
+    for (const fan of bySymbol.values()) {
+      const n = fan.activityTitles.size;
+      if (activityCount < 3 || n < halfThreshold) continue;
+      const nearlyAll = n >= activityCount || (activityCount >= 4 && n >= activityCount - 1);
+      if (fan.objectType === "application") {
+        if (!nearlyAll) continue;
+        findings.push({
+          id: "process-wide-application-fan-out",
+          severity: "info",
+          category: "methodology",
+          message: `Application "${fan.title}" is IS_USED_BY-linked to ${n}/${activityCount} activities.`,
+          suggestion:
+            "Only draw systems under steps that uniquely use them; generic always-on tools can stay off the canvas.",
+          titles: [fan.title, ...fan.activityTitles],
+          vertexIds: [...new Set(fan.vertexIds)],
+        });
+        continue;
+      }
+      findings.push({
+        id: "process-wide-document-fan-out",
+        severity: nearlyAll ? "error" : "warning",
+        category: "methodology",
+        message: `Document "${fan.title}" has ${fan.edgeType} links to ${n}/${activityCount} activities (process-wide fan-out).`,
+        suggestion:
+          "Keep only step-specific CONTROLS (policy/riktlinje) and IS_USED_BY (mall/blankett) on activities. Attach process-wide docs on the process/model instead — see get_methodology(documents-on-process).",
+        titles: [fan.title, ...fan.activityTitles],
+        vertexIds: [...new Set(fan.vertexIds)],
       });
     }
   }

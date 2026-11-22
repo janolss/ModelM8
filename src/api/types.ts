@@ -11,8 +11,9 @@ export interface LocalizedTitle {
   title?: string;
   rawTitle?: string;
   /**
-   * When true on the default language after create: auto-copied text awaiting review.
-   * Explicit MCP edits set false to clear the review marker.
+   * Non-default language only. true = confirmed translation (GUI globe OFF);
+   * false/omitted = not translated (GUI Translation status globe ON).
+   * Default language omits the field. MCP update_titles / confirm_translations set true.
    */
   translated?: boolean;
   [key: string]: unknown;

@@ -64,9 +64,11 @@ objectTypes:
     title: { sv: Styrdokument, en: Core document }
     naming: Noun naming the checklist, template or governing document
     usage: >
-      Steering document on the canvas. Link to activities with CONTROLS when it
-      governs how work is done (e.g. Checklista onboarding). Templates that are
-      merely used (e.g. Mall anställningsavtal) typically use IS_USED_BY instead.
+      Steering or support document on the canvas. Link to an activity with CONTROLS
+      only when it specifically steers THAT step (policy/riktlinje/checklista for
+      the step). Templates/forms for a step use IS_USED_BY. Do not repeat the same
+      process-wide routine/policy under every activity — attach those on the
+      process/model instead (see methodology topic documents-on-process).
     phase1: true
 
   - id: application

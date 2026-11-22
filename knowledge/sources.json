@@ -36,14 +36,20 @@
       "title": "Hur skapar jag en dokumentlänk?",
       "url": "https://support.2c8.com/hc/sv/articles/5260639864605-Hur-skapar-jag-en-dokumentl%C3%A4nk",
       "priority": "P0",
-      "usedIn": ["documents/document-links.yaml"]
+      "usedIn": [
+        "documents/document-links.yaml",
+        "rules/documents-on-process.yaml"
+      ]
     },
     {
       "id": "5261473191581",
       "title": "Hur kopplar jag ett dokument på ett objekt eller en modell?",
       "url": "https://support.2c8.com/hc/sv/articles/5261473191581-Hur-kopplar-jag-ett-dokument-p%C3%A5-ett-objekt-eller-en-modell",
       "priority": "P0",
-      "usedIn": ["documents/document-links.yaml"]
+      "usedIn": [
+        "documents/document-links.yaml",
+        "rules/documents-on-process.yaml"
+      ]
     },
     {
       "id": "7293306730397",

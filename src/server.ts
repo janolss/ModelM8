@@ -4,6 +4,7 @@ import type { AppConfig } from "./config.js";
 import { DocumentsService } from "./domain/documents.js";
 import { ProcessReader } from "./domain/process-reader.js";
 import { ProcessWriter } from "./domain/process-writer.js";
+import { QualityService } from "./domain/quality.js";
 import { loadMethodologyPack } from "./methodology/loader.js";
 import { SERVER_INSTRUCTIONS } from "./mcp/instructions.js";
 import { registerMethodologyPrompts } from "./mcp/prompts.js";
@@ -17,7 +18,7 @@ export function createServer(config: AppConfig): McpServer {
   const server = new McpServer(
     {
       name: "2c8-mcp-server",
-      version: "1.1.0",
+      version: "1.2.0",
     },
     {
       instructions: SERVER_INSTRUCTIONS,
@@ -27,6 +28,7 @@ export function createServer(config: AppConfig): McpServer {
   const client = new TwoC8Client(config.baseUrl, config.apiKey);
   const reader = new ProcessReader(client);
   const documents = new DocumentsService(client);
+  const quality = new QualityService(client, reader);
   const writer =
     config.allowWrites || config.allowDeletes
       ? new ProcessWriter(client, pack, config.writeMode)
@@ -39,6 +41,7 @@ export function createServer(config: AppConfig): McpServer {
     reader,
     writer,
     documents,
+    quality,
   };
 
   registerMethodologyResources(server, pack);

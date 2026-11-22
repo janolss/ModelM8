@@ -355,10 +355,10 @@ export function registerConsumeTools(
     "get_breakdowns",
     {
       description:
-        "List breakdowns (nedbrytningar) for a model — navigation from high-level process to detail.",
+        "List broken-down-from links for a DETAIL model (parent overview symbol). Overview models often return empty/404 — use get_navigation_tree(repositoryId) for L0→… navigation and missing links.",
       inputSchema: {
         repositoryId,
-        modelId: uuid.describe("Model UUID"),
+        modelId: uuid.describe("Detail model UUID (not the overview)"),
       },
     },
     async (args) => runTool(() => ctx.reader.getBreakdowns(args)),

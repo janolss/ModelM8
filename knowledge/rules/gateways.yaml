@@ -11,6 +11,8 @@ guidance:
   - "Exclusive choice / vägval / decision / xor → objectType or (Regel Eller)"
   - "Parallel split → objectType and (Regel Och)"
   - "Title Eller-rules as questions ('Finns X?'); put Ja/Nej on FLOW edge labels"
+  - "Semantics: vägval is a reader aid, not work — nothing changes by passing the diamond. The deciding activity emits the BO that carries the choice; that BO is the basis for the next real activity/process."
+  - "Pattern: activity → BO → or → real next activity. Never vägval → BO. Never invent filler activities after the or just to emit a BO. If no in-model fork to different real steps, omit the diamond and keep the decision in the BO."
   - "search_symbols with objectType=or (or vägval/decision) to reuse existing diamonds"
   - "FORBIDDEN: gateway (as create type), join, förbinda"
 rules:
@@ -23,6 +25,13 @@ rules:
     severity: warning
     description: >
       Regel (Eller) titles should end with '?'; answers on FLOW edge labels.
+  - id: vägval-to-activity
+    severity: error
+    description: >
+      FLOW from or/vägval must go to a real next activity (value-stream work),
+      not a business object and not a bookkeeping filler whose only job is to
+      recreate the decision as a BO. Decision is taken in the activity before
+      the vägval and carried in its output BO.
   - id: never-join
     severity: error
     description: Never use Join / Förbinda.
