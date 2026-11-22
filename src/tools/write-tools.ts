@@ -302,6 +302,146 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
+    "create_model_version",
+    {
+      description:
+        "Create a new model version (POST …/versions). Body: MtbModelVersionChangeDto (message, workflowState).",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        message: z.string().optional(),
+        workflowState: z.string().optional(),
+        body: jsonBody.optional(),
+      },
+    },
+    async (args) =>
+      runTool(() =>
+        ctx.client.request({
+          method: "POST",
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+          },
+          body: args.body ?? {
+            ...(args.message !== undefined ? { message: args.message } : {}),
+            ...(args.workflowState !== undefined
+              ? { workflowState: args.workflowState }
+              : {}),
+          },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "update_model_version",
+    {
+      description:
+        "Update current model version metadata (PATCH …/versions). Body: MtbModelVersionChangeDto.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        message: z.string().optional(),
+        workflowState: z.string().optional(),
+        body: jsonBody.optional(),
+      },
+    },
+    async (args) =>
+      runTool(() =>
+        ctx.client.request({
+          method: "PATCH",
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+          },
+          body: args.body ?? {
+            ...(args.message !== undefined ? { message: args.message } : {}),
+            ...(args.workflowState !== undefined
+              ? { workflowState: args.workflowState }
+              : {}),
+          },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "create_layer",
+    {
+      description:
+        "Create a layer on a model. Required: layerType (MtbLayerDto). Optional uuid + extra body fields.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        layerType: z.string().min(1),
+        uuid: uuid.optional(),
+        body: jsonBody.optional(),
+      },
+    },
+    async (args) =>
+      runTool(() =>
+        ctx.client.request({
+          method: "POST",
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+          },
+          body: {
+            layerType: args.layerType,
+            ...(args.uuid ? { uuid: args.uuid } : {}),
+            ...(args.body ?? {}),
+          },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "delete_layer",
+    {
+      description: "Delete a layer from a model by layerTypeId.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        layerTypeId: uuid,
+      },
+    },
+    async ({ repositoryId: id, modelId, layerTypeId }) =>
+      runTool(() =>
+        ctx.client.request({
+          method: "DELETE",
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers/{layerTypeId}",
+          pathParams: { repositoryId: id, modelId, layerTypeId },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "update_swimlane_settings",
+    {
+      description:
+        "PATCH canvas.swimlaneSettings on a swimlane model. Pass settings object as returned/expected by GET canvas.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        swimlaneSettings: jsonBody.describe("Canvas swimlaneSettings object"),
+      },
+    },
+    async (args) =>
+      runTool(() =>
+        ctx.client.request({
+          method: "PATCH",
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+          },
+          body: { swimlaneSettings: args.swimlaneSettings },
+        }),
+      ),
+  );
+
+  server.registerTool(
     "add_process_step",
     {
       description:
@@ -513,7 +653,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_process_map",
     {
       description:
-        "Create a process map / overview. PREFERRED: pass detailModelIds (ordered detail UUIDs) — server derives BO↔process chain from each detail's inputs/outputs (same symbols). Do NOT invent overview BOs. Optional chain is locked to detail scopes when detailModelId is set. Validates scope; blocks mismatches. Never stacks vertices.",
+        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. layout.mode=threeBand places management (top) and support (bottom) chevrons without FLOW. Do NOT invent overview BOs.",
       inputSchema: {
         repositoryId,
         languageId,
@@ -582,6 +722,26 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .describe(
             "Peer variant processes as columns to the RIGHT of a shared BO (prefer over sideLoops for sales/delivery types)",
           ),
+        layout: z
+          .object({
+            mode: z
+              .enum(["linear", "parallelTracks", "threeBand"])
+              .optional()
+              .describe("Default linear. threeBand = L0 ledning/kärna/stöd"),
+            managementProcessIds: z
+              .array(uuid)
+              .optional()
+              .describe("Detail model UUIDs for top band (no FLOW)"),
+            coreDetailModelIds: z
+              .array(uuid)
+              .optional()
+              .describe("Middle FLOW spine — used as detailModelIds when that is omitted"),
+            supportProcessIds: z
+              .array(uuid)
+              .optional()
+              .describe("Detail model UUIDs for bottom band (no FLOW)"),
+          })
+          .optional(),
         permissionGroup: permissionGroupHeader,
         owner: uuid.optional(),
         group: uuid.optional(),

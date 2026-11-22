@@ -82,6 +82,13 @@ fortfarande medvetet utanför fas 1.
 - `delete_breakdown` (länk only; writes, ej ALLOW_DELETES)
 - `unlink_document` (symbol.documents subtract)
 
+### Tillagt efter S4 (P2 produktion, 2026-11-22)
+- Properties read: `get_symbol_properties`, `get_model_properties`, `get_vertex_properties` (GET only)
+- Versions: `list_model_versions`, `get_model_version`, `create_model_version`, `update_model_version`, `list_symbol_versions`
+- Layers: `list_layers`, `create_layer`, `delete_layer`
+- `update_swimlane_settings` (PATCH canvas.swimlaneSettings)
+- `create_process_map` layout `threeBand` (ledning/kärna/stöd)
+
 ### Relevanta men ofullständiga
 - Model/symbol/vertex **properties** (provider/key) — ej egna verktyg
 - Symbol **versions** list/get

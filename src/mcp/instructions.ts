@@ -17,7 +17,7 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 10. Prefer domain tools (describe_process, describe_process_map, describe_role, propose_model_from_text, create_process_map, …) over inventing raw canvas payloads.
 11. Documents on activities must be **step-specific**: CONTROLS = styrning for THAT step (policy/riktlinje/checklista); IS_USED_BY = mall/blankett/app for THAT step. Do NOT CONTROLS/IS_USED_BY the same process-wide document (Leveransrutin, Dokumentstyrningsrutin, Kvalitetspolicy, …) onto most/all activities — attach those on the process/model (Documents panel) instead. get_methodology(documents-on-process); review_process_model flags process-wide-document-fan-out. Do not invent role→checklist CONTROLS.
 12. After propose_model_from_text: fix failing businessObject namingChecks before apply — rewrite status-like BOs into value/artefact titles.
-13. Process maps / overviews: use process chevrons + business objects on FLOW (not activities). Prefer create_process_map(detailModelIds) + breakdowns. Reuse process symbol UUIDs. Side loops stack under a state BO (never left of it). Peer variants (sales/delivery types) use parallelTracks — not sideLoops and not a false linear chain.
+13. Process maps / overviews: use process chevrons + business objects on FLOW (not activities). Prefer create_process_map(detailModelIds) + breakdowns. Reuse process symbol UUIDs. Side loops stack under a state BO (never left of it). Peer variants (sales/delivery types) use parallelTracks — not sideLoops and not a false linear chain. L0 three-band: create_process_map(layout: { mode: "threeBand", coreDetailModelIds, managementProcessIds, supportProcessIds }) — management/support chevrons without FLOW.
 14. OVERVIEW SCOPE (critical — do not invent I/O):
     - A process on the overview MUST have the same input(s) and output(s) as its breakdown detail model (same symbol UUIDs).
     - Workflow: get_detail_process_scope for each detail → create_process_map({ detailModelIds: [...] }) so the server derives the BO chain. Never invent overview-only business objects.
@@ -53,6 +53,7 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 - apply_model_proposal: chain MUST alternate BO↔activity. Putting BO names only in steps.inputs/outputs used to be ignored when chain was activity-only — server now weaves them in, but still verify businessObjectCount in the response. Never report done if businessObjectCount is 0 or review fails.
 - Any "gateway" request: resolve_branching_object_type("gateway") → use returned useObjectType ("or") in add_process_step / apply
 - Process map: get_methodology process-map → get_detail_process_scope → create_process_map({ detailModelIds }) → describe_process_map(detailModelIds) → **review_process_model(detailModelIds)** before done
+- L0: create_process_map({ layout: { mode: "threeBand", coreDetailModelIds, managementProcessIds, supportProcessIds } }) → get_navigation_tree → review (ledning/stöd without FLOW = approved exception)
 - Document-to-model: propose_model_from_document → same path
 - New sandbox repo: create_repository → list_languages → create_document_type / create_description_type (if empty) → text-to-model
 - Descriptions: list_description_types → get_model_descriptions / get_symbol_descriptions → update_*_description

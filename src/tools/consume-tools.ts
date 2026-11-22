@@ -559,4 +559,163 @@ export function registerConsumeTools(
             }),
       ),
   );
+
+  server.registerTool(
+    "get_symbol_properties",
+    {
+      description:
+        "Read symbol properties for a provider (OpenAPI: GET only — no write). Omit key to list provider bag; set key for one property.",
+      inputSchema: {
+        repositoryId,
+        symbolId: uuid,
+        providerId: z.string().min(1),
+        key: z.string().min(1).optional(),
+      },
+    },
+    async ({ repositoryId: id, symbolId, providerId, key }) =>
+      runTool(() =>
+        key
+          ? ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}/properties/{providerId}/{key}",
+              pathParams: { repositoryId: id, symbolId, providerId, key },
+            })
+          : ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}/properties/{providerId}",
+              pathParams: { repositoryId: id, symbolId, providerId },
+            }),
+      ),
+  );
+
+  server.registerTool(
+    "get_model_properties",
+    {
+      description:
+        "Read model properties for a provider (OpenAPI: GET only — no write). Omit key to list provider bag; set key for one property.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        providerId: z.string().min(1),
+        key: z.string().min(1).optional(),
+      },
+    },
+    async ({ repositoryId: id, modelId, providerId, key }) =>
+      runTool(() =>
+        key
+          ? ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/properties/{providerId}/{key}",
+              pathParams: { repositoryId: id, modelId, providerId, key },
+            })
+          : ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/properties/{providerId}",
+              pathParams: { repositoryId: id, modelId, providerId },
+            }),
+      ),
+  );
+
+  server.registerTool(
+    "get_vertex_properties",
+    {
+      description:
+        "Read canvas vertex properties for a provider (OpenAPI: GET only). Omit key to list; set key for one property.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        vertexId: uuid,
+        providerId: z.string().min(1),
+        key: z.string().min(1).optional(),
+      },
+    },
+    async ({ repositoryId: id, modelId, vertexId, providerId, key }) =>
+      runTool(() =>
+        key
+          ? ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/vertices/{vertexId}/properties/{providerId}/{key}",
+              pathParams: {
+                repositoryId: id,
+                modelId,
+                vertexId,
+                providerId,
+                key,
+              },
+            })
+          : ctx.client.request({
+              path: "/api/v1/repositories/{repositoryId}/models/{modelId}/vertices/{vertexId}/properties/{providerId}",
+              pathParams: {
+                repositoryId: id,
+                modelId,
+                vertexId,
+                providerId,
+              },
+            }),
+      ),
+  );
+
+  server.registerTool(
+    "list_model_versions",
+    {
+      description: "List version history for a model.",
+      inputSchema: { repositoryId, modelId: uuid },
+    },
+    async ({ repositoryId: id, modelId }) =>
+      runTool(() =>
+        ctx.client.request({
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions",
+          pathParams: { repositoryId: id, modelId },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "get_model_version",
+    {
+      description: "Get one model version by version number.",
+      inputSchema: {
+        repositoryId,
+        modelId: uuid,
+        versionNumber: z.union([z.string(), z.number()]),
+      },
+    },
+    async ({ repositoryId: id, modelId, versionNumber }) =>
+      runTool(() =>
+        ctx.client.request({
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions/{versionNumber}",
+          pathParams: {
+            repositoryId: id,
+            modelId,
+            versionNumber: String(versionNumber),
+          },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "list_symbol_versions",
+    {
+      description: "List version history for a symbol (list only — no get-by-number in OpenAPI).",
+      inputSchema: { repositoryId, symbolId: uuid },
+    },
+    async ({ repositoryId: id, symbolId }) =>
+      runTool(() =>
+        ctx.client.request({
+          path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}/versions",
+          pathParams: { repositoryId: id, symbolId },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "list_layers",
+    {
+      description:
+        "List layers on a model. Also summarized in get_process_overview.",
+      inputSchema: { repositoryId, modelId: uuid },
+    },
+    async ({ repositoryId: id, modelId }) =>
+      runTool(() =>
+        ctx.client.request({
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers",
+          pathParams: { repositoryId: id, modelId },
+        }),
+      ),
+  );
 }

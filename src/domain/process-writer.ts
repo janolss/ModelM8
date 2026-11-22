@@ -1349,6 +1349,16 @@ export class ProcessWriter {
         outputSymbolId?: string;
       }>;
     }>;
+    /**
+     * Layout mode. threeBand = L0-style: management (top, no FLOW) /
+     * core spine (middle) / support (bottom, no FLOW).
+     */
+    layout?: {
+      mode?: "linear" | "parallelTracks" | "threeBand";
+      managementProcessIds?: string[];
+      coreDetailModelIds?: string[];
+      supportProcessIds?: string[];
+    };
     permissionGroup?: string;
     owner?: string;
     group?: string;
@@ -1357,10 +1367,23 @@ export class ProcessWriter {
     let chain = args.chain ?? [];
     let lockNotes: string[] = [];
 
-    if (args.detailModelIds?.length) {
+    const layoutMode = args.layout?.mode ?? "linear";
+    let detailModelIds = args.detailModelIds;
+    if (
+      layoutMode === "threeBand" &&
+      !detailModelIds?.length &&
+      args.layout?.coreDetailModelIds?.length
+    ) {
+      detailModelIds = args.layout.coreDetailModelIds;
+      lockNotes.push(
+        "threeBand: coreDetailModelIds used as detailModelIds for FLOW spine.",
+      );
+    }
+
+    if (detailModelIds?.length) {
       const built = await this.reader.buildProcessMapChainFromDetails({
         repositoryId: args.repositoryId,
-        modelIds: args.detailModelIds,
+        modelIds: detailModelIds,
         preserveOrder: true,
       });
       if (!built.readyForCreate) {
@@ -1459,6 +1482,7 @@ export class ProcessWriter {
         chain,
         bridgeValidation,
         lockNotes,
+        layout: args.layout,
       });
     } catch (err) {
       if (createdThisCall) {
@@ -1512,6 +1536,12 @@ export class ProcessWriter {
         outputSymbolId?: string;
       }>;
     }>;
+    layout?: {
+      mode?: "linear" | "parallelTracks" | "threeBand";
+      managementProcessIds?: string[];
+      coreDetailModelIds?: string[];
+      supportProcessIds?: string[];
+    };
   }) {
     const modelId = args.modelId;
     const chain = args.chain;
@@ -2039,6 +2069,29 @@ export class ProcessWriter {
       }
     }
 
+    let threeBandCount = 0;
+    if (args.layout?.mode === "threeBand") {
+      const band = await this.placeThreeBandProcesses({
+        repositoryId: args.repositoryId,
+        modelId,
+        languageId: args.languageId,
+        owner: args.owner,
+        group: args.group,
+        spineMidY,
+        managementProcessIds: args.layout.managementProcessIds ?? [],
+        supportProcessIds: args.layout.supportProcessIds ?? [],
+        symbolCache,
+        reserved,
+        gapX,
+      });
+      placed.push(...band.placed);
+      breakdowns.push(...band.breakdowns);
+      threeBandCount = band.placed.length;
+      if (band.notes.length) {
+        args.lockNotes.push(...band.notes);
+      }
+    }
+
     return {
       data: {
         modelId,
@@ -2049,6 +2102,8 @@ export class ProcessWriter {
         chainLength: chain.length,
         sideLoopCount: args.sideLoops?.length ?? 0,
         parallelTrackCount,
+        threeBandCount,
+        layoutMode: args.layout?.mode ?? "linear",
       },
       methodologyNotes: [
         "Process map: process chevrons + business objects on FLOW (not activities).",
@@ -2058,6 +2113,7 @@ export class ProcessWriter {
         "Reuse process symbol UUIDs; breakdowns link detail models to those symbols.",
         "Side loops stack under a state BO (never left of the BO / map margin).",
         "parallelTracks: variant processes in columns to the right of a shared BO — use instead of sideLoops for peer variants.",
+        "threeBand: management (top) and support (bottom) are chevrons without FLOW to the core spine — approved L0 exception for review_process_model.",
         ...args.lockNotes,
       ],
       nextSuggestedTools: [
@@ -2065,8 +2121,154 @@ export class ProcessWriter {
         "describe_process_map",
         "get_detail_process_scope",
         "get_breakdowns",
+        "get_navigation_tree",
       ],
     };
+  }
+
+  /**
+   * L0 side bands: place process chevrons above/below the core spine without FLOW.
+   * managementProcessIds / supportProcessIds are detail model UUIDs (scope → title/symbol).
+   */
+  private async placeThreeBandProcesses(args: {
+    repositoryId: string;
+    modelId: string;
+    languageId: string;
+    owner?: string;
+    group?: string;
+    spineMidY: number;
+    managementProcessIds: string[];
+    supportProcessIds: string[];
+    symbolCache: Map<string, string>;
+    reserved: Array<{ x: number; y: number; width: number; height: number }>;
+    gapX: number;
+  }): Promise<{
+    placed: Array<{
+      title: string;
+      kind: string;
+      objectType: string;
+      symbolId: string;
+      vertexId: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      detailModelId?: string;
+    }>;
+    breakdowns: unknown[];
+    notes: string[];
+  }> {
+    const repoConfig = await this.getRepoConfig(args.repositoryId);
+    const procSize = this.sizeFor(repoConfig, "process");
+    const bandGap = 160;
+    const placed: Array<{
+      title: string;
+      kind: string;
+      objectType: string;
+      symbolId: string;
+      vertexId: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      detailModelId?: string;
+    }> = [];
+    const breakdowns: unknown[] = [];
+    const notes: string[] = [];
+
+    const placeBand = async (
+      modelIds: string[],
+      band: "management" | "support",
+    ) => {
+      if (!modelIds.length) return;
+      const y =
+        band === "management"
+          ? Math.round(args.spineMidY - bandGap - procSize.height / 2)
+          : Math.round(args.spineMidY + bandGap - procSize.height / 2);
+      let x = SPINE_START_X;
+      for (const detailModelId of modelIds) {
+        let title = "Process";
+        let symbolId: string | undefined;
+        try {
+          const scope = await this.reader.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId: detailModelId,
+          });
+          title = scope.processTitle || title;
+          symbolId = scope.processSymbolId;
+        } catch (err) {
+          notes.push(
+            `${band} model ${detailModelId}: scope failed (${
+              err instanceof Error ? err.message : String(err)
+            }) — skipped`,
+          );
+          continue;
+        }
+        if (!symbolId) {
+          symbolId = await this.resolveOrCreateSymbol({
+            repositoryId: args.repositoryId,
+            languageId: args.languageId,
+            title,
+            objectType: "process",
+            owner: args.owner,
+            group: args.group,
+            cache: args.symbolCache,
+          });
+        }
+        const vertex = await this.placeVertex({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          symbolId,
+          languageId: args.languageId,
+          title,
+          objectType: "process",
+          x,
+          y,
+          width: procSize.width,
+          height: procSize.height,
+          reserved: args.reserved,
+        });
+        const usedX = vertex.x ?? x;
+        const usedY = vertex.y ?? y;
+        const vertexId = String(vertex.uuid);
+        placed.push({
+          title,
+          kind: "process",
+          objectType: "process",
+          symbolId,
+          vertexId,
+          x: usedX,
+          y: usedY,
+          width: procSize.width,
+          height: procSize.height,
+          detailModelId,
+        });
+        try {
+          const bd = await this.linkBreakdown({
+            repositoryId: args.repositoryId,
+            detailModelId,
+            overviewSymbolId: symbolId,
+          });
+          breakdowns.push(bd.data);
+        } catch (err) {
+          notes.push(
+            `${band} breakdown ${title}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+        x = Math.round(usedX + procSize.width + args.gapX);
+      }
+    };
+
+    await placeBand(args.managementProcessIds, "management");
+    await placeBand(args.supportProcessIds, "support");
+    if (placed.length) {
+      notes.push(
+        `threeBand placed ${placed.length} band chevron(s) without FLOW to core spine.`,
+      );
+    }
+    return { placed, breakdowns, notes };
   }
 
   /**
