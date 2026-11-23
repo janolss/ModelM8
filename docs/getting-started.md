@@ -58,9 +58,12 @@ Hälsokoll: `GET http://127.0.0.1:3000/health`
 
 ### Docker (valfritt)
 
+HTTP `/mcp` har **ingen autentisering**. Sätt `HOST=0.0.0.0` endast när du behöver port-mappning, och exponera inte mot otillförlitliga nät.
+
 ```bash
 docker build -t modelm8 .   # bas: node:26-alpine
 docker run --rm -p 3000:3000 \
+  -e HOST=0.0.0.0 \
   -e TWO_C8_BASE_URL=https://host/mt-backend \
   -e TWO_C8_API_KEY=... \
   -e TWO_C8_ALLOW_WRITES=true \

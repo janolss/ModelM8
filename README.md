@@ -48,9 +48,12 @@ Health: `GET /health`
 
 Basimage: `node:26-alpine`. CI bygger och pushar till GHCR vid tag `v*` (t.ex. `v1.2.0`).
 
+HTTP `/mcp` har **ingen autentisering**. Image defaultar till `HOST=127.0.0.1`; för port-mappning måste du sätta `HOST=0.0.0.0` medvetet — exponera inte mot otillförlitliga nät.
+
 ```bash
 docker build -t modelm8 .
 docker run --rm -p 3000:3000 \
+  -e HOST=0.0.0.0 \
   -e TWO_C8_BASE_URL=https://host/mt-backend \
   -e TWO_C8_API_KEY=... \
   -e TWO_C8_ALLOW_WRITES=false \
