@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
+import { buildAbsoluteDocumentBody } from "../domain/document-paths.js";
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { jsonBody, languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
@@ -176,7 +177,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_document_root",
     {
       description:
-        "Create a document root (shared base URL/folder). Required: key (stable id) + value (base path). Links use prefix=<key> and relative content. Prefer when many docs share one library path so host/folder moves only update the root.",
+        "Create a document root (shared base folder/URL). Required: key + value. Filesystem paths → file:///…/ (URL-encoded). The 2c8 API does NOT bind MT documents to roots via prefix — after creating documents with full absolute URLs, the user matches paths to this root in the 2c8 UI. Create roots before mass link_document so values match the URL prefix of linked files.",
       inputSchema: {
         repositoryId,
         languageId: languageId.optional(),
@@ -189,12 +190,14 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .string()
           .min(1)
           .optional()
-          .describe("Stable root id used as MT document prefix (e.g. ims-docs)"),
+          .describe("Stable root id (e.g. inera-docs) — not used as MT document prefix for binding"),
         value: z
           .string()
           .min(1)
           .optional()
-          .describe("Base URL or folder path, e.g. https://example.com/docs/"),
+          .describe(
+            "Base folder or URL. Absolute filesystem path or file:///…/ or https://…/ — MCP normalizes and URL-encodes. Document link URLs must start with this value for UI matching.",
+          ),
         body: jsonBody
           .optional()
           .describe(
@@ -779,28 +782,131 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "link_document",
     {
       description:
-        "Create/update an MT document and/or attach document IDs to a symbol. Prefer existing document roots/types. With a root: set prefix to the root key and languages.*.content to the relative path. Symbol PATCH uses MtbDocumentIdDto [{ id, source: 'mt.documents' }] — never plain UUID strings. showInPanel defaults to false (new tab); set true only for web 2c8 panel/iframe.",
+        "Create/update an MT document and/or attach to a symbol. PRIMARY: documentRootKey + relativePath + title + languageId (+ optional titles map for other languages) — stores a FULL absolute file:/// or https URL. content/URL is per language like titles: set every active language or secondary GUI languages get empty non-clickable links. Prefer titles:{ [langId]: title } so the same absolute URL is written to all languages in one call. API prefix is NOT a document-root binding; after mass create the user matches paths to roots in the 2c8 UI. createDocumentBody must use absolute languages.*.content. Symbol PATCH: [{ id, source: 'mt.documents' }]. showInPanel defaults to false.",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
         documentIds: z.array(z.string()).optional(),
+        documentRootKey: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Existing document root key — MCP joins root.value + relativePath into a full absolute URL (does not set API prefix to this key).",
+          ),
+        relativePath: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Path under the root, e.g. '2. Hantera behov/file.pdf'. Joined with root value → full URL; segments URL-encoded.",
+          ),
+        title: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Document title for languageId when using documentRootKey + relativePath"),
+        languageId: languageId
+          .optional()
+          .describe(
+            "Primary language for title/content when using shorthand. Alone only fills that language — use titles for all languages.",
+          ),
+        titles: z
+          .record(z.string(), z.string().min(1))
+          .optional()
+          .describe(
+            "Optional map languageId → title. Same absolute URL written to every entry (plus languageId/title). Use for bilingual repos so SV/EN both get clickable links.",
+          ),
+        documentTypeIds: z
+          .array(z.string())
+          .optional()
+          .describe("Optional document type UUIDs for shorthand create"),
+        type: z
+          .enum(["file", "URL"])
+          .optional()
+          .describe("MT document type; defaults to file when using documentRootKey + relativePath"),
         createDocumentBody: jsonBody
           .optional()
           .describe(
-            "Body for POST mt-documents. Optional prefix=<document root key> + relative content. showInPanel omitted → false.",
+            "Full POST mt-documents body. languages.*.content must be absolute https:// or file:///… for each language you care about. Do not rely on API prefix for roots.",
           ),
         updateDocumentId: uuid.optional(),
-        updateDocumentBody: jsonBody.optional(),
+        updateDocumentBody: jsonBody
+          .optional()
+          .describe(
+            "PATCH body. To fill empty secondary-language URLs, set languages.<langId>.{ title, content } with the same absolute URL.",
+          ),
       },
     },
     async (args) =>
       runTool(async () => {
         const results: Record<string, unknown> = {};
         let linked = false;
-        if (args.createDocumentBody) {
+
+        let createBody = args.createDocumentBody
+          ? { ...args.createDocumentBody }
+          : undefined;
+        if (!createBody && args.documentRootKey && args.relativePath) {
+          const titlesMap = args.titles ?? {};
+          const primaryLanguageId =
+            args.languageId ??
+            Object.keys(titlesMap).find((id) => titlesMap[id]?.trim());
+          const primaryTitle =
+            (args.languageId && args.title) ||
+            (primaryLanguageId ? titlesMap[primaryLanguageId] : undefined) ||
+            args.title;
+          if (!primaryLanguageId || !primaryTitle) {
+            throw new Error(
+              "link_document shorthand requires documentRootKey + relativePath + (title + languageId) and/or titles map with at least one language",
+            );
+          }
+          const { roots } = await ctx.documents.listRoots(args.repositoryId);
+          const root = roots.find((r) => r.key === args.documentRootKey);
+          if (!root?.value) {
+            throw new Error(
+              `No document root with key "${args.documentRootKey}". Call create_document_root / list_document_roots first.`,
+            );
+          }
+          const extraTitles: Record<string, string> = { ...titlesMap };
+          if (args.languageId && args.title) {
+            extraTitles[args.languageId] = args.title;
+          }
+          createBody = buildAbsoluteDocumentBody({
+            documentRootValue: root.value,
+            relativePath: args.relativePath,
+            title: primaryTitle,
+            languageId: primaryLanguageId,
+            type: args.type,
+            documentTypes: args.documentTypeIds,
+            extraTitles,
+          });
+          const languageCount = Object.keys(
+            (createBody.languages as Record<string, unknown>) ?? {},
+          ).length;
+          results.documentRoot = {
+            key: root.key,
+            value: root.value,
+            note: "Full absolute URL stored on the document. Bind to this root in the 2c8 UI (match paths) after create.",
+          };
+          results.languagesWritten = languageCount;
+          if (languageCount < 2) {
+            results.languageWarning =
+              "Only one language got content/URL. In bilingual repos pass titles:{ [enId]:…, [svId]:… } (same file → same absolute URL) or secondary languages will show empty links.";
+          }
+        } else if (
+          !createBody &&
+          (args.documentRootKey || args.relativePath) &&
+          !(args.documentRootKey && args.relativePath)
+        ) {
+          throw new Error(
+            "link_document: documentRootKey and relativePath must be provided together (with title + languageId and/or titles)",
+          );
+        }
+
+        if (createBody) {
           results.created = await ctx.documents.createMtDocument(
             args.repositoryId,
-            args.createDocumentBody,
+            createBody,
           );
           const created = results.created as {
             uuid?: string;
@@ -832,9 +938,13 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         return {
           data: results,
           methodologyNotes: [
-            "Document links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is treated as success.",
+            "Workflow: (1) create_document_root (2) link_document with full absolute URLs for every language (shorthand titles map joins root.value + relativePath into each languages.*.content) (3) user runs 2c8 UI match to bind paths to the root.",
+            "content/URL is language-specific like titles — one languageId alone leaves other languages with empty GUI links.",
+            "API prefix is not a document-root foreign key — do not set prefix to the root key for binding.",
+            "Document symbol links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is success.",
+            "After create/update: verify_document_links without languageId (checks all repo languages).",
           ],
-          nextSuggestedTools: ["get_object_documents"],
+          nextSuggestedTools: ["get_object_documents", "resolve_documents", "verify_document_links"],
         };
       }),
   );

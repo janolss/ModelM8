@@ -20,7 +20,7 @@
 | `{{PRIMARY_LOCALE}}` | `en_GB` / English | |
 | `{{SECONDARY_LOCALE}}` | `sv_SE` / Swedish | |
 | `{{PILOT_AREA}}` | Sales | |
-| `{{DOC_BASE_URL}}` | SharePoint base (or empty) | |
+| `{{DOC_BASE_URL}}` | SharePoint/`https` **or** leave empty and use `{{SOURCE_DIR}}` as `file://` document root | |
 | `{{STANDARDS}}` | ISO 9001, 14001, (27001) | |
 
 ---
@@ -58,7 +58,7 @@ Top-down navigation:
 | `ROLE_AND_SYSTEM_NAMES` | Keep source names | If the source is in a different language than process titles. |
 | `UNREGISTERED_PRACTICES` | Model + log in GAPS | Practices without a row in the process register. |
 | `SCOPE_OPTIONAL_AREAS` | Chevron + document | Areas without certification / unfinished material. |
-| `DOC_BASE_URL` | `{{DOC_BASE_URL}}` | Shared base for document links → `create_document_root`. Empty = absolute/local links without a root (or propose a root from an inventoried folder). |
+| `DOC_BASE_URL` | `{{DOC_BASE_URL}}` or `{{SOURCE_DIR}}` | Shared base → **always** `create_document_root` before folder/practice links. Empty does **not** mean “skip root”: use `SOURCE_DIR` (filesystem → `file:///…/`). `link_document(documentRootKey, relativePath, titles for all languages)` stores **full absolute URLs per language** (API `prefix` is not a root FK). After mass create: **human** matches paths to the root in the 2c8 UI. Never bare relative paths. Content/URL is language-specific like titles. |
 | `PILOT_AREA` | `{{PILOT_AREA}}` | First vertical slice. |
 | `STOP_AFTER_PILOT` | Yes | Stop after G3 / client OK. |
 | `WORK_DIR` | `{{WORK_DIR}}` | STATE, GAPS, cards, extract, … |
@@ -101,7 +101,7 @@ Confirm that modelM8 is connected. Run `list_repositories`, `get_api_versions`; 
 | Consume | `find_models`, `describe_process`, `describe_process_map`, `get_detail_process_scope`, `search_symbols`, `find_symbol_usage`, `describe_role` |
 | Propose/write | `propose_model_from_text`, `apply_model_proposal`, `create_process_model`, `create_process_map`, `add_process_step`, `reuse_symbol`, `set_activity_performer`, `set_step_io`, `link_breakdown`, `link_document`, `create_document_type`, `create_document_root`, `update_titles`, `update_model_description`, `update_symbol_description` |
 | Fix layout | `delete_canvas_edge`, `move_canvas_vertices` (auto-reortho), `update_canvas_edges`, `delete_canvas_vertex`, `retarget_vertex_symbol` |
-| Quality (v1.2+) | `review_process_model`, `list_untranslated_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage` |
+| Quality (v1.2+) | `review_process_model`, `list_untranslated_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage`, `verify_document_links` |
 
 ### 4.3 Known limitations
 
@@ -185,7 +185,7 @@ Create/reuse UUID before detail cards are locked. Verify later with `verify_hand
 - **Names:** infinitive + noun (process/activity). BO = value/artefact, not a status echo of the activity.
 - **Performer:** `RACI_RESPONSIBLE` per activity (`set_activity_performer`). Role under each activity — not one vertex to many.
 - **Documents:** CONTROLS / IS_USED_BY step-specific; process-wide on the process symbol.
-- **Document roots:** shared base → `create_document_root`; links with `prefix`=key + relative path (see methodology document-roots).
+- **Document roots:** shared base → `create_document_root`; links store full absolute URLs (`documentRootKey` + `relativePath` joins root.value). User matches roots in 2c8 UI after create (API `prefix` ≠ root FK).
 - **`usedByTypes`:** templates/registers = `core_document`; systems = `application` (fix English “Template” before apply).
 - **Layout:** left→right, FLOW in left / out right; multi-IO stacked under primary (same X); vägval No below the spine.
 - **Descriptions (activity):** complement the canvas — do not repeat RACI, control/support documents or BO in/out. Short purpose/why + important considerations **only** if present in source material (`update_symbol_description`; see `get_methodology` topic `activity` → `descriptionGuidance`). Do not invent. Model/process description: purpose, scope, owner, source, metrics, ISO clause where source material exists.
@@ -210,7 +210,7 @@ Create/reuse UUID before detail cards are locked. Verify later with `verify_hand
 1. Read process register, roles, governance, clause log.
 2. Process card per candidate model in `cards/<ID>.md`.
 3. `CATALOG.md`: roles, systems, documents, shared BOs.
-4. **Document roots (propose in the plan):** inventory shared bases in `{{SOURCE_DIR}}` / `DOC_BASE_URL` (e.g. a SharePoint library URL or network folder shared by many files). Write proposed roots in `CATALOG.md` / STATE: `key`, proposed `value`, title, which documents/areas are covered. Do **not** create them until phase 2.
+4. **Document roots (propose in the plan):** inventory shared bases. If `DOC_BASE_URL` is set, use it; if empty, default proposed root `value` = absolute path to `{{SOURCE_DIR}}` (MCP normalizes to `file:///…/`). Write proposed roots in `CATALOG.md` / STATE: `key`, proposed `value`, title, which documents/areas are covered. Do **not** create them until phase 2. Do **not** plan bare relative links.
 5. Align inventory; design check (in/out/responsible/name).
 
 **G1:** cards + catalog + SOURCE-MAP skeleton + proposed document roots complete.
@@ -227,11 +227,11 @@ Create/reuse UUID before detail cards are locked. Verify later with `verify_hand
 2. `create_repository` with languages (primary default + secondary).
 3. `list_languages`, `list_description_types`, `list_document_types`, `list_document_roots`.
 4. If document type missing: `create_document_type`.
-5. **Document roots:** create proposed roots from phase 1 / `DOC_BASE_URL` with `create_document_root` (`key` + `value`). Verify with `list_document_roots`.
-6. **Smoke test:** one dummy symbol → `update_model_description` / `link_document` (preferably with `prefix`=root key + relative path) → fix DTO before pilot.
+5. **Document roots:** create proposed roots with `create_document_root` (`key` + `value`). If `DOC_BASE_URL` was empty, still create a root whose `value` is `{{SOURCE_DIR}}` (or the inventoried library folder). Verify with `list_document_roots`.
+6. **Smoke test:** one dummy symbol → `link_document(documentRootKey, relativePath, titles for all languages)` (same full absolute URL per language) → `verify_document_links` **without** `languageId` must `allPass`. Note in STATE: after mass linking, user runs 2c8 UI “match document roots”. Never bare relative `createDocumentBody.content`.
 7. `find_models` = 0 (or reconciled against STATE on resume).
 
-**G2:** `repositoryId` + language IDs + document-root `key` in STATE; smoke OK.
+**G2:** `repositoryId` + language IDs + document-root `key` in STATE; smoke OK; `verify_document_links` OK.
 
 ### Phase 3 — Pilot `{{PILOT_AREA}}`
 
@@ -305,8 +305,8 @@ Layout fix: `move_canvas_vertices` (reortho default); symbol swap: `retarget_ver
 |---|---|---|
 | **Q1** | Every model | `review_process_model` 0 errors / exception |
 | **Q2** | Detail | **Spot-check + risk-based** (new areas, vägval, handoffs). Activity descriptions: if source material exists → filled per `descriptionGuidance`; if no source material → empty (not invented). Full line-by-line only if budgeted. |
-| **Q3** | Area | scopeOk; breakdowns; `list_untranslated_symbols` empty; handoffs for the area |
-| **Q4** | Phase 7 | `get_navigation_tree` + `verify_process_coverage` + `verify_handoffs` (all of 6.4) |
+| **Q3** | Area | scopeOk; breakdowns; `list_untranslated_symbols` empty; handoffs for the area; **`verify_document_links`** (all languages) `allPass` after area `link_document` |
+| **Q4** | Phase 7 | `get_navigation_tree` + `verify_process_coverage` + `verify_handoffs` (all of 6.4) + **`verify_document_links`** (whole repo, all languages) |
 | **Q5** | Phase 7 | SOURCE-MAP complete |
 
 ### 10.3 Approved exceptions (log)

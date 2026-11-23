@@ -34,7 +34,7 @@ npm run start:http     # http://127.0.0.1:3000/mcp
 | `TWO_C8_BASE_URL` | *(required)* | MT backend |
 | `TWO_C8_API_KEY` | *(required)* | `x-api-key` |
 | `TWO_C8_ALLOW_WRITES` | `false` | Write tools |
-| `TWO_C8_ALLOW_DELETES` | `false` | `delete_model` |
+| `TWO_C8_ALLOW_DELETES` | `false` | `delete_model`, `delete_symbol`, `delete_mt_document` |
 | `TWO_C8_WRITE_MODE` | `draft` | `draft` \| `direct` |
 | `MCP_TRANSPORT` | `stdio` | `stdio` \| `http` |
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | HTTP |

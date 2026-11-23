@@ -125,4 +125,34 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
     },
     async (args) => runTool(() => ctx.quality.verifyProcessCoverage(args)),
   );
+
+  server.registerTool(
+    "verify_document_links",
+    {
+      description:
+        "Verify MT document links resolve to absolute https:// or file:/// URLs. content/URL is per language — omit languageId to check ALL repo languages (default; catches empty SV while EN looks fine). Flags bare relative / invalid file:// / missing-link per language and optionally missing local files. Use after mass link_document / Q3–Q5. Fix: link_document with titles map (or updateDocumentBody languages.*.content) for every language. API prefix is not a root binding — user matches roots in 2c8 UI after create.",
+      inputSchema: {
+        repositoryId,
+        languageId: uuid
+          .optional()
+          .describe(
+            "Optional: check only this language. Omit to verify every repo language (recommended for bilingual repos).",
+          ),
+        documentIds: z
+          .array(z.string())
+          .optional()
+          .describe("Optional subset of mt.documents ids; default = all keys"),
+        requireRootsIfDocuments: z
+          .boolean()
+          .optional()
+          .describe("Default true — fail if documents exist but no document roots"),
+        checkFileExists: z
+          .boolean()
+          .optional()
+          .describe("Default false — when true, probe file:/// with fs.existsSync"),
+        maxResults: z.number().int().positive().optional().describe("Max findings (default 100)"),
+      },
+    },
+    async (args) => runTool(() => ctx.quality.verifyDocumentLinks(args)),
+  );
 }

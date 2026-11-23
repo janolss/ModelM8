@@ -23,7 +23,7 @@ MCP prompt: `document_to_process_model`
 4. Present the proposal; rewrite status-like BOs into value/artefact titles
 5. `search_symbols` + `validate_against_methodology`
 6. `apply_model_proposal` — `businessObjectCount > 0`
-7. `link_document` where possible (`type`, optional `prefix`=root `key` + relative `content`; symbol link `{ id, source: mt.documents }`)
+7. `link_document` where possible (`documentRootKey` + `relativePath` + `titles` for **all** languages → same full absolute URL on each; or absolute `languages.*.content` per language; symbol link `{ id, source: mt.documents }`). Remind user to match roots in 2c8 UI after mass create. Then `verify_document_links` without `languageId`.
 8. `describe_process` + **`review_process_model`** → fix → repeat
 9. Activity descriptions from the source: `update_symbol_description` — purpose/why/considerations that **complement** the canvas; do not repeat RACI/documents/BOs. Not in the source → do not write. See `activity.descriptionGuidance`.
 10. `update_titles` / `confirm_translations` for the secondary language

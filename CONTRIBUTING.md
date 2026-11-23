@@ -40,7 +40,7 @@ CI must pass before merge.
 Destructive or mutating MCP tools are gated:
 
 - `TWO_C8_ALLOW_WRITES=true` — create/update tools
-- `TWO_C8_ALLOW_DELETES=true` — `delete_model`
+- `TWO_C8_ALLOW_DELETES=true` — `delete_model`, `delete_symbol`, `delete_mt_document`
 - `TWO_C8_WRITE_MODE=draft|direct` — prefer `draft` unless you own a sandbox repo
 
 Do not enable deletes in shared environments.

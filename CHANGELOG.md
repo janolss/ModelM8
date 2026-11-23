@@ -7,9 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `verify_document_links` quality gate (absolute https/file:/// links; flags bare relative paths / missing roots)
+- `delete_symbol` and `delete_mt_document` (gated by `TWO_C8_ALLOW_DELETES`, same irreversible pattern as `delete_model`)
+- `link_document` `titles` map — write the same absolute URL to every language in one create
+
+### Fixed
+
+- Soft-hyphen insertion for long Swedish compounds: use TeX patterns (`hyphen/sv`) plus suffix/exception rules instead of mid-word cuts (e.g. `leverans¬överlämning`)
+
 ### Changed
 
 - Documentation, prompts, and IMS plan template are English throughout (consultant-oriented)
+- Refresh `docs/dev/API-GAP-ANALYSIS.md` for v1.3.2 tool inventory and knowledge pack counts
+- IMS plan / quality docs: empty `DOC_BASE_URL` → use `SOURCE_DIR` as document root; Q3/Q4 require `verify_document_links`
+- MT document **content/URL is language-specific** (documented in agent instructions §26c, concepts, quality gates, troubleshooting)
+- `verify_document_links`: omit `languageId` → check **all** repo languages (findings include `languageId`); pass `languageId` to scope to one
+- `link_document` tool text / notes warn when only one language gets content
 
 ### Security
 

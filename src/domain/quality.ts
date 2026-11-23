@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { TwoC8Client } from "../api/twoc8-client.js";
 import { TwoC8ApiError } from "../api/twoc8-client.js";
 import type {
@@ -9,6 +11,11 @@ import type {
   SymbolView,
 } from "../api/types.js";
 import { pickTitle } from "../util/titles.js";
+import {
+  classifyResolvedDocumentLink,
+  expandRelativeLinkAgainstRoots,
+} from "./document-paths.js";
+import type { DocumentsService } from "./documents.js";
 import type { ProcessReader } from "./process-reader.js";
 
 const SWEDISH_CHARS = /[åäöÅÄÖ]/;
@@ -40,12 +47,13 @@ function titleForLang(
 
 /**
  * Quality / QA helpers used after large IMS builds (handoffs, translations,
- * navigation tree, process-register coverage).
+ * navigation tree, process-register coverage, document links).
  */
 export class QualityService {
   constructor(
     private readonly client: TwoC8Client,
     private readonly reader: ProcessReader,
+    private readonly documents: DocumentsService,
   ) {}
 
   /** Paginate all models in a repository (any modelType). */
@@ -823,6 +831,185 @@ export class QualityService {
         "Optional rootModelId checks navigation reachability via get_navigation_tree.",
       ],
       nextSuggestedTools: ["get_navigation_tree", "find_models", "link_breakdown"],
+    };
+  }
+
+  /**
+   * Verify MT document links resolve to absolute http(s)/file:/// URLs.
+   * Content/URL is per language — omit languageId to check every repo language
+   * (avoids EN-only allPass while SV content is empty).
+   * API prefix is not a document-root binding — create stores full absolute URLs;
+   * user matches paths to roots in the 2c8 UI afterward.
+   */
+  async verifyDocumentLinks(args: {
+    repositoryId: string;
+    languageId?: string;
+    documentIds?: string[];
+    requireRootsIfDocuments?: boolean;
+    checkFileExists?: boolean;
+    maxResults?: number;
+  }) {
+    const requireRoots = args.requireRootsIfDocuments !== false;
+    const checkFiles = args.checkFileExists === true;
+    const maxIssues = args.maxResults ?? 100;
+
+    const { roots } = await this.documents.listRoots(args.repositoryId);
+    const rootKeys = roots
+      .map((r) => r.key?.trim())
+      .filter((k): k is string => Boolean(k));
+    const rootValues = roots
+      .map((r) => r.value?.trim())
+      .filter((v): v is string => Boolean(v));
+
+    const languageIds = args.languageId
+      ? [args.languageId]
+      : await this.documents.listLanguageIds(args.repositoryId);
+    if (languageIds.length === 0) {
+      throw new Error(
+        "verify_document_links: repository has no languages — call list_languages / create repository languages first",
+      );
+    }
+
+    let keys: string[];
+    if (args.documentIds?.length) {
+      keys = [...new Set(args.documentIds.filter(Boolean))];
+    } else {
+      // Keys are language-agnostic; resolve with default/first language for listing.
+      const listed = await this.documents.listDocumentKeys({
+        repositoryId: args.repositoryId,
+        languageId: languageIds[0],
+      });
+      keys = listed.keys;
+    }
+
+    const findings: Array<{
+      documentId?: string;
+      languageId?: string;
+      title?: string;
+      link?: string;
+      code: string;
+      detail: string;
+      fileExists?: boolean;
+    }> = [];
+
+    if (requireRoots && keys.length > 0 && rootKeys.length === 0) {
+      findings.push({
+        code: "no-document-roots",
+        detail:
+          "Repository has MT documents but no document roots. Create create_document_root (SOURCE_DIR → file:///…/) so the 2c8 UI can match absolute document URLs to the root after create.",
+      });
+    }
+
+    const chunkSize = 40;
+    let checked = 0;
+    for (const languageId of languageIds) {
+      if (findings.length >= maxIssues) break;
+      for (let i = 0; i < keys.length && findings.length < maxIssues; i += chunkSize) {
+        const chunk = keys.slice(i, i + chunkSize);
+        const { documents } = await this.documents.resolveDocuments({
+          repositoryId: args.repositoryId,
+          documentKeys: chunk,
+          languageId,
+        });
+        for (const doc of documents) {
+          checked += 1;
+          // Prefer absolute as stored; if UI matching left a relative path, try root values.
+          let absoluteLink = doc.link;
+          const direct = classifyResolvedDocumentLink(doc.link);
+          if (!direct.ok && rootValues.length > 0) {
+            absoluteLink = expandRelativeLinkAgainstRoots(doc.link, rootValues)
+              .absoluteLink;
+          }
+
+          const classification = classifyResolvedDocumentLink(absoluteLink);
+          if (!classification.ok) {
+            findings.push({
+              documentId: doc.id,
+              languageId,
+              title: doc.title,
+              link: absoluteLink ?? doc.link,
+              code: classification.code ?? "invalid-link",
+              detail:
+                (classification.detail ?? "Invalid document link") +
+                ` [languageId=${languageId}]`,
+            });
+            if (findings.length >= maxIssues) break;
+            continue;
+          }
+
+          if (checkFiles && absoluteLink && /^file:\/\/\//i.test(absoluteLink)) {
+            let fileExists = false;
+            try {
+              const path = fileURLToPath(absoluteLink);
+              fileExists = existsSync(path);
+            } catch {
+              fileExists = false;
+            }
+            if (!fileExists) {
+              findings.push({
+                documentId: doc.id,
+                languageId,
+                title: doc.title,
+                link: absoluteLink,
+                code: "file-not-found",
+                detail: `file:/// link does not exist on this host: ${absoluteLink} [languageId=${languageId}]`,
+                fileExists: false,
+              });
+              if (findings.length >= maxIssues) break;
+            }
+          }
+        }
+      }
+    }
+
+    const brokenCount = findings.filter((f) => f.code !== "no-document-roots").length;
+    const rootWarning = findings.some((f) => f.code === "no-document-roots");
+    const expectedChecks = keys.length * languageIds.length;
+
+    return {
+      data: {
+        documentCount: keys.length,
+        languageIds,
+        languagesChecked: languageIds.length,
+        checkedCount: checked,
+        rootCount: roots.length,
+        rootKeys,
+        roots: roots.map((r) => ({
+          key: r.key,
+          value: r.value,
+          title: r.title,
+          uuid: r.uuid,
+        })),
+        findings,
+        brokenCount,
+        allPass: findings.length === 0,
+        truncated: findings.length >= maxIssues && checked < expectedChecks,
+      },
+      methodologyNotes: [
+        "MT document content/URL is per language (languages.<id>.content) — same as titles. Empty content on a secondary language → missing-link in that language’s GUI.",
+        args.languageId
+          ? `Checked languageId=${args.languageId} only. Omit languageId to verify all repo languages.`
+          : `Checked all ${languageIds.length} repo language(s). Pass languageId to scope to one language.`,
+        "Create/link must store absolute https:// or file:///… URLs for every active language (same file → same absolute URL via link_document titles map).",
+        "After mass create: user runs 2c8 UI match so paths that start with a root value bind to that root.",
+        requireRoots
+          ? "requireRootsIfDocuments=true: repos with documents should have at least one document root for later UI matching."
+          : "requireRootsIfDocuments=false: root presence not required.",
+        checkFiles
+          ? "checkFileExists=true: file:/// targets are checked with fs.existsSync on this host."
+          : "checkFileExists=false: no filesystem probe (default).",
+        rootWarning
+          ? "Fix: create_document_root then recreate links as full absolute URLs (link_document documentRootKey + relativePath + titles for all languages)."
+          : "Fix broken rows with link_document updateDocumentBody setting languages.*.content for the failing languageId(s).",
+      ],
+      nextSuggestedTools: [
+        "list_document_roots",
+        "list_languages",
+        "create_document_root",
+        "link_document",
+        "unlink_document",
+        "resolve_documents",
+      ],
     };
   }
 }

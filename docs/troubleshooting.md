@@ -20,7 +20,15 @@ Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`
 | 400 on link | Use `{ id, source: "mt.documents" }` — not bare UUID strings |
 | No document types in a new repo | `create_document_type` after `list_document_types` |
 | `Key cannot be null or empty` (document-roots) | `create_document_root` requires `key` + `value` (+ titles) |
-| Absolute URL repeated on many docs | Propose/create a document root; use `prefix` + relative path |
+| Absolute URL repeated on many docs | Create a document root; still store **full** absolute URLs; match to root in 2c8 UI after create |
+| Relative / `file://folder/…` link | Recreate with full `file:///…` (use `documentRootKey` + `relativePath` so MCP joins root.value) |
+| Rejected: relative content | `languages.*.content` must be absolute `https://` / `file:///…` — API `prefix` does not make relative paths valid |
+| Doc visible in 2c8 but click does nothing | Bare relative path. Run `verify_document_links`; recreate absolute URLs; then UI-match to document root |
+| Duplicate / orphan MT document | `unlink_document` then `delete_mt_document` (`TWO_C8_ALLOW_DELETES=true`). Confirm with `search_documents` / `verify_document_links` |
+| Empty `DOC_BASE_URL` in IMS plan | Do **not** skip roots — use `SOURCE_DIR` (or inventoried library) as root `value` |
+| `verify_document_links` `relative-without-absolute-url` | Stored path is not absolute; recreate with full URL (`documentRootKey` + `relativePath` joins root.value) |
+| Empty URL in secondary language (SV) while EN works | `content` is per language. Re-link with `titles` map or `updateDocumentBody` setting `languages.<svId>.content` to the same absolute URL. Re-run `verify_document_links` **without** `languageId` |
+| `verify_document_links` allPass but GUI empty on SV | You verified only EN. Omit `languageId` (checks all languages) |
 
 ## Translations / globes in the 2c8 UI
 

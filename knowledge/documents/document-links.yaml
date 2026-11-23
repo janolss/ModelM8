@@ -10,9 +10,12 @@ attachment:
   ui: Drag from Documents panel onto object/model, or Properties > Documents
   api: Symbol documents array on MtbSymbolDto (PATCH symbol); create via POST/PATCH mt-documents
 guidance:
-  - Prefer document roots when many links share one base URL/folder; change the
-    root once on host/path move instead of rewriting every link (see document-roots)
-  - With a root: createDocumentBody.prefix = root key; content = path relative to root
+  - >
+    Workflow: (1) create_document_root (2) link_document with FULL absolute URL
+    (shorthand: documentRootKey + relativePath joins root.value) (3) user runs
+    2c8 UI “match document roots” to bind matching paths to the root
+  - languages.*.content must be absolute https:// or file:///… (URL-encoded segments)
+  - API prefix is a free-text id/name only — NOT a document-root foreign key; do not set prefix to the root key for binding
   - Tag links with document types for filtering in lists and publications
   - Linked files must be reachable by publication end users
   - showInPanel: MCP defaults to false (new tab). Set true only for web 2c8 panel/iframe.
