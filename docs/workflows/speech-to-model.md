@@ -1,38 +1,38 @@
-# Speech-to-model (tal → modell)
+# Speech-to-model
 
-## När
+## When
 
-Användaren beskriver processen muntligt och vill ha en 2c8-modell.
+The user describes the process orally and wants a 2c8 model.
 
-## Viktigt
+## Important
 
-**modelM8 har ingen tal-till-text.** Din MCP-klient / agent (t.ex. Copilot) sköter STT. modelM8 får **text** och kör samma kedja som text-to-model.
+**modelM8 has no speech-to-text.** Your MCP client / agent (e.g. Copilot) handles STT. modelM8 receives **text** and runs the same chain as text-to-model.
 
 ```text
-Tal → (klientens STT) → text → modelM8 propose/apply → modell i 2c8
+Speech → (client STT) → text → modelM8 propose/apply → model in 2c8
 ```
 
-## Förutsättningar
+## Prerequisites
 
-Samma som [text-to-model](text-to-model.md), plus att klienten kan leverera tillförlitlig text från tal.
+Same as [text-to-model](text-to-model.md), plus a client that can deliver reliable text from speech.
 
-## Agentprompt
+## Agent prompt
 
 [examples/prompts/speech-to-model.md](../../examples/prompts/speech-to-model.md)
 
-## Steg
+## Steps
 
-1. Ta emot / sammanfatta taldiktatet som strukturerad text (gärna prefixad)
-2. Låt användaren bekräfta sammanfattningen vid oklara vägval eller roller
-3. Fortsätt exakt enligt [text-to-model](text-to-model.md) från `propose_model_from_text` (inkl. källbaserade aktivitetsbeskrivningar — gissa inte från tal som saknar syfte/hänsyn)
+1. Receive / summarise the dictation as structured text (preferably prefixed)
+2. Let the user confirm the summary when branching or roles are unclear
+3. Continue exactly per [text-to-model](text-to-model.md) from `propose_model_from_text` (including source-based activity descriptions — do not guess purpose/considerations from speech that lacks them)
 
 ## Definition of done
 
-Samma som text-to-model.
+Same as text-to-model.
 
-## Vanliga fel
+## Common mistakes
 
-| Symptom | Åtgärd |
+| Symptom | Action |
 |---|---|
-| Tvetydigt tal (“ibland A ibland B”) | Ställ en fråga; modellera inte båda som fakta |
-| Agent “transkriberar” in i verktyg som inte finns | Använd bara modelM8:s text-/write-verktyg |
+| Ambiguous speech (“sometimes A sometimes B”) | Ask a question; do not model both as fact |
+| Agent “transcribes” into tools that do not exist | Use only modelM8’s text/write tools |

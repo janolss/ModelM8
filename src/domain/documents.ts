@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { TwoC8Client } from "../api/twoc8-client.js";
 import type { DocumentRootView, DocumentTypeView, Page } from "../api/types.js";
 import { pickTitle } from "../util/titles.js";
+import { normalizeDocumentRootValue, normalizeMtDocumentBody } from "./document-paths.js";
 
 export interface ResolvedDocView {
   source?: string;
@@ -54,16 +55,21 @@ export class DocumentsService {
   }
 
   /**
-   * Create a document root (shared base URL/folder). Links use prefix=<key>
-   * and relative content paths in createDocumentBody / link_document.
+   * Create a document root (shared base URL/folder).
+   * 2c8 does not bind MT documents to roots via API prefix — store full absolute
+   * URLs on documents, then match paths to this root in the 2c8 UI.
    * Body: { key, value, titles: { [languageId]: { title } } }
    */
   async createDocumentRoot(repositoryId: string, body: Record<string, unknown>) {
+    const normalized = { ...body };
+    if (typeof normalized.value === "string") {
+      normalized.value = normalizeDocumentRootValue(normalized.value);
+    }
     const created = await this.client.request<DocumentRootView>({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/document-roots",
       pathParams: { repositoryId },
-      body,
+      body: normalized,
     });
     return {
       data: {
@@ -76,8 +82,9 @@ export class DocumentsService {
         raw: created,
       },
       methodologyNotes: [
-        "Document root = shared base path. Update value once when host/folder moves.",
-        "When linking MT docs: set prefix to this key and languages.*.content to the path relative to the root (not the full URL).",
+        "Document root = shared base path (normalized to file:///…/ or https://…/).",
+        "link_document(documentRootKey, relativePath, …) joins this value into a FULL absolute URL on the document — API prefix is not a root FK.",
+        "After mass create: user matches document paths to this root in the 2c8 UI.",
         "Omit showInPanel on documents unless panel/iframe open is wanted (MCP defaults to false).",
       ],
       nextSuggestedTools: ["list_document_roots", "link_document"],
@@ -133,12 +140,23 @@ export class DocumentsService {
   }
 
   async defaultLanguageId(repositoryId: string): Promise<string | undefined> {
+    const ids = await this.listLanguageIds(repositoryId);
+    return ids[0];
+  }
+
+  /** All language UUIDs in the repo (default language first when flagged). */
+  async listLanguageIds(repositoryId: string): Promise<string[]> {
     const page = await this.client.request<Page<{ uuid?: string; defaultLanguage?: boolean }>>({
       path: "/api/v1/repositories/{repositoryId}/languages",
       pathParams: { repositoryId },
     });
     const data = page.data ?? [];
-    return data.find((l) => l.defaultLanguage)?.uuid ?? data[0]?.uuid ?? undefined;
+    const ordered = [
+      ...data.filter((l) => l.defaultLanguage),
+      ...data.filter((l) => !l.defaultLanguage),
+    ];
+    const ids = ordered.map((l) => l.uuid?.trim()).filter((id): id is string => Boolean(id));
+    return [...new Set(ids)];
   }
 
   async listDocumentKeys(args: {
@@ -377,9 +395,11 @@ export class DocumentsService {
     // API defaults showInPanel to true; prefer new-tab unless caller opts in.
     let payload = body;
     if (body && typeof body === "object" && !Array.isArray(body)) {
-      const b = body as Record<string, unknown>;
+      const b = normalizeMtDocumentBody(body as Record<string, unknown>);
       if (!("showInPanel" in b)) {
         payload = { ...b, showInPanel: false };
+      } else {
+        payload = b;
       }
     }
     return this.client.request({
@@ -391,12 +411,67 @@ export class DocumentsService {
   }
 
   async updateMtDocument(repositoryId: string, documentId: string, body: unknown) {
+    let payload = body;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      payload = normalizeMtDocumentBody(body as Record<string, unknown>);
+    }
     return this.client.request({
       method: "PATCH",
       path: "/api/v1/repositories/{repositoryId}/mt-documents/{documentId}",
       pathParams: { repositoryId, documentId },
-      body,
+      body: payload,
     });
+  }
+
+  /**
+   * Permanently delete MT document(s). Same DELETE shape as symbols
+   * (DELETE …/mt-documents/{documentId}). OpenAPI omits DELETE but API returns 204.
+   * Gated by TWO_C8_ALLOW_DELETES at tool registration.
+   */
+  async deleteMtDocuments(args: { repositoryId: string; documentIds: string[] }) {
+    const ids = [...new Set(args.documentIds.filter(Boolean))];
+    if (ids.length === 0) {
+      throw new Error("documentIds must contain at least one UUID");
+    }
+    const deleted: string[] = [];
+    const errors: Array<{ documentId: string; error: string }> = [];
+    for (const documentId of ids) {
+      try {
+        await this.client.request({
+          method: "DELETE",
+          path: "/api/v1/repositories/{repositoryId}/mt-documents/{documentId}",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            documentId,
+          },
+        });
+        deleted.push(documentId);
+      } catch (error) {
+        errors.push({
+          documentId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return {
+      data: {
+        deleted,
+        errors,
+        okCount: deleted.length,
+        total: ids.length,
+      },
+      methodologyNotes: [
+        "Permanently deleted MT document(s) via DELETE …/mt-documents/{documentId} (irreversible).",
+        "Does not unlink from symbols first — unlink_document if the doc is still attached, or delete after confirming no symbol refs.",
+        "Same gating as delete_model / delete_symbol: TWO_C8_ALLOW_DELETES=true.",
+      ],
+      nextSuggestedTools: [
+        "verify_document_links",
+        "list_document_roots",
+        "search_documents",
+        "unlink_document",
+      ],
+    };
   }
 
   async linkDocumentsToSymbol(args: {

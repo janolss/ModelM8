@@ -1,17 +1,17 @@
-# Prompt: tal → modell
+# Prompt: speech → model
 
 ```
-Jag har dikterat / bifogar transkription av en process.
-Använd modelM8; målrepo <repositoryId>; språk <languageId>.
+I have dictated / attach a transcription of a process.
+Use modelM8; target repo <repositoryId>; language <languageId>.
 
-Transkription:
+Transcription:
 <<<
-<STT-text från klienten — modelM8 gör ingen STT>
+<STT text from the client — modelM8 does no STT>
 >>>
 
-Rensa upprepningar och osäkerhet, behåll affärsinnehåll.
-Följ sedan samma kedja som text-to-model:
-propose → fixa BO-namn → search_symbols i målrepo → apply →
-businessObjectCount > 0 → describe → review_process_model → fixa.
-Visa kort vad du tolkade innan apply om något är oklart.
+Clean repetitions and uncertainty; keep business content.
+Then follow the same chain as text-to-model:
+propose → fix BO names → search_symbols in target repo → apply →
+businessObjectCount > 0 → describe → review_process_model → fix.
+Briefly show what you interpreted before apply if anything is unclear.
 ```

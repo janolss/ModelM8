@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an enhancement to modelM8
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to achieve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: MCP tool, workflow, or docs change you have in mind
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Consume / read tools
+        - Write / propose / apply
+        - Process maps / quality gates
+        - Docs / clients
+        - Docker / CI / packaging
+        - Other
+    validations:
+      required: true

@@ -1,130 +1,154 @@
-# API-gapanalys: 2c8 OpenAPI vs MCP-servern
+# API gap analysis: 2c8 OpenAPI vs the MCP server
 
-Jämförelse mellan OpenAPI-schemat från
+Comparison between the OpenAPI schema from
 `https://your-server.example/mt-backend/api/v1/openapi.json`
-(MT backend REST API, version 1.0.0) och de endpoints som
-`modelM8` använder efter metodikdriven ombyggnad (v1.1).
+(MT backend REST API) and the MCP tools exposed by **modelM8**.
 
-Uppdaterad: 2026-11-22 (v1.2 quality tools).
+Updated: **2026-11-23** against modelM8 **v1.3.2** (tool/knowledge inventory) and a **live re-fetch** of OpenAPI 3.0.1 (`info.version` **1.0.0**).
 
-## Sammanfattning
+## Summary
 
-| Mått | Värde |
-|------|-------|
-| Operationer i OpenAPI | **214** (128 paths) |
-| Operationer med MCP-/domain-stöd (v1.2) | **~75+** (direkt eller via domain tools) |
-| Tidigare (v1.1 / v1.0) | **~70** / **43** |
-| MCP-anrop som saknas i OpenAPI | **0** |
+| Metric | Value |
+|--------|-------|
+| OpenAPI (live, 2026-11-23) | **214** operations / **128** paths (`GET` 109, `POST` 45, `DELETE` 30, `PATCH` 29, `PUT` 1) |
+| MCP tools registered in code | **99** (gated: writes / deletes) |
+| MCP prompts | **5** |
+| Methodology resources (`methodology://…`) | **21** |
+| Knowledge object types / model types / rules | **19** / **14** / **7** |
+| MCP calls with no OpenAPI counterpart | **0** (still true for shipped HTTP paths) |
 
-Servern är **metodikdriven**: domain-verktyg för processkonsumtion och
-text/document-to-model, plus analysverktyg. Admin/plugin/publicering är
-fortfarande medvetet utanför fas 1.
+The server is **methodology-driven**: domain tools for process consumption and
+text/document-to-model, plus analysis and quality gates. Admin / plugin / publishing remain
+intentionally out of scope.
 
-## Consume-förbättringar (efter agentfeedback)
+Tool registration gates:
 
-- `get_process_flow` returnerar **titlar** (från canvas `labels`) + grupperade
-  `inputs` / `outputs` / `responsible` / `applications` / `controlledBy` (CONTROLS)
-- `describe_process` — narrativ `summaryText` + strukturerad JSON
-- `describe_role` / `find_symbol_usage` — roll → processer/aktiviteter utan N modellskanning manuellt
-- `get_controlling_documents` — aktivitet → styrdokument (t.ex. Checklista onboarding)
-- `search_documents` / `resolve_documents` / `get_document_content` — resolve + PDF/textutdrag
-- `resolve_symbols` — batch UUID → titel/objectType/documents
-- `find_models` server-side `filter`; `search_symbols` stöder `modelId`
-- Prompt `describe_role_onboarding`
+| Gate | Tools |
+|------|--------|
+| Always on | methodology, consume, analysis, quality, propose |
+| `TWO_C8_ALLOW_WRITES=true` | write tools (~34) |
+| `TWO_C8_ALLOW_DELETES=true` | `delete_model`, `delete_symbol`, `delete_mt_document` |
 
-## Ny täckning i v1.1 (mot gap från v1.0)
+## Tool inventory (v1.3.2)
 
-| Område | Status |
-|--------|--------|
-| Repository configuration | `list_allowed_types` → `GET …/configuration` |
-| Breakdowns | `get_breakdowns`, `create_breakdown` |
-| Documents / roots / types / sources | list + `link_document` + `create_document_root` / `create_document_type` |
-| Matrices | `get_matrices`, `get_matrix`, `execute_matrix` |
-| Relations execute | `execute_relation` |
-| Lists get-by-id | `get_list` |
-| Layers (läs) | ingår i `get_process_overview` |
-| Methodology pack | MCP resources `methodology://…` + `get_methodology` |
+### Methodology (5)
 
-## Domain-verktyg (mappar till flera API:er)
+`get_api_versions`, `get_methodology`, `list_allowed_types`, `resolve_branching_object_type`, `validate_against_methodology`
 
-| MCP-verktyg | Underliggande API |
-|-------------|-------------------|
-| `find_models` / `get_process_*` | models + canvas (+ layers) |
-| `search_symbols` / `reuse_symbol` | symbols + canvas/vertices |
-| `add_process_step` | symbols + vertices + edges |
-| `set_activity_performer` / `set_step_io` | vertices + edges |
-| `link_document` | mt-documents (+ optional `prefix`=root key) + PATCH symbol |
-| `create_document_root` | `POST …/document-roots` (`key`, `value`, `titles`) |
-| `propose_*` / `apply_model_proposal` | narrativ propose + batch write (symbols/vertices/edges: flow, raciresponsible, controls, isusedby) |
-| `create_repository` | `POST /api/v1/repositories` |
-| `create_canvas_edge` | `POST …/canvas/edges` |
-| `list_allowed_types` | configuration (+ knowledge pack) |
+### Consume / describe (37)
 
-## Kvarvarande luckor (fas 1+)
+| Group | Tools |
+|-------|--------|
+| Repos / nav | `list_repositories`, `get_repository`, `list_languages`, `list_directories`, `get_directory` |
+| Models / flow | `find_models`, `get_process_overview`, `get_process_flow`, `get_detail_process_scope`, `describe_process`, `describe_process_map`, `review_process_model` |
+| Symbols / roles | `search_symbols`, `resolve_symbols`, `find_symbol_usage`, `describe_role`, `describe_role_introduction`, `get_roles_and_responsibilities`, `get_object_documents` |
+| Documents | `list_document_types`, `list_document_roots`, `list_document_sources`, `search_documents`, `resolve_documents`, `get_document_content`, `get_controlling_documents` |
+| Descriptions | `list_description_types`, `get_model_descriptions`, `get_symbol_descriptions` |
+| Properties (GET) | `get_symbol_properties`, `get_model_properties`, `get_vertex_properties` |
+| Versions / layers (read) | `list_model_versions`, `get_model_version`, `list_symbol_versions`, `list_layers` |
+| Breakdowns | `get_breakdowns` |
 
-### Tillagt i v1.2 (efter TechSeed IMS-leverans)
-- `list_untranslated_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage`
-- `create_document_type`, `retarget_vertex_symbol`
-- `move_canvas_vertices` auto-reorthogonalize; empty HTTP 200 → `{ ok: true }`
-- `get_breakdowns` 404→tom + pekar på navigation tree
+### Analysis (11)
 
-### Tillagt efter S1 (P0 write-helpers, 2026-11-22)
-- `set_activity_used_by` (IS_USED_BY under aktivitet)
-- `set_activity_controls` (CONTROLS ovanför aktivitet)
-- `retarget_vertex_symbol` skickar label bounds via `placeVertex` (fix 400 Label bounds)
+`list_relations`, `get_relation`, `get_relation_script`, `execute_relation`, `get_lists`, `get_list`, `execute_list`, `get_matrices`, `get_matrix`, `execute_matrix`, `execute_query`
 
-### Tillagt efter S2 (P0 quality, 2026-11-22)
-- `list_orphan_symbols` (canvas-diff; `titlePrefix` t.ex. ZZ_)
-- `verify_handoffs` utökad: `contract[]` + `autoDiscover.modelIds` (primary out ∩ in)
+### Quality (6)
 
-### Tillagt efter S3 (P1 spårbarhet, 2026-11-22)
-- `get_model_descriptions` / `get_symbol_descriptions`
-- `create_description_type`
-- `delete_breakdown` (länk only; writes, ej ALLOW_DELETES)
-- `unlink_document` (symbol.documents subtract)
+`list_untranslated_symbols`, `list_orphan_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage`, `verify_document_links`
 
-### Tillagt efter S4 (P2 produktion, 2026-11-22)
-- Properties read: `get_symbol_properties`, `get_model_properties`, `get_vertex_properties` (GET only)
-- Versions: `list_model_versions`, `get_model_version`, `create_model_version`, `update_model_version`, `list_symbol_versions`
-- Layers: `list_layers`, `create_layer`, `delete_layer`
-- `update_swimlane_settings` (PATCH canvas.swimlaneSettings)
-- `create_process_map` layout `threeBand` (ledning/kärna/stöd)
+### Propose (5)
 
-### Relevanta men ofullständiga
-- Model/symbol/vertex **properties** (provider/key) — ej egna verktyg
-- Symbol **versions** list/get
-- Model version **create/update** (utöver accept draft)
-- Document sources **list keys** endpoint (sources + resolve finns delvis via documents service)
-- Layer types CRUD / create-delete layer (endast läsning via overview)
-- Full swimlane geometry API (placement via koordinater)
+`propose_model_from_text`, `propose_model_from_document`, `propose_process_map_from_models`, `validate_process_map_bridges`, `apply_model_proposal`
 
-### Medvetet utanför fas 1
-- API keys, users, groups, accessors, permission groups CRUD
+### Write — when `ALLOW_WRITES` (34)
+
+| Group | Tools |
+|-------|--------|
+| Repo / model shell | `create_repository`, `create_process_model`, `create_process_map`, `accept_draft_model` |
+| Canvas / steps | `add_process_step`, `reuse_symbol`, `create_canvas_edge`, `update_canvas_edges`, `delete_canvas_edge`, `delete_canvas_vertex`, `move_canvas_vertices`, `retarget_vertex_symbol`, `place_in_swimlane` |
+| Activity satellites | `set_activity_performer`, `set_activity_used_by`, `set_activity_controls`, `set_step_io` |
+| Documents / types | `link_document`, `unlink_document`, `create_document_root`, `create_document_type`, `create_description_type` |
+| Breakdowns | `create_breakdown`, `link_breakdown`, `delete_breakdown` |
+| Versions / layers | `create_model_version`, `update_model_version`, `create_layer`, `delete_layer`, `update_swimlane_settings` |
+| Titles / descriptions | `update_titles`, `confirm_translations`, `update_model_description`, `update_symbol_description` |
+
+### Delete — when `ALLOW_DELETES` (3)
+
+`delete_model`, `delete_symbol`, `delete_mt_document`
+
+### Prompts (5)
+
+`consume_process`, `text_to_process_model`, `document_to_process_model`, `describe_role_onboarding`, `create_process_map_overview`
+
+## Domain mapping (high level)
+
+| MCP surface | Underlying MT API areas |
+|-------------|-------------------------|
+| `find_models` / `get_process_*` / `describe_*` | models + canvas (+ layers, labels) |
+| `search_symbols` / `reuse_symbol` / canvas edits | symbols + canvas/vertices/edges |
+| `set_activity_*` / `set_step_io` | vertices + edges (RACI / FLOW / CONTROLS / IS_USED_BY) |
+| `link_document` / roots / types | mt-documents + PATCH symbol |
+| `propose_*` / `apply_model_proposal` | narrative propose + batch symbols/vertices/edges |
+| `create_process_map` / bridges / detail scope | models + canvas + breakdowns; I/O from detail scopes |
+| `list_allowed_types` / `get_methodology` | configuration + knowledge pack |
+| Analysis execute_* | lists / matrices / relations / query |
+| Quality verify_* / navigation | models + symbols + canvas + languages |
+
+## Consume highlights (still accurate)
+
+- `get_process_flow` returns **titles** (canvas `labels`) + grouped `inputs` / `outputs` / `responsible` / `applications` / `controlledBy`
+- `describe_process` — narrative `summaryText` + structured JSON; decisions/vägval under decisions
+- `describe_role` / `describe_role_introduction` / `find_symbol_usage`
+- Document resolve + `get_document_content` (PDF/text extract)
+- `review_process_model` after writes (methodology + layout)
+- `get_detail_process_scope` for overview I/O contracts
+
+## Remaining gaps
+
+### Partially covered / incomplete
+
+- **Properties write** — OpenAPI appears GET-only for provider bags; MCP exposes GET tools only (`get_*_properties`)
+- **Symbol version get-by-id** — `list_symbol_versions` exists; no dedicated `get_symbol_version` if OpenAPI has one
+- **Layer types CRUD** — layer instances: `list/create/delete_layer`; layer-*type* admin still uncovered
+- **Swimlane geometry** — `place_in_swimlane` + `update_swimlane_settings`; not a full geometry API
+- **Language write CRUD** — `list_languages` only; title translation via `update_titles` / `confirm_translations`
+- **Directory write CRUD** — `list_directories` / `get_directory` read; repo *create* via `create_repository`
+- Stub model types in knowledge (`organisation`, `bpmn`, …) — listed for awareness; dedicated domain tools are process / process-map oriented
+
+### Intentionally out of scope
+
+- API keys, users, groups, accessors, permission-groups CRUD
 - Plugins / plugin-data / plugin-relations
 - Publications / publish profiles / templates
 - Icons, images, reports, notifications, subscribers, settings, color schemes
-- Directory write CRUD (repository *create* is supported via `create_repository`)
-- Language / description-type write CRUD
-- Pixel-perfect canvas layout / swimlane geometry
+- Pixel-perfect canvas layout engines beyond current move/reorthogonalize helpers
 
-## Verifiering
+## Knowledge pack (loaded)
 
-| Check | Resultat |
-|-------|----------|
-| `npm run typecheck` | OK |
-| `npm run build` | OK |
-| Knowledge pack load | 14 object types, 13 model types, 17 resources |
-| `propose_model_from_text` | Extraherar process-steg + naming validation |
-| HTTP `GET /health` | OK (`writeMode=draft`) |
-| Live MT-backend E2E | OK — repo `Utveckling MCP`, text→`Rekrytera och anställa` med FLOW/RACI/CONTROLS/IS_USED_BY |
+| Item | Count |
+|------|-------|
+| Object types | 19 (`process`, `activity`, `businessObject`, `role`, `or`/`vägval`, `and`, …) |
+| Model types | 14 (`process`, `process-map`, `swimlane`, + stubs) |
+| Rule topics | 7 |
+| MCP resources | 21 (`methodology://…` over yaml/json under `knowledge/`) |
 
-För live-verifiering: `TWO_C8_ALLOW_WRITES=true`, `TWO_C8_WRITE_MODE=direct`,
-`create_repository` → `propose_model_from_text` → `apply_model_proposal` → `describe_process`.
+## Verification notes
 
-## Fas 1 definition of done
+| Check | Notes |
+|-------|--------|
+| Tool inventory | Derived from `src/tools/*-tools.ts` `registerTool` names |
+| Knowledge counts | `loadMethodologyPack()` at doc update |
+| OpenAPI | Live `GET …/api/v1/openapi.json` on 2026-11-23 → 214 ops / 128 paths (unchanged vs prior count) |
+| Live E2E | Historical OK on sandbox repo `Utveckling MCP` (text→process with FLOW/RACI/CONTROLS/IS_USED_BY) |
 
-- [x] Metodikpack med källhänvisningar under `knowledge/`
-- [x] HTTP MCP med instructions, resources, prompts
+For live smoke: `TWO_C8_ALLOW_WRITES=true`, preferred `TWO_C8_WRITE_MODE=direct` in a sandbox,
+`create_repository` → `propose_model_from_text` → `apply_model_proposal` → `describe_process` → `review_process_model`.
+
+## Phase 1 definition of done
+
+- [x] Methodology pack with sources under `knowledge/`
+- [x] HTTP MCP with instructions, resources, prompts
 - [x] Consume + propose + draft-first write tools
-- [x] Rules-engine (pack + configuration API)
-- [x] Text→modell E2E i sandbox-repo (Utveckling MCP)
+- [x] Rules engine (pack + configuration API)
+- [x] Text→model E2E in sandbox repo
+- [x] Quality gates, process maps / threeBand, translations, canvas fix-up tools (v1.2–v1.3)

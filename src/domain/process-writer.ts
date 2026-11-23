@@ -12,6 +12,7 @@ import {
   type SymbolSizeSpec,
   validateProposedSymbol,
 } from "../methodology/rules-engine.js";
+import { applySoftBreaks, stripSoftBreaks } from "../util/soft-breaks.js";
 import { pickTitle } from "../util/titles.js";
 import { ProcessReader } from "./process-reader.js";
 import { type ModelProposal, normalizeProposal } from "./proposals.js";
@@ -53,63 +54,6 @@ const PARALLEL_TRACK_GAP = 48;
 const PROCESS_EDGE_INSET = 0.2;
 /** Extra stub when routing around a process (side loops / reverse direction). */
 const PROCESS_ROUTE_STUB = 24;
-
-/** 2c8 soft line-break (UI often shows this as "¬"). */
-const SOFT_HYPHEN = "\u00AD";
-const SOFT_BREAK_RE = /[\u00AC\u00AD]/g;
-
-function stripSoftBreaks(title: string): string {
-  return title.replace(SOFT_BREAK_RE, "");
-}
-
-/** Map UI "¬" to soft hyphen used in symbol rawTitle. */
-function normalizeSoftBreaks(title: string): string {
-  return title.replace(/\u00AC/g, SOFT_HYPHEN);
-}
-
-/**
- * Insert soft hyphens in long Swedish compounds so outside labels wrap
- * (e.g. Personal­ansvarig, Service­tekniker). Preserves existing breaks.
- */
-function applySoftBreaks(title: string): string {
-  const normalized = normalizeSoftBreaks(title.trim());
-  // Already has explicit break points from proposal/UI
-  if (/[\u00AC\u00AD]/.test(normalized)) {
-    return normalized;
-  }
-  // Prefer breaking before these suffixes when the stem is long enough
-  const suffixes = [
-    "ansvarig",
-    "tekniker",
-    "liggare",
-    "medarbetare",
-    "chef",
-    "handläggare",
-    "koordinator",
-    "specialist",
-  ];
-  return normalized
-    .split(/(\s+)/)
-    .map((part) => {
-      if (/^\s+$/.test(part) || part.length < 12) {
-        return part;
-      }
-      const lower = part.toLowerCase();
-      for (const suf of suffixes) {
-        if (lower.endsWith(suf) && lower.length - suf.length >= 4 && lower !== suf) {
-          const cut = part.length - suf.length;
-          return `${part.slice(0, cut)}${SOFT_HYPHEN}${part.slice(cut)}`;
-        }
-      }
-      // Mid-word break for very long unbroken tokens (keep both sides readable)
-      if (part.length >= 16) {
-        const cut = Math.floor(part.length / 2);
-        return `${part.slice(0, cut)}${SOFT_HYPHEN}${part.slice(cut)}`;
-      }
-      return part;
-    })
-    .join("");
-}
 
 /**
  * Map methodology / proposal types to API create payloads.
@@ -349,7 +293,7 @@ export class ProcessWriter {
     // Soft hyphen and whitespace are break opportunities; ¬ already normalized
     const words = raw
       .split(/[\s\u00AD]+/)
-      .map((w) => w.replace(SOFT_BREAK_RE, ""))
+      .map((w) => stripSoftBreaks(w))
       .filter(Boolean);
     if (words.length === 0) {
       return { width: 40, height: LABEL_LINE_HEIGHT };
@@ -534,6 +478,51 @@ export class ProcessWriter {
         "Model deleted via DELETE /repositories/{repositoryId}/models/{modelId}. This is irreversible.",
       ],
       nextSuggestedTools: ["find_models", "list_repositories"],
+    };
+  }
+
+  /**
+   * Permanently delete symbol(s). Gated by TWO_C8_ALLOW_DELETES (tool registration).
+   * Differs from delete_canvas_vertex (canvas only — symbol remains).
+   */
+  async deleteSymbols(args: { repositoryId: string; symbolIds: string[] }) {
+    const ids = [...new Set(args.symbolIds.filter(Boolean))];
+    if (ids.length === 0) {
+      throw new Error("symbolIds must contain at least one UUID");
+    }
+    const deleted: string[] = [];
+    const errors: Array<{ symbolId: string; error: string }> = [];
+    for (const symbolId of ids) {
+      try {
+        await this.client.request({
+          method: "DELETE",
+          path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            symbolId,
+          },
+        });
+        deleted.push(symbolId);
+      } catch (error) {
+        errors.push({
+          symbolId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return {
+      data: {
+        deleted,
+        errors,
+        okCount: deleted.length,
+        total: ids.length,
+      },
+      methodologyNotes: [
+        "Symbol(s) deleted via DELETE …/symbols/{symbolId} (irreversible).",
+        "Not the same as delete_canvas_vertex — that only removes a canvas placement.",
+        "Requires TWO_C8_ALLOW_DELETES=true.",
+      ],
+      nextSuggestedTools: ["search_symbols", "list_orphan_symbols", "find_models"],
     };
   }
 

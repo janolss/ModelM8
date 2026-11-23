@@ -9,3 +9,10 @@ coverage/
 .vscode/
 TechSeed-IMS/*
 Inera/*
+
+# Local customer / scratch artefacts (keep out of git)
+*.docx
+Beskrivning*.txt
+MCP-NEXT-TOOLS-PLAN.md
+start.png
+

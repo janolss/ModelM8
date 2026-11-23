@@ -64,6 +64,65 @@ describe("DocumentsService", () => {
     expect(result.data.uuid).toBe("root-1");
   });
 
+  it("createDocumentRoot normalizes filesystem value to file URL", async () => {
+    let posted: unknown;
+    const client = mockClient((opts) => {
+      posted = opts.body;
+      return {
+        uuid: "root-2",
+        key: "inera-docs",
+        value: (opts.body as { value: string }).value,
+        titles: { lang: { title: "Inera docs" } },
+        type: "mtDocumentRoot",
+      };
+    });
+    const docs = new DocumentsService(client);
+    await docs.createDocumentRoot("repo-1", {
+      key: "inera-docs",
+      value: "/Users/jan/github_repo/2c8-mcp-server-1/Inera/Dokumentbibliotek",
+      titles: { lang: { title: "Inera docs" } },
+    });
+    const value = (posted as { value: string }).value;
+    expect(value.startsWith("file:///Users/jan/")).toBe(true);
+    expect(value.endsWith("/")).toBe(true);
+  });
+
+  it("createMtDocument normalizes absolute file content", async () => {
+    let posted: unknown;
+    const client = mockClient((opts) => {
+      posted = opts.body;
+      return { uuid: "doc-3" };
+    });
+    const docs = new DocumentsService(client);
+    await docs.createMtDocument("repo-1", {
+      type: "file",
+      languages: {
+        lang: {
+          title: "Needs",
+          content: "file:///Users/jan/Inera/Dokumentbibliotek/2. Hantera behov/doc.pdf",
+        },
+      },
+    });
+    const langs = (posted as { languages: Record<string, { content: string }> }).languages;
+    expect(posted).toMatchObject({ showInPanel: false });
+    expect(langs.lang.content.startsWith("file:///Users/jan/")).toBe(true);
+    expect(langs.lang.content).toContain("2.%20Hantera%20behov");
+  });
+
+  it("createMtDocument rejects relative content even with prefix", async () => {
+    const client = mockClient(() => ({ uuid: "doc-x" }));
+    const docs = new DocumentsService(client);
+    await expect(
+      docs.createMtDocument("repo-1", {
+        type: "file",
+        prefix: "inera-docs",
+        languages: {
+          lang: { title: "Needs", content: "2. Hantera behov/doc.pdf" },
+        },
+      }),
+    ).rejects.toThrow(/absolute/);
+  });
+
   it("linkDocumentsToSymbol merges existing refs as MtbDocumentIdDto", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const client = mockClient((opts) => {

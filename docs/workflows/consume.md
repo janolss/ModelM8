@@ -1,35 +1,35 @@
-# Läsa processer (consume)
+# Consume processes
 
-## När
+## When
 
-Förstå en befintlig process i 2c8: flöde, roller, dokument, nedbrytningar.
+Understand an existing process in 2c8: flow, roles, documents, breakdowns.
 
-## Förutsättningar
+## Prerequisites
 
-- modelM8 ansluten
-- `repositoryId` känt (`list_repositories`)
+- modelM8 connected
+- `repositoryId` known (`list_repositories`)
 
-## Agentprompt
+## Agent prompt
 
-Se [examples/prompts/consume.md](../../examples/prompts/consume.md)  
-MCP-prompt: `consume_process`
+See [examples/prompts/consume.md](../../examples/prompts/consume.md)  
+MCP prompt: `consume_process`
 
-## Steg
+## Steps
 
-1. (Valfritt) `get_methodology(topic: "process")`
-2. `find_models` om du bara har titel — annars gå vidare med `modelId`
-3. **`describe_process`** — primärsvar (`summaryText`, aktiviteter, beslut)
-4. Vid behov: `get_breakdowns` (på **detalj**), `get_navigation_tree`, `get_process_flow`, `resolve_symbols`
-5. Roller: `describe_role` / `describe_role_introduction` — skilj RACI från HR-intro
+1. (Optional) `get_methodology(topic: "process")`
+2. `find_models` if you only have a title — otherwise continue with `modelId`
+3. **`describe_process`** — primary answer (`summaryText`, activities, decisions)
+4. As needed: `get_breakdowns` (on **detail**), `get_navigation_tree`, `get_process_flow`, `resolve_symbols`
+5. Roles: `describe_role` / `describe_role_introduction` — separate RACI from HR intro
 
 ## Definition of done
 
-- Syfte, steg med ansvarig + system, in/ut och öppna frågor är redovisade
-- Inga påhittade RACI- eller dokumentkopplingar
+- Purpose, steps with owner + system, I/O, and open questions are stated
+- No invented RACI or document links
 
-## Vanliga fel
+## Common mistakes
 
-| Symptom | Åtgärd |
+| Symptom | Action |
 |---|---|
-| Tom `get_breakdowns` på översikt | Förväntat — använd `get_navigation_tree` eller fråga detaljmodellen |
-| “Vem gör X?” utan RACI | Säg att utförare saknas; hitta inte på |
+| Empty `get_breakdowns` on overview | Expected — use `get_navigation_tree` or ask the detail model |
+| “Who does X?” without RACI | Say the performer is missing; do not invent one |

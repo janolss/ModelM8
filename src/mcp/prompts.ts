@@ -178,7 +178,7 @@ export function registerMethodologyPrompts(server: McpServer): void {
               "4) Present the proposal; rewrite business objects that are status echoes of activities into value/artefact titles",
               "5) search_symbols + validate_against_methodology (BOs: pass previousActivityTitle)",
               "6) apply_model_proposal when approved",
-              "7) link_document (with prefix=root key + relative content when a root applies)",
+              "7) link_document(documentRootKey, relativePath, titles for ALL languages) → same full absolute URL per language; verify_document_links (omit languageId); user matches roots in 2c8 UI after mass create",
               "",
               `repositoryId=${repositoryId}`,
               `languageId=${languageId}`,

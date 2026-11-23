@@ -1,32 +1,38 @@
 summary: >
-  A document root is a shared base path (folder or URL prefix) for a set of
-  document links. Individual links store the path relative to that root, so
-  relocating a whole tree or changing host/URL only requires updating the root
-  once — not every link.
+  A document root is a shared base path (folder or URL prefix) registered in 2c8.
+  The API does not bind MT documents to a root via the document `prefix` field
+  (prefix is only a free-text id/name). After documents are created with full
+  absolute URLs that start with the root value, the user runs the 2c8 UI
+  “match document roots” action to replace the matching path prefix with a
+  real root association.
 example: >
-  Documents under https://example.com/docs/ such as
-  finance/policy.doc and production/plan.doc share root https://example.com/docs/.
-  Moving the library to https://example.se/ims-docs/ means changing only the root;
-  the same relative paths then resolve to
-  https://example.se/ims-docs/finance/policy.doc and
-  https://example.se/ims-docs/production/plan.doc.
+  Root value file:///Users/…/Inera/Dokumentbibliotek/ and documents whose
+  content is file:///Users/…/Inera/Dokumentbibliotek/2.%20Hantera%20behov/….pdf
+  can be matched in the UI so relocating the library only updates the root.
 fields:
-  key: Stable id used as MT document prefix (e.g. ims-docs) — required on create
-  value: Base URL or folder path (trailing slash recommended)
+  key: Stable id (e.g. inera-docs) — used by MCP to look up value when joining URLs; not an MT-document FK
+  value: Base URL or folder path (trailing slash; MCP normalizes filesystem → file:///…/)
   titles: Display name per languageId
   type: Stored as mtDocumentRoot by the API
 linking:
   - >
-    create_document_root({ key, value, title, languageId }) or full body
+    create_document_root({ key, value, title, languageId }) or full body.
+    Filesystem value is normalized to file:///…/ with URL-encoded segments.
   - >
-    link_document createDocumentBody uses type URL or file, prefix=<root key>,
-    and languages.*.content as the path relative to the root
-  - Do not repeat the full absolute URL in content when using a root
+    Preferred create: link_document({ documentRootKey, relativePath, title, languageId })
+    — MCP looks up root.value and stores type=file with FULL absolute URL
+    (root value + URL-encoded relativePath). Does not set API prefix to the root key.
+  - >
+    Or createDocumentBody with absolute languages.*.content (must include the
+    same path prefix as the root value for later UI matching)
+  - After mass create: user matches documents to roots in the 2c8 UI
 guidance:
-  - Prefer a document root when several links share the same base folder or URL prefix
-  - When the host, path prefix, or share moves: update the root value, move the files, links stay valid
-  - Absolute one-off URLs that do not share a library base do not need a root
-  - In IMS/document-folder plans: inventory shared bases (DOC_BASE_URL, SharePoint library, file share) and propose create_document_root before mass link_document
+  - Always create a document root when many files share one library folder/URL
+  - Store full absolute URLs on documents so UI matching can find the root prefix
+  - Never treat API prefix as a document-root foreign key
+  - When the host/folder moves: update the root value (after UI binding); recreate absolute URLs if still unbound
+  - Empty DOC_BASE_URL is not "skip root": use SOURCE_DIR / Dokumentbibliotek as create_document_root value
+  - In IMS plans: create_document_root in fas 2 before mass link_document; note UI match as a human step
 api:
   list: GET /api/v1/repositories/{repositoryId}/document-roots
   create: POST /api/v1/repositories/{repositoryId}/document-roots

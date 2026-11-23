@@ -1,6 +1,8 @@
-# MCP-fel från Delivery Practice-körning
+# MCP errors from a Delivery Practice run
 
-Exakta tool-anrop och exakta responses. Endast anrop som returnerade fel.
+Exact tool calls and exact responses. Only calls that returned errors.
+
+JSON payloads below are historical fixtures (Swedish process titles left as captured).
 
 ---
 
@@ -129,7 +131,7 @@ Exakta tool-anrop och exakta responses. Endast anrop som returnerade fel.
 
 ---
 
-## 2. `apply_model_proposal` — objectType decision (mappas till gateway)
+## 2. `apply_model_proposal` — objectType decision (mapped to gateway)
 
 ### Request
 
@@ -284,7 +286,7 @@ Exakta tool-anrop och exakta responses. Endast anrop som returnerade fel.
 
 ---
 
-## 4. `set_activity_performer` — saknad performerSymbolId
+## 4. `set_activity_performer` — missing performerSymbolId
 
 ### Request
 
@@ -310,7 +312,7 @@ MCP error -32602: Input validation error: Invalid arguments for tool set_activit
 
 ---
 
-## 5. `create_process_map` — sideLoop fromBoTitle saknas på chain
+## 5. `create_process_map` — sideLoop fromBoTitle missing on chain
 
 ### Request
 
@@ -369,7 +371,7 @@ create_process_map: sideLoop fromBoTitle 'Överenskommen timtaxa och startdatum'
 
 ---
 
-## 6. `create_process_map` — breakdown redan finns
+## 6. `create_process_map` — breakdown already exists
 
 ### Request
 

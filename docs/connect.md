@@ -1,37 +1,37 @@
-# Anslut en MCP-klient till modelM8
+# Connect an MCP client to modelM8
 
-modelM8 talar **MCP**. Vilken agent eller IDE som helst som kan anropa en MCP-server fungerar.
+modelM8 speaks **MCP**. Any agent or IDE that can call an MCP server works.
 
-## Två transportlägen
+## Two transport modes
 
-| Läge | När | Endpoint / start |
+| Mode | When | Endpoint / start |
 |---|---|---|
-| **HTTP** | Klienten pekar på en URL | `http://127.0.0.1:3000/mcp` (eller din host/port) |
-| **stdio** | Klienten startar `node dist/index.js` | Processen läser env från `.env` / miljövariabler |
+| **HTTP** | Client points at a URL | `http://127.0.0.1:3000/mcp` (or your host/port) |
+| **stdio** | Client starts `node dist/index.js` | Process reads env from `.env` / environment variables |
 
-Starta HTTP-läge:
+Start HTTP mode:
 
 ```bash
 npm run start:http
 ```
 
-## Checklista efter anslutning
+## Checklist after connecting
 
-Be agenten (eller kör verktygen) i denna ordning:
+Ask the agent (or run the tools) in this order:
 
-1. `list_repositories` — minst ett repo syns  
-2. `get_api_versions` — backend svarar  
-3. `list_languages` på valt repo — språk-UUID:n sparas  
-4. Om du ska skriva: bekräfta att skrivverktyg finns (`create_repository`, `propose_model_from_text`, …)
+1. `list_repositories` — at least one repo is visible  
+2. `get_api_versions` — backend responds  
+3. `list_languages` on the chosen repo — keep the language UUIDs  
+4. If you will write: confirm write tools are registered (`create_repository`, `propose_model_from_text`, …)
 
-Misslyckas steg 1–2: kontrollera `TWO_C8_BASE_URL`, API-nyckel och att servern kör (`GET /health`).
+If steps 1–2 fail: check `TWO_C8_BASE_URL`, API key, and that the server is running (`GET /health`).
 
-## Namngivning i klienten
+## Naming in the client
 
-Registrera servern under namnet **modelM8** (eller motsvarande display name). Modellerna ligger fortfarande i **2c8** — förväxla inte namnen i instruktioner till agenten.
+Register the server as **modelM8** (or an equivalent display name). Models still live in **2c8** — do not mix up the names in instructions to the agent.
 
-## Klientspecifika bilagor
+## Client-specific notes
 
 - [VS Code + GitHub Copilot](clients/vscode-copilot.md)
 
-Övriga klienter: använd samma HTTP-URL eller stdio-kommando enligt klientens MCP-dokumentation.
+Other clients: use the same HTTP URL or stdio command per the client’s MCP documentation.

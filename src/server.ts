@@ -28,7 +28,7 @@ export function createServer(config: AppConfig): McpServer {
   const client = new TwoC8Client(config.baseUrl, config.apiKey);
   const reader = new ProcessReader(client);
   const documents = new DocumentsService(client);
-  const quality = new QualityService(client, reader);
+  const quality = new QualityService(client, reader, documents);
   const writer =
     config.allowWrites || config.allowDeletes
       ? new ProcessWriter(client, pack, config.writeMode)

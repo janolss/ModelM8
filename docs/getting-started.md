@@ -1,67 +1,67 @@
-# Kom igång med modelM8
+# Getting started with modelM8
 
-modelM8 är en **MCP-server**. Den ger AI-agenter verktyg för att läsa och skapa processmodeller i **2c8 Modeling Tool**.
+modelM8 is an **MCP server**. It gives AI agents tools to read and create process models in **2c8 Modeling Tool**.
 
-- **modelM8** = verktyget (MCP)
-- **2c8** = där modellerna lagras och metodiken gäller
+- **modelM8** = the tool (MCP)
+- **2c8** = where models are stored and methodology applies
 
-## Krav
+## Requirements
 
 - Node.js 26+
-- Tillgång till en 2c8 MT-backend (`…/mt-backend`)
-- API-nyckel (`x-api-key`)
+- Access to a 2c8 MT backend (`…/mt-backend`)
+- API key (`x-api-key`)
 
-## Installera
+## Install
 
 ```bash
-git clone <denna-repo-url>
-cd modelM8   # eller ditt lokala katalognamn
+git clone <this-repo-url>
+cd modelM8   # or your local directory name
 npm install
 cp .env.example .env
 ```
 
-Redigera `.env` — minst:
+Edit `.env` — at minimum:
 
 ```env
-TWO_C8_BASE_URL=https://din-server.example/mt-backend
+TWO_C8_BASE_URL=https://your-server.example/mt-backend
 TWO_C8_API_KEY=...
 TWO_C8_ALLOW_WRITES=true
 TWO_C8_WRITE_MODE=direct
 ```
 
-| Variabel | Betydelse |
+| Variable | Meaning |
 |---|---|
-| `TWO_C8_ALLOW_WRITES` | `true` för att skapa/ändra modeller |
-| `TWO_C8_WRITE_MODE` | `draft` (säkrare) eller `direct` (sandlåda/utveckling) |
-| `TWO_C8_ALLOW_DELETES` | Lämna `false` om du inte absolut behöver `delete_model` |
-| `PORT` / `HOST` | HTTP-lyssning (standard `127.0.0.1:3000`) |
+| `TWO_C8_ALLOW_WRITES` | `true` to create/change models |
+| `TWO_C8_WRITE_MODE` | `draft` (safer) or `direct` (sandbox/dev) |
+| `TWO_C8_ALLOW_DELETES` | Leave `false` unless you truly need `delete_model` |
+| `PORT` / `HOST` | HTTP listen address (default `127.0.0.1:3000`) |
 
-## Bygg och starta
+## Build and start
 
 ```bash
 npm run build
 
-# HTTP (rekommenderas för de flesta MCP-klienter)
+# HTTP (recommended for most MCP clients)
 npm run start:http
 
-# eller stdio (klienten startar processen själv)
+# or stdio (the client starts the process)
 npm start
 ```
 
-Hälsokoll: `GET http://127.0.0.1:3000/health`
+Health check: `GET http://127.0.0.1:3000/health`
 
-## Nästa steg
+## Next steps
 
-1. [Anslut din MCP-klient](connect.md)
-2. [Begrepp](concepts.md) — repo, språk, reuse-first
-3. Välj workflow: [läsa](workflows/consume.md) · [text](workflows/text-to-model.md) · [dokument](workflows/document-to-model.md) · [tal](workflows/speech-to-model.md) · [helt IMS](workflows/ims-from-plan.md)
+1. [Connect your MCP client](connect.md)
+2. [Concepts](concepts.md) — repo, languages, reuse-first
+3. Pick a workflow: [consume](workflows/consume.md) · [text](workflows/text-to-model.md) · [document](workflows/document-to-model.md) · [speech](workflows/speech-to-model.md) · [full IMS](workflows/ims-from-plan.md)
 
-### Docker (valfritt)
+### Docker (optional)
 
-HTTP `/mcp` har **ingen autentisering**. Sätt `HOST=0.0.0.0` endast när du behöver port-mappning, och exponera inte mot otillförlitliga nät.
+HTTP `/mcp` has **no authentication**. Set `HOST=0.0.0.0` only when you need port publishing, and do not expose it on untrusted networks.
 
 ```bash
-docker build -t modelm8 .   # bas: node:26-alpine
+docker build -t modelm8 .   # base: node:26-alpine
 docker run --rm -p 3000:3000 \
   -e HOST=0.0.0.0 \
   -e TWO_C8_BASE_URL=https://host/mt-backend \
