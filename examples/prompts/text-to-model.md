@@ -1,22 +1,22 @@
-# Prompt: text → modell
+# Prompt: text → model
 
 ```
-Använd modelM8 med writes. Målrepo: <repositoryId>. Språk: <languageId>.
+Use modelM8 with writes. Target repo: <repositoryId>. Language: <languageId>.
 
-Processbeskrivning:
+Process description:
 <<<
-<klistra in text: steg, I/O, roller, beslut>
+<paste text: steps, I/O, roles, decisions>
 >>>
 
-1. get_methodology (process, activity→descriptionGuidance, naming, business-objects) vid behov
+1. get_methodology (process, activity→descriptionGuidance, naming, business-objects) as needed
 2. propose_model_from_text
-3. Fixa businessObject namingChecks (inga status-eko-BO)
-4. search_symbols i MÅLREPOT innan apply — återanvänd UUID
-5. apply_model_proposal (draft om inte sandbox)
-6. Kontrollera businessObjectCount > 0
-7. describe_process + review_process_model — åtgärda fel
-8. Vid vägval: resolve_branching_object_type först (objectType or)
-9. Aktivitetsbeskrivningar: update_symbol_description endast om källtext ger syfte/varför/hänsyn —
-   komplettera canvas (inte RACI/dokument/BO). Saknas underlag → lämna tomt.
-10. Rapportera modelId och kvarvarande review-fynd
+3. Fix businessObject namingChecks (no status-echo BOs)
+4. search_symbols in the TARGET REPO before apply — reuse UUIDs
+5. apply_model_proposal (draft unless sandbox)
+6. Check businessObjectCount > 0
+7. describe_process + review_process_model — fix findings
+8. For branching: resolve_branching_object_type first (objectType or)
+9. Activity descriptions: update_symbol_description only if source text gives purpose/why/considerations —
+   complement the canvas (not RACI/documents/BOs). No source → leave empty.
+10. Report modelId and remaining review findings
 ```

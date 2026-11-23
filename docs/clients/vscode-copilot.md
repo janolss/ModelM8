@@ -1,36 +1,36 @@
-# VS Code + GitHub Copilot med modelM8
+# VS Code + GitHub Copilot with modelM8
 
-Denna bilaga visar hur du kopplar modelM8 till **Visual Studio Code** med **GitHub Copilot** (agent / MCP-stöd). Andra klienter: se [connect.md](../connect.md).
+This note shows how to connect modelM8 to **Visual Studio Code** with **GitHub Copilot** (agent / MCP support). Other clients: see [connect.md](../connect.md).
 
-## Förutsättningar
+## Prerequisites
 
-- modelM8 körs (rekommenderat: `npm run start:http`)
-- VS Code med GitHub Copilot och MCP-stöd aktiverat enligt Microsofts aktuella dokumentation
-- `.env` ifylld (`TWO_C8_*`, writes om du ska skapa modeller)
+- modelM8 running (recommended: `npm run start:http`)
+- VS Code with GitHub Copilot and MCP support enabled per Microsoft’s current docs
+- `.env` filled in (`TWO_C8_*`, writes if you will create models)
 
-## HTTP-anslutning (rekommenderas)
+## HTTP connection (recommended)
 
-1. Starta modelM8: `npm run start:http`  
-2. I VS Code / Copilot: lägg till en MCP-server som pekar på  
+1. Start modelM8: `npm run start:http`  
+2. In VS Code / Copilot: add an MCP server pointing at  
    `http://127.0.0.1:3000/mcp`  
-   (byt port om du ändrat `PORT`)  
-3. Namnge servern **modelM8**  
-4. Verifiera med checklistan i [connect.md](../connect.md)
+   (change port if you changed `PORT`)  
+3. Name the server **modelM8**  
+4. Verify with the checklist in [connect.md](../connect.md)
 
-Exakt menyväg och JSON-format kan ändras mellan Copilot-/VS Code-versioner — följ den inbyggda hjälpen för “MCP servers” och använd URL:en ovan.
+Exact menu paths and JSON shape can change between Copilot/VS Code versions — follow the built-in help for “MCP servers” and use the URL above.
 
-## stdio (alternativ)
+## stdio (alternative)
 
-Om klienten startar processen själv, peka på:
+If the client starts the process itself, point at:
 
 ```text
-node /absolut/sökväg/till/modelM8/dist/index.js
+node /absolute/path/to/modelM8/dist/index.js
 ```
 
-Sätt miljövariabler (`TWO_C8_BASE_URL`, `TWO_C8_API_KEY`, …) i klientens MCP-konfiguration eller via `.env` som processen läser vid start.
+Set environment variables (`TWO_C8_BASE_URL`, `TWO_C8_API_KEY`, …) in the client’s MCP config or via `.env` that the process loads at start.
 
 ## Tips
 
-- Börja med **läsverktyg** innan `TWO_C8_ALLOW_WRITES=true` i produktion.
-- För sandlåda: `TWO_C8_WRITE_MODE=direct`.
-- Agentprompts: [examples/prompts/](../../examples/prompts/).
+- Start with **read tools** before enabling `TWO_C8_ALLOW_WRITES=true` in production.
+- For sandboxes: `TWO_C8_WRITE_MODE=direct`.
+- Agent prompts: [examples/prompts/](../../examples/prompts/).

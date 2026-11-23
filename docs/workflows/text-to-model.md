@@ -1,46 +1,46 @@
 # Text-to-model
 
-## När
+## When
 
-Du har en processbeskrivning i text och vill skapa en detaljmodell i 2c8.
+You have a process description in text and want a detail model in 2c8.
 
-## Förutsättningar
+## Prerequisites
 
-- Writes på (`TWO_C8_ALLOW_WRITES=true`)
+- Writes on (`TWO_C8_ALLOW_WRITES=true`)
 - `repositoryId` + `languageId` (`list_languages`)
-- Metodik: infinitiv + substantiv; BO = värde/artefakt (inte status-eko)
+- Methodology: infinitive + noun; BO = value/artefact (not a status echo)
 
-## Agentprompt
+## Agent prompt
 
 [examples/prompts/text-to-model.md](../../examples/prompts/text-to-model.md)  
-MCP-prompt: `text_to_process_model`
+MCP prompt: `text_to_process_model`
 
-## Steg
+## Steps
 
-1. `get_methodology` — `process`, `activity` (läs `descriptionGuidance`), `naming`, `business-objects`, `reuse-first`
-2. `propose_model_from_text` (gärna **prefixad** text: `Process:`, `Aktivitet:`, `Vägval:`, `Ja:`/`Nej:`)
-3. Fixa `namingChecks` för verksamhetsobjekt
-4. Val/vägval: `resolve_branching_object_type` → `or` (aldrig gateway/join)
-5. `search_symbols` i målrepot — återanvänd UUID
-6. `apply_model_proposal` — kräv `businessObjectCount > 0`
+1. `get_methodology` — `process`, `activity` (read `descriptionGuidance`), `naming`, `business-objects`, `reuse-first`
+2. `propose_model_from_text` (prefer **prefixed** text: `Process:`, `Activity:`, `Decision:`, `Yes:`/`No:`)
+3. Fix `namingChecks` for business objects
+4. Branching: `resolve_branching_object_type` → `or` (never gateway/join)
+5. `search_symbols` in the target repo — reuse UUIDs
+6. `apply_model_proposal` — require `businessObjectCount > 0`
 7. `describe_process`
-8. Luckor: `set_activity_performer`, `set_step_io`, `create_canvas_edge` (Ja/Nej)
-9. **`review_process_model`** → åtgärda → om tills OK
-10. Aktivitetsbeskrivningar: `update_symbol_description` **endast** där källtext ger syfte/varför/hänsyn — komplettera canvas (inte RACI/dokument/BO). Saknas underlag → lämna tomt. Se `activity.descriptionGuidance`.
-11. Översättning: `update_titles` (sätter `translated: true`) för sekundärspråk
-12. Om modell har förälder: `link_breakdown` **direkt**
+8. Gaps: `set_activity_performer`, `set_step_io`, `create_canvas_edge` (Yes/No)
+9. **`review_process_model`** → fix → repeat until OK
+10. Activity descriptions: `update_symbol_description` **only** where source text gives purpose/why/considerations — complement the canvas (not RACI/documents/BOs). No source → leave empty. See `activity.descriptionGuidance`.
+11. Translation: `update_titles` (sets `translated: true`) for the secondary language
+12. If the model has a parent: `link_breakdown` **immediately**
 
 ## Definition of done
 
-- Review utan fel (eller loggat undantag)
-- Varje aktivitet har in, ut och ansvarig
-- Vägval är `or` med Ja/Nej
-- Aktivitetsbeskrivningar källbaserade (eller avsiktligt tomma)
+- Review without errors (or a logged exception)
+- Every activity has input, output, and responsible
+- Branching is `or` with Yes/No
+- Activity descriptions are source-based (or intentionally empty)
 
-## Vanliga fel
+## Common mistakes
 
-| Symptom | Åtgärd |
+| Symptom | Action |
 |---|---|
-| `businessObjectCount = 0` | Kedjan måste växla BO ↔ aktivitet |
-| Glob kvar på EN | `confirm_translations` eller `update_titles` med rätt flagga |
-| Join/gateway | Använd `or` |
+| `businessObjectCount = 0` | Chain must alternate BO ↔ activity |
+| Globe still on for EN | `confirm_translations` or `update_titles` with the right flag |
+| Join/gateway | Use `or` |

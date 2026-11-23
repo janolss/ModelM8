@@ -1,24 +1,26 @@
 # modelM8
 
-MCP-server för AI-agenter som **läser** och **skapar/redigerar** processmodeller i [2c8 Modeling Tool](https://www.2c8.com).
+[![CI](https://github.com/janolss/modelM8/actions/workflows/ci.yml/badge.svg)](https://github.com/janolss/modelM8/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/janolss/modelM8)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/janolss/modelM8)](https://github.com/janolss/modelM8/releases)
 
-- **modelM8** = MCP-verktyget  
-- **2c8** = Modeling Tool (repon, modeller, metodik)
+MCP server for AI agents that **read** and **create/edit** process models in [2c8 Modeling Tool](https://www.2c8.com).
 
-## Användardokumentation
+- **modelM8** = the MCP tool  
+- **2c8** = Modeling Tool (repositories, models, methodology)
 
-Börja här: **[docs/README.md](docs/README.md)**
+Documentation: **[docs/README.md](docs/README.md)**
 
-| Steg | Länk |
+| Step | Link |
 |---|---|
-| Installera | [docs/getting-started.md](docs/getting-started.md) |
-| Anslut klient | [docs/connect.md](docs/connect.md) |
+| Install | [docs/getting-started.md](docs/getting-started.md) |
+| Connect a client | [docs/connect.md](docs/connect.md) |
 | VS Code + Copilot | [docs/clients/vscode-copilot.md](docs/clients/vscode-copilot.md) |
 | Workflows | [docs/workflows/](docs/workflows/) |
-| IMS-planmall | [templates/Create-2c8-IMS-Plan-Template.md](templates/Create-2c8-IMS-Plan-Template.md) |
-| Exempelprompts | [examples/prompts/](examples/prompts/) |
+| IMS plan template | [templates/Create-2c8-IMS-Plan-Template.md](templates/Create-2c8-IMS-Plan-Template.md) |
+| Example prompts | [examples/prompts/](examples/prompts/) |
 
-## Snabbstart (utvecklare)
+## Quick start (developers)
 
 ```bash
 npm install
@@ -27,11 +29,11 @@ npm run build
 npm run start:http     # http://127.0.0.1:3000/mcp
 ```
 
-| Variabel | Default | Beskrivning |
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `TWO_C8_BASE_URL` | *(krävs)* | MT-backend |
-| `TWO_C8_API_KEY` | *(krävs)* | `x-api-key` |
-| `TWO_C8_ALLOW_WRITES` | `false` | Skrivverktyg |
+| `TWO_C8_BASE_URL` | *(required)* | MT backend |
+| `TWO_C8_API_KEY` | *(required)* | `x-api-key` |
+| `TWO_C8_ALLOW_WRITES` | `false` | Write tools |
 | `TWO_C8_ALLOW_DELETES` | `false` | `delete_model` |
 | `TWO_C8_WRITE_MODE` | `draft` | `draft` \| `direct` |
 | `MCP_TRANSPORT` | `stdio` | `stdio` \| `http` |
@@ -46,9 +48,9 @@ Health: `GET /health`
 
 ### Docker
 
-Basimage: `node:26-alpine`. CI bygger och pushar till GHCR vid tag `v*` (t.ex. `v1.2.0`).
+Base image: `node:26-alpine`. CI builds and pushes to GHCR on `v*` tags (e.g. `v1.2.0`).
 
-HTTP `/mcp` har **ingen autentisering**. Image defaultar till `HOST=127.0.0.1`; för port-mappning måste du sätta `HOST=0.0.0.0` medvetet — exponera inte mot otillförlitliga nät.
+HTTP `/mcp` has **no authentication**. The image defaults to `HOST=127.0.0.1`; for port publishing you must set `HOST=0.0.0.0` deliberately — do not expose it on untrusted networks.
 
 ```bash
 docker build -t modelm8 .
@@ -60,36 +62,40 @@ docker run --rm -p 3000:3000 \
   modelm8
 ```
 
-GHCR (efter tag-push):
+GHCR (after a tag push):
 
 ```bash
 docker pull ghcr.io/<owner>/modelm8:1.2.0
 ```
 
-## Funktioner
+## Features
 
 - TypeScript MCP (`@modelcontextprotocol/sdk`), HTTP + stdio  
 - Domain tools (consume, propose/apply, quality gates) + analysis  
 - Resources `methodology://…`, prompts, server instructions  
-- Writes bakom `TWO_C8_ALLOW_WRITES`; deletes bakom `TWO_C8_ALLOW_DELETES`
+- Writes gated by `TWO_C8_ALLOW_WRITES`; deletes by `TWO_C8_ALLOW_DELETES`
 
-## Utveckling
+## Development
 
 ```bash
 npm run dev:http
 npm run typecheck
 npm run lint            # Biome
 npm run test            # Vitest
-npm run ci              # typecheck + lint + test (samma som PR-CI)
+npm run ci              # typecheck + lint + test (same as PR CI)
 ```
 
-API-täckning: [docs/dev/API-GAP-ANALYSIS.md](docs/dev/API-GAP-ANALYSIS.md)  
-Felkoder: [docs/dev/mcp-errors.md](docs/dev/mcp-errors.md)
+API coverage: [docs/dev/API-GAP-ANALYSIS.md](docs/dev/API-GAP-ANALYSIS.md)  
+MCP error notes: [docs/dev/mcp-errors.md](docs/dev/mcp-errors.md)  
+Changelog: [CHANGELOG.md](CHANGELOG.md)
 
-Kräver Node.js 26+. PR/push till `main` kör `.github/workflows/ci.yml`.
+Requires Node.js 26+. Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
-## Licens
+PRs / pushes to `main` run `.github/workflows/ci.yml`.
 
-Licensierad under [Apache License 2.0](LICENSE).
+## License
 
-Namnet **modelM8** och tillhörande branding får inte användas utan tillstånd (se Apache 2.0 §6 Trademarks).
+Licensed under the [Apache License 2.0](LICENSE).  
+Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+The name **modelM8** and related branding may not be used without permission (see Apache 2.0 §6 Trademarks).

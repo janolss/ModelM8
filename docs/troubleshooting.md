@@ -1,48 +1,48 @@
-# Felsökning
+# Troubleshooting
 
-## Anslutning
+## Connection
 
-| Symptom | Åtgärd |
+| Symptom | Action |
 |---|---|
-| Inga verktyg / auth-fel | Starta om modelM8; återanslut MCP-klienten |
-| `list_repositories` failar | Kontrollera `TWO_C8_BASE_URL`, API-nyckel, nätverk |
-| Skrivverktyg saknas | `TWO_C8_ALLOW_WRITES=true` och starta om |
+| No tools / auth errors | Restart modelM8; reconnect the MCP client |
+| `list_repositories` fails | Check `TWO_C8_BASE_URL`, API key, network |
+| Write tools missing | `TWO_C8_ALLOW_WRITES=true` and restart |
 
-## Tom HTTP 200
+## Empty HTTP 200
 
-Många PATCH returnerar tom body. modelM8 tolkar det som `{ ok: true }`. Det är **inte** ett fel.
+Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`. That is **not** an error.
 
-## Dokument
+## Documents
 
-| Fel | Åtgärd |
+| Error | Action |
 |---|---|
-| `Document type must be provided` | Fältet `type`: `"URL"` eller `"file"` (inte samma sak som `documentTypes`) |
-| 400 vid länk | Använd `{ id, source: "mt.documents" }` — inte rena UUID-strängar |
-| Inga dokumenttyper i nytt repo | `create_document_type` efter `list_document_types` |
-| `Key cannot be null or empty` (document-roots) | `create_document_root` kräver `key` + `value` (+ titles) |
-| Absolut URL upprepas på många docs | Föreslå/skapa dokumentrot; använd `prefix` + relativ path |
+| `Document type must be provided` | Field `type`: `"URL"` or `"file"` (not the same as `documentTypes`) |
+| 400 on link | Use `{ id, source: "mt.documents" }` — not bare UUID strings |
+| No document types in a new repo | `create_document_type` after `list_document_types` |
+| `Key cannot be null or empty` (document-roots) | `create_document_root` requires `key` + `value` (+ titles) |
+| Absolute URL repeated on many docs | Propose/create a document root; use `prefix` + relative path |
 
-## Översättningar / globber i 2c8 UI
+## Translations / globes in the 2c8 UI
 
-- `translated: true` = bekräftad (glob av)  
-- `translated: false` = ej översatt (glob på)  
-- Symboltitlar: `update_titles` / `confirm_translations`  
-- **Edge-labels** (Ja/Nej): ingår i `confirm_translations` (inte i enbart symbol-PATCH)
+- `translated: true` = confirmed (globe off)  
+- `translated: false` = not translated (globe on)  
+- Symbol titles: `update_titles` / `confirm_translations`  
+- **Edge labels** (Yes/No): included in `confirm_translations` (not in symbol-only PATCH)
 
-## Nedbrytningar
+## Breakdowns
 
-- Länkar lagras på **detalj** (`broken-down-from`)  
-- `get_breakdowns(översikt)` ofta tom/404 → `get_navigation_tree`
+- Links are stored on the **detail** (`broken-down-from`)  
+- `get_breakdowns(overview)` often empty/404 → `get_navigation_tree`
 
-## Modellering
+## Modelling
 
-| Fel | Åtgärd |
+| Error | Action |
 |---|---|
-| gateway / join | `resolve_branching_object_type` → `or`; aldrig Join |
-| `businessObjectCount = 0` | Alternera BO ↔ aktivitet i kedjan |
-| 400 efter flytt av symboler | `move_canvas_vertices` reorthogonaliserar edges som default |
+| gateway / join | `resolve_branching_object_type` → `or`; never Join |
+| `businessObjectCount = 0` | Alternate BO ↔ activity in the chain |
+| 400 after moving symbols | `move_canvas_vertices` reorthogonalizes edges by default |
 
-## Utvecklardocs
+## Developer docs
 
 - [API-GAP-ANALYSIS.md](dev/API-GAP-ANALYSIS.md)  
 - [mcp-errors.md](dev/mcp-errors.md)

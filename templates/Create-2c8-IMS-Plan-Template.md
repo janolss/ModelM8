@@ -1,15 +1,15 @@
-# Mall — skapa visuellt ledningssystem i 2c8 från dokument
+# Template — create a visual management system in 2c8 from documents
 
-> **Läsare:** AI-agent med MCP-servern **modelM8**, filsystem och shell.  
-> **Namn:** **modelM8** = MCP-verktyget du anropar. **2c8** = Modeling Tool, repon, modeller och metodik (oförändrat). Säg aldrig att modellerna “ligger i modelM8”.  
-> **Ursprung:** Genererad från `TechSeed-IMS/Create-2c8-IMS.md` + lessons learned (`TechSeed-IMS/_2c8-work/SLUTRAPPORT.md`, 2026-11-22) och modelM8 v1.2+ kvalitet-/skrivverktyg.  
-> **Så använder du mallen:** Kopiera till projektmappen (t.ex. `<ORG>-IMS/Create-2c8-IMS.md`), fyll i alla `{{PLACEHOLDERS}}`, ta bort avsnitt som inte gäller, och låt agenten köra planen.
+> **Reader:** AI agent with MCP server **modelM8**, filesystem and shell.  
+> **Names:** **modelM8** = the MCP tool you call. **2c8** = Modeling Tool, repos, models and methodology (unchanged). Never say that the models “live in modelM8”.  
+> **Origin:** Generated from `TechSeed-IMS/Create-2c8-IMS.md` + lessons learned (`TechSeed-IMS/_2c8-work/SLUTRAPPORT.md`, 2026-11-22) and modelM8 v1.2+ quality/write tools.  
+> **How to use this template:** Copy to the project folder (e.g. `<ORG>-IMS/Create-2c8-IMS.md`), fill in all `{{PLACEHOLDERS}}`, remove sections that do not apply, and let the agent run the plan.
 
 ---
 
-## 0. Placeholders (fyll i innan körning)
+## 0. Placeholders (fill in before running)
 
-| Nyckel | Exempel | Värde i detta projekt |
+| Key | Example | Value in this project |
 |---|---|---|
 | `{{ORG_NAME}}` | TechSeed | |
 | `{{REPO_NAME}}` | TechSeed IMS | |
@@ -17,354 +17,354 @@
 | `{{WORK_DIR}}` | `TechSeed-IMS/_2c8-work/` | |
 | `{{PROCESS_REGISTER}}` | REG-IMS-002 Process Register | |
 | `{{GOVERNANCE_DOC}}` | DIR-IMS Governance & Oversight | |
-| `{{PRIMARY_LOCALE}}` | `sv_SE` / Svenska | |
-| `{{SECONDARY_LOCALE}}` | `en_GB` / English | |
-| `{{PILOT_AREA}}` | Sälja / Sales | |
-| `{{DOC_BASE_URL}}` | SharePoint-bas (eller tom) | |
+| `{{PRIMARY_LOCALE}}` | `en_GB` / English | |
+| `{{SECONDARY_LOCALE}}` | `sv_SE` / Swedish | |
+| `{{PILOT_AREA}}` | Sales | |
+| `{{DOC_BASE_URL}}` | SharePoint base (or empty) | |
 | `{{STANDARDS}}` | ISO 9001, 14001, (27001) | |
 
 ---
 
-## 1. Uppdrag
+## 1. Mission
 
-Omvandla `{{ORG_NAME}}`s dokumentbaserade ledningssystem (`{{STANDARDS}}`) till ett **visuellt ledningssystem i 2c8 Modeling Tool**.
+Transform `{{ORG_NAME}}`'s document-based management system (`{{STANDARDS}}`) into a **visual management system in 2c8 Modeling Tool**.
 
-Navigering uppifrån och ned:
+Top-down navigation:
 
-1. **L0** huvudprocesskarta (ledning / kärna / stöd),
-2. **L1** översiktskarta per område (≥2 detaljer),
-3. **L2** detaljprocesser (aktiviteter, RACI, BO in/ut, IT, stegspecifika dokument),
-4. **L3** vid behov (t.ex. utvecklingsfaser).
+1. **L0** main process map (management / core / support),
+2. **L1** overview map per area (≥2 details),
+3. **L2** detail processes (activities, RACI, BO in/out, IT, step-specific documents),
+4. **L3** when needed (e.g. development phases).
 
-**Klart när:**
+**Done when:**
 
-- Repot `{{REPO_NAME}}` finns och innehåller strukturen.
-- Varje process i `{{PROCESS_REGISTER}}` har modell och nås från L0 via nedbrytningar (`get_navigation_tree` utan oväntade `missingUpwardLinks`).
-- Varje modell: `review_process_model` OK eller loggat undantag.
-- Spårbarhet källa ↔ modell komplett; inget påhittat utan `ANTAGANDE` i `GAPS.md`.
-- Handoff-kontrakt verifierat med `verify_handoffs` (samma BO-UUID).
-- Översättningar: `list_untranslated_symbols` för sekundärspråket är tomt (eller undantag loggat).
-- `verify_process_coverage` mot processregistret: `allPass`.
+- The repo `{{REPO_NAME}}` exists and contains the structure.
+- Every process in `{{PROCESS_REGISTER}}` has a model and is reachable from L0 via breakdowns (`get_navigation_tree` without unexpected `missingUpwardLinks`).
+- Every model: `review_process_model` OK or a logged exception.
+- Traceability source ↔ model complete; nothing invented without `ASSUMPTION` in `GAPS.md`.
+- Handoff contract verified with `verify_handoffs` (same BO UUID).
+- Translations: `list_untranslated_symbols` for the secondary language is empty (or exception logged).
+- `verify_process_coverage` against the process register: `allPass`.
 
 ---
 
-## 2. Parametrar — bekräfta före första skrivning
+## 2. Parameters — confirm before first write
 
-| Parameter | Standard | Kommentar |
+| Parameter | Default | Comment |
 |---|---|---|
-| `TARGET_REPO` | Nytt repo **`{{REPO_NAME}}`** | Skapas i fas 2. Skriv aldrig till andra repon. |
-| `PRIMARY_LANGUAGE` | `{{PRIMARY_LOCALE}}` (repo-default) | Process-/aktivitets-/BO-titlar. |
-| `SECONDARY_LANGUAGE` | `{{SECONDARY_LOCALE}}` | Översätt **i samma batch** som primär när symbol skapas (inte sparad till slut). |
-| `ROLE_AND_SYSTEM_NAMES` | Behåll källans namn | Om källan är på annat språk än process-titlar. |
-| `UNREGISTERED_PRACTICES` | Modellera + logga i GAPS | Practices utan rad i processregistret. |
-| `SCOPE_OPTIONAL_AREAS` | Chevron + dokument | Områden utan certifiering / ofärdigt material. |
-| `DOC_BASE_URL` | `{{DOC_BASE_URL}}` | Gemensam bas för dokumentlänkar → `create_document_root`. Tom = absoluta/lokala länkar utan rot (eller föreslå rot från inventerad mapp). |
-| `PILOT_AREA` | `{{PILOT_AREA}}` | Första vertikala snittet. |
-| `STOP_AFTER_PILOT` | Ja | Stanna efter G3 / klient-OK. |
+| `TARGET_REPO` | New repo **`{{REPO_NAME}}`** | Created in phase 2. Never write to other repos. |
+| `PRIMARY_LANGUAGE` | `{{PRIMARY_LOCALE}}` (repo default) | Process/activity/BO titles. |
+| `SECONDARY_LANGUAGE` | `{{SECONDARY_LOCALE}}` | Translate **in the same batch** as primary when the symbol is created (do not save for the end). |
+| `ROLE_AND_SYSTEM_NAMES` | Keep source names | If the source is in a different language than process titles. |
+| `UNREGISTERED_PRACTICES` | Model + log in GAPS | Practices without a row in the process register. |
+| `SCOPE_OPTIONAL_AREAS` | Chevron + document | Areas without certification / unfinished material. |
+| `DOC_BASE_URL` | `{{DOC_BASE_URL}}` | Shared base for document links → `create_document_root`. Empty = absolute/local links without a root (or propose a root from an inventoried folder). |
+| `PILOT_AREA` | `{{PILOT_AREA}}` | First vertical slice. |
+| `STOP_AFTER_PILOT` | Yes | Stop after G3 / client OK. |
 | `WORK_DIR` | `{{WORK_DIR}}` | STATE, GAPS, cards, extract, … |
 
-Saknas bekräftelse: **en** samlad fråga. Språk måste vara klara innan `create_repository`.
+If confirmation is missing: **one** consolidated question. Languages must be settled before `create_repository`.
 
 ---
 
-## 3. Regler som alltid gäller
+## 3. Rules that always apply
 
-1. **modelM8**-serverns **instructions** har företräde framför denna plan.
-2. **Källtrohet** — hitta inte på; antaganden → `GAPS.md` typ `ANTAGANDE`.
-3. **Reuse-first** endast inom målrepot. Aldrig kopiera UUID mellan repon.
-4. Ändra aldrig källdokumenten.
-5. Inga dubbletter — `find_models` / `search_symbols` före skapande. Misslyckad modell: reparera eller `ZZ_UTGÅR – …` (radering kräver `TWO_C8_ALLOW_DELETES`).
-6. Ingen modell klar utan `review_process_model`.
-7. **Handoff = samma UUID**, aldrig “liknande titel”.
-8. **Vägval ritar valet; aktiviteten gör arbetet.** Mönster: `aktivitet → BO → or → nästa aktivitet`. Aldrig Join/gateway. Anropa `resolve_branching_object_type`.
-9. Processövergripande dokument på **processymbolen**, inte fan-out på varje aktivitet.
-10. `link_breakdown` **direkt** efter varje icke-rot-modell — vänta inte till slutkontroll.
-11. Stanna och fråga vid: obekräftade parametrar, klar pilot, strukturpåverkande motsägelse, samma verktygsfel ×3, destruktiv åtgärd.
-12. Uppdatera `STATE.md` när **området stängs**, inte bara i fas 7.
+1. The **modelM8** server **instructions** take precedence over this plan.
+2. **Source fidelity** — do not invent; assumptions → `GAPS.md` type `ASSUMPTION`.
+3. **Reuse-first** only within the target repo. Never copy UUIDs across repos.
+4. Never change the source documents.
+5. No duplicates — `find_models` / `search_symbols` before creating. Failed model: repair or `ZZ_UTGÅR – …` (deletion requires `TWO_C8_ALLOW_DELETES`).
+6. No model is done without `review_process_model`.
+7. **Handoff = same UUID**, never “similar title”.
+8. **Vägval draws the choice; the activity does the work.** Pattern: `activity → BO → or → next activity`. Never Join/gateway. Call `resolve_branching_object_type`.
+9. Process-wide documents on the **process symbol**, not fan-out onto every activity.
+10. `link_breakdown` **immediately** after every non-root model — do not wait for final checks.
+11. Stop and ask on: unconfirmed parameters, completed pilot, structure-affecting contradiction, same tool error ×3, destructive action.
+12. Update `STATE.md` when an **area is closed**, not only in phase 7.
 
 ---
 
-## 4. Miljö och verktyg (modelM8 ≥ 1.2)
+## 4. Environment and tools (modelM8 ≥ 1.2)
 
-Alla verktygsnamn nedan anropas via MCP-servern **modelM8**. Resultatet skrivs till / läses från **2c8**.
+All tool names below are invoked via the MCP server **modelM8**. Results are written to / read from **2c8**.
 
-### 4.1 Verifiera vid start
+### 4.1 Verify at start
 
-Bekräfta att modelM8 är ansluten. Kör `list_repositories`, `get_api_versions`; kontrollera skrivläge (`direct`/`draft`), att `create_repository` finns, att `delete_model` saknas om deletes är av.
+Confirm that modelM8 is connected. Run `list_repositories`, `get_api_versions`; check write mode (`direct`/`draft`), that `create_repository` exists, that `delete_model` is absent if deletes are off.
 
-### 4.2 Verktygskarta (urval)
+### 4.2 Tool map (selection)
 
-| Syfte | Verktyg |
+| Purpose | Tools |
 |---|---|
-| Orientering | `list_repositories`, `list_languages`, `list_description_types`, `list_document_types`, `list_allowed_types` (högst 1×) |
-| Metodik | `get_methodology`, `resolve_branching_object_type`, `validate_against_methodology` |
-| Konsumera | `find_models`, `describe_process`, `describe_process_map`, `get_detail_process_scope`, `search_symbols`, `find_symbol_usage`, `describe_role` |
-| Föreslå/skriv | `propose_model_from_text`, `apply_model_proposal`, `create_process_model`, `create_process_map`, `add_process_step`, `reuse_symbol`, `set_activity_performer`, `set_step_io`, `link_breakdown`, `link_document`, `create_document_type`, `create_document_root`, `update_titles`, `update_model_description`, `update_symbol_description` |
-| Rätta layout | `delete_canvas_edge`, `move_canvas_vertices` (auto-reortho), `update_canvas_edges`, `delete_canvas_vertex`, `retarget_vertex_symbol` |
-| Kvalitet (v1.2+) | `review_process_model`, `list_untranslated_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage` |
+| Orientation | `list_repositories`, `list_languages`, `list_description_types`, `list_document_types`, `list_allowed_types` (at most 1×) |
+| Methodology | `get_methodology`, `resolve_branching_object_type`, `validate_against_methodology` |
+| Consume | `find_models`, `describe_process`, `describe_process_map`, `get_detail_process_scope`, `search_symbols`, `find_symbol_usage`, `describe_role` |
+| Propose/write | `propose_model_from_text`, `apply_model_proposal`, `create_process_model`, `create_process_map`, `add_process_step`, `reuse_symbol`, `set_activity_performer`, `set_step_io`, `link_breakdown`, `link_document`, `create_document_type`, `create_document_root`, `update_titles`, `update_model_description`, `update_symbol_description` |
+| Fix layout | `delete_canvas_edge`, `move_canvas_vertices` (auto-reortho), `update_canvas_edges`, `delete_canvas_vertex`, `retarget_vertex_symbol` |
+| Quality (v1.2+) | `review_process_model`, `list_untranslated_symbols`, `verify_handoffs`, `get_navigation_tree`, `verify_process_coverage` |
 
-### 4.3 Kända begränsningar
+### 4.3 Known limitations
 
-| # | Begränsning | Hantering |
+| # | Limitation | Handling |
 |---|---|---|
-| 1 | `review_process_model` antar en horisontell ryggrad | L0 tre band / parallelTracks → godkända undantag (10.3) |
-| 2 | `create_process_map` bygger linjära/parallella kedjor, inte fri flerradig karta | Första områdesöversikten **manuell mall**; auto-map bara när scope delar UUID |
-| 3 | Nedbrytningar ligger på **detalj** (`broken-down-from`); overview ger ofta tom/404 | Använd `get_navigation_tree`, inte `get_breakdowns(L0)` |
-| 4 | Nytt repo kan sakna beskrivnings-/dokumenttyper tills klient öppnats | Smoke-test i fas 2; `create_document_type` vid behov |
-| 5 | MT-dokument kräver `type: URL\|file` + länk via `{id, source:"mt.documents"}` | Se `link_document`; testa på en dummy före masslänk |
-| 6 | Tom HTTP 200 på PATCH = OK (`{ok:true}`) | Tolka inte som fel |
-| 7 | Join nämns ibland i äldre metodiktext | Följ `resolve_branching_object_type` / policy: aldrig Join |
-| 8 | EMF/Visio-bilder i källa svåra att Q2:a | Kräv PNG/SVG i extrakt eller konvertera i fas 0 |
+| 1 | `review_process_model` assumes a horizontal spine | L0 three bands / parallelTracks → approved exceptions (10.3) |
+| 2 | `create_process_map` builds linear/parallel chains, not a free multi-row map | First area overview **manual template**; auto-map only when scopes share UUIDs |
+| 3 | Breakdowns live on the **detail** (`broken-down-from`); overview often returns empty/404 | Use `get_navigation_tree`, not `get_breakdowns(L0)` |
+| 4 | New repo may lack description/document types until the client has been opened | Smoke test in phase 2; `create_document_type` as needed |
+| 5 | MT documents require `type: URL\|file` + link via `{id, source:"mt.documents"}` | See `link_document`; test on a dummy before mass linking |
+| 6 | Empty HTTP 200 on PATCH = OK (`{ok:true}`) | Do not interpret as an error |
+| 7 | Join is sometimes mentioned in older methodology text | Follow `resolve_branching_object_type` / policy: never Join |
+| 8 | EMF/Visio images in source are hard to Q2 | Require PNG/SVG in extract or convert in phase 0 |
 
-Logga modelM8-/API-avvikelser i `WORK_DIR/MCP-FEEDBACK.md`.
+Log modelM8/API deviations in `WORK_DIR/MCP-FEEDBACK.md`.
 
 ---
 
-## 5. Källmaterial
+## 5. Source material
 
-### 5.1 Inventera
+### 5.1 Inventory
 
-Mappa `{{SOURCE_DIR}}`: dokumenthierarki (policy → direktiv → practice → register → record), ID-format, språk, arkiv vs aktivt.
+Map `{{SOURCE_DIR}}`: document hierarchy (policy → directive → practice → register → record), ID format, language, archive vs active.
 
-### 5.2 Processregister
+### 5.2 Process register
 
-Tabell från `{{PROCESS_REGISTER}}`: kod, titel, kategori (ledning/kärna/stöd), ägare, styrande practice. Detta blir `expected[]` till `verify_process_coverage`.
+Table from `{{PROCESS_REGISTER}}`: code, title, category (management/core/support), owner, governing practice. This becomes `expected[]` for `verify_process_coverage`.
 
-### 5.3 Styrande dokument
+### 5.3 Governing documents
 
-Lista policyer/direktiv/practices som ska bli MT-dokument och kopplas till processymboler.
+List policies/directives/practices that should become MT documents and be linked to process symbols.
 
 ### 5.4 Gaps
 
-Starta `GAPS.md` med ID-motsägelser, saknade filer, oregistrerade practices, scope-konflikter. Rätta **inte** källan.
+Start `GAPS.md` with ID contradictions, missing files, unregistered practices, scope conflicts. Do **not** fix the source.
 
 ---
 
-## 6. Målstruktur
+## 6. Target structure
 
-### 6.1 Nivåer
+### 6.1 Levels
 
 ```mermaid
 flowchart TB
-  L0["L0 Huvudprocesskarta: {{ORG_NAME}}"]
-  L0 --> MG["Ledning"]
-  L0 --> CO["Kärna"]
-  L0 --> SU["Stöd"]
-  CO --> L1["L1 Översikter"]
+  L0["L0 Main process map: {{ORG_NAME}}"]
+  L0 --> MG["Management"]
+  L0 --> CO["Core"]
+  L0 --> SU["Support"]
+  CO --> L1["L1 Overviews"]
   SU --> L1
-  L1 --> L2["L2 Detaljprocesser"]
-  L2 --> L3["L3 Delprocesser vid behov"]
+  L1 --> L2["L2 Detail processes"]
+  L2 --> L3["L3 Subprocesses when needed"]
   MG --> L2
 ```
 
-- Område med **en** detalj: ingen L1 — L0 bryts ned direkt.
-- Navigering = `link_breakdown` (samma processymbol-UUID på övre karta).
+- Area with **one** detail: no L1 — L0 breaks down directly.
+- Navigation = `link_breakdown` (same process symbol UUID on the upper map).
 
-### 6.2 L0-utformning
+### 6.2 L0 design
 
-- Kärnband (mitt): BO → process → BO … med **samma** UUID som detaljernas primary I/O.
-- Ledning (ovan) och stöd (nedan): chevroner utan FLOW = godkänt L0-undantag för `process-missing-input-bo`.
-- Bygg L0 manuellt (`create_process_model` + `reuse_symbol` / `add_process_step` + `set_step_io` + `link_breakdown`). Alternativ: tidig stub + länka om i fas 5.
+- Core band (middle): BO → process → BO … with the **same** UUIDs as the details' primary I/O.
+- Management (above) and support (below): chevrons without FLOW = approved L0 exception for `process-missing-input-bo`.
+- Build L0 manually (`create_process_model` + `reuse_symbol` / `add_process_step` + `set_step_io` + `link_breakdown`). Alternative: early stub + re-link in phase 5.
 
-### 6.3 Modellinventarium
+### 6.3 Model inventory
 
-Fyll tabell: `ID | Nivå | Titel | Källdokument/avsnitt`. Riktvärde 4–9 aktiviteter per detalj.
+Fill table: `ID | Level | Title | Source document/section`. Guideline 4–9 activities per detail.
 
-### 6.4 Handoff-kontrakt (skapa **före** text-to-model)
+### 6.4 Handoff contract (create **before** text-to-model)
 
-| Överlämning | Kanonisk BO-titel | Producent-modell | Konsument-modell | symbolId (fylls i fas 1b) |
+| Handoff | Canonical BO title | Producer model | Consumer model | symbolId (filled in phase 1b) |
 |---|---|---|---|---|
 | … | … | … | … | |
 
-Skapa/återanvänd UUID innan detaljkorten låses. Verifiera senare med `verify_handoffs`.
+Create/reuse UUID before detail cards are locked. Verify later with `verify_handoffs`.
 
 ---
 
-## 7. Modelleringskonventioner
+## 7. Modelling conventions
 
-- **Namn:** infinitiv + substantiv (process/aktivitet). BO = värde/artefakt, inte status-eko av aktiviteten.
-- **Performer:** `RACI_RESPONSIBLE` per aktivitet (`set_activity_performer`). Roll under varje aktivitet — inte en vertex till många.
-- **Dokument:** CONTROLS / IS_USED_BY stegspecifika; processövergripande på processymbolen.
-- **Dokumentrötter:** gemensam bas → `create_document_root`; länkar med `prefix`=key + relativ path (se methodology document-roots).
-- **`usedByTypes`:** mallar/register = `core_document`; system = `application` (rätta engelska “Template” innan apply).
-- **Layout:** vänster→höger, FLOW in vänster / ut höger; multi-IO staplas under primär (samma X); vägval Nej under ryggraden.
-- **Beskrivningar (aktivitet):** komplettera canvas — upprepa inte RACI, styr-/stöddokument eller BO in/ut. Kort syfte/varför + viktiga hänsyn **endast** om det finns i underlag (`update_symbol_description`; se `get_methodology` topic `activity` → `descriptionGuidance`). Hitta inte på. Modell-/processbeskrivning: syfte, scope, ägare, källa, mätetal, ISO-klausul där underlag finns.
-- **Översättning:** `update_titles` med `titles: { primaryId, secondaryId }` i samma anrop när möjligt.
+- **Names:** infinitive + noun (process/activity). BO = value/artefact, not a status echo of the activity.
+- **Performer:** `RACI_RESPONSIBLE` per activity (`set_activity_performer`). Role under each activity — not one vertex to many.
+- **Documents:** CONTROLS / IS_USED_BY step-specific; process-wide on the process symbol.
+- **Document roots:** shared base → `create_document_root`; links with `prefix`=key + relative path (see methodology document-roots).
+- **`usedByTypes`:** templates/registers = `core_document`; systems = `application` (fix English “Template” before apply).
+- **Layout:** left→right, FLOW in left / out right; multi-IO stacked under primary (same X); vägval No below the spine.
+- **Descriptions (activity):** complement the canvas — do not repeat RACI, control/support documents or BO in/out. Short purpose/why + important considerations **only** if present in source material (`update_symbol_description`; see `get_methodology` topic `activity` → `descriptionGuidance`). Do not invent. Model/process description: purpose, scope, owner, source, metrics, ISO clause where source material exists.
+- **Translation:** `update_titles` with `titles: { primaryId, secondaryId }` in the same call when possible.
 
 ---
 
-## 8. Arbetsplan
+## 8. Work plan
 
-### Fas 0 — Förberedelse (inga skrivningar)
+### Phase 0 — Preparation (no writes)
 
-1. Läs modelM8 instructions + verktygsscheman; verifiera miljö.
-2. `get_methodology` (process, process-map, **activity**, naming, business-objects, documents-on-process, document-roots, breakdowns, gateways) — läs särskilt `activity.descriptionGuidance`; `resolve_branching_object_type("vägval")`.
-3. Extrahera källor → `WORK_DIR/extract/` (inkl. bildkonvertering om EMF).
-4. Skapa arbetsfiler (avsnitt 11); seed `GAPS.md`.
-5. Bekräfta parametrar.
+1. Read modelM8 instructions + tool schemas; verify environment.
+2. `get_methodology` (process, process-map, **activity**, naming, business-objects, documents-on-process, document-roots, breakdowns, gateways) — especially read `activity.descriptionGuidance`; `resolve_branching_object_type("vägval")`.
+3. Extract sources → `WORK_DIR/extract/` (incl. image conversion if EMF).
+4. Create work files (section 11); seed `GAPS.md`.
+5. Confirm parameters.
 
-**G0:** parametrar OK, extrakt finns, metodik läst.
+**G0:** parameters OK, extract exists, methodology read.
 
-### Fas 1 — Analys och design (inga skrivningar)
+### Phase 1 — Analysis and design (no writes)
 
-1. Läs processregister, roller, governance, clause-log.
-2. Processkort per kandidatmodell i `cards/<ID>.md`.
-3. `CATALOG.md`: roller, system, dokument, delade BO.
-4. **Dokumentrötter (föreslå i planen):** inventera gemensamma baser i `{{SOURCE_DIR}}` / `DOC_BASE_URL` (t.ex. en SharePoint-biblioteks-URL eller nätverksmapp som många filer delar). Skriv föreslagna rötter i `CATALOG.md` / STATE: `key`, föreslagen `value`, titel, vilka dokument/områden som omfattas. Skapa dem **inte** förrän fas 2.
-5. Stäm av inventarium; designkontroll (in/ut/ansvarig/namn).
+1. Read process register, roles, governance, clause log.
+2. Process card per candidate model in `cards/<ID>.md`.
+3. `CATALOG.md`: roles, systems, documents, shared BOs.
+4. **Document roots (propose in the plan):** inventory shared bases in `{{SOURCE_DIR}}` / `DOC_BASE_URL` (e.g. a SharePoint library URL or network folder shared by many files). Write proposed roots in `CATALOG.md` / STATE: `key`, proposed `value`, title, which documents/areas are covered. Do **not** create them until phase 2.
+5. Align inventory; design check (in/out/responsible/name).
 
-**G1:** kort + katalog + SOURCE-MAP-skelett + föreslagna dokumentrötter komplett.
+**G1:** cards + catalog + SOURCE-MAP skeleton + proposed document roots complete.
 
-### Fas 1b — Handoff-kontrakt (inga modellskrivningar, gärna symbol-UUID efter fas 2)
+### Phase 1b — Handoff contract (no model writes; preferably symbol UUIDs after phase 2)
 
-1. Färdigställ tabell 6.4.
-2. Efter att repot finns: `search_symbols` / skapa kanoniska handoff-BO; spara UUID i kontraktet.
-3. Lås kanoniska titlar i `CATALOG.md` (alias → kanon, t.ex. HRM → HR-system).
+1. Complete table 6.4.
+2. After the repo exists: `search_symbols` / create canonical handoff BOs; save UUIDs in the contract.
+3. Lock canonical titles in `CATALOG.md` (alias → canon, e.g. HRM → HR system).
 
-### Fas 2 — Skapa repo `{{REPO_NAME}}`
+### Phase 2 — Create repo `{{REPO_NAME}}`
 
-1. `list_repositories` — finns namnet redan? (repon kan ofta inte raderas).
-2. `create_repository` med språk (primary default + secondary).
+1. `list_repositories` — does the name already exist? (repos often cannot be deleted).
+2. `create_repository` with languages (primary default + secondary).
 3. `list_languages`, `list_description_types`, `list_document_types`, `list_document_roots`.
-4. Saknas dokumenttyp: `create_document_type`.
-5. **Dokumentrötter:** skapa föreslagna rötter från fas 1 / `DOC_BASE_URL` med `create_document_root` (`key` + `value`). Verifiera med `list_document_roots`.
-6. **Smoke-test:** en dummy-symbol → `update_model_description` / `link_document` (gärna med `prefix`=rot-key + relativ path) → rätta DTO innan pilot.
-7. `find_models` = 0 (eller avstämt mot STATE vid återupptagning).
+4. If document type missing: `create_document_type`.
+5. **Document roots:** create proposed roots from phase 1 / `DOC_BASE_URL` with `create_document_root` (`key` + `value`). Verify with `list_document_roots`.
+6. **Smoke test:** one dummy symbol → `update_model_description` / `link_document` (preferably with `prefix`=root key + relative path) → fix DTO before pilot.
+7. `find_models` = 0 (or reconciled against STATE on resume).
 
-**G2:** `repositoryId` + språk-ID + dokumentrots-`key` i STATE; smoke OK.
+**G2:** `repositoryId` + language IDs + document-root `key` in STATE; smoke OK.
 
-### Fas 3 — Pilot `{{PILOT_AREA}}`
+### Phase 3 — Pilot `{{PILOT_AREA}}`
 
-1. Detaljer enligt recept 9.1 (inkl. EN i samma `update_titles`-batch, `link_breakdown` direkt).
-2. Områdeskarta: **manuell mall** första gången (recept 9.2).
-3. `verify_handoffs` för pilotens rader i 6.4; `list_untranslated_symbols`.
-4. Q1–Q3; **klient-OK** (öppna i Modeling Tool: dokumentpanel, språk, breakdown-klick).
+1. Details per recipe 9.1 (incl. EN in the same `update_titles` batch, `link_breakdown` immediately).
+2. Area map: **manual template** the first time (recipe 9.2).
+3. `verify_handoffs` for the pilot's rows in 6.4; `list_untranslated_symbols`.
+4. Q1–Q3; **client OK** (open in Modeling Tool: document panel, language, breakdown click).
 
-**G3 — stanna.** Rapportera; fortsätt efter klartecken.
+**G3 — stop.** Report; continue after go-ahead.
 
-### Fas 4 — Område för område
+### Phase 4 — Area by area
 
-Ordning: (anpassa) kärna → stöd → ledning (PDCA) → optionella scope-områden.
+Order: (adapt) core → support → management (PDCA) → optional scope areas.
 
-Per område: detaljer → karta → Q1–Q3 → `list_untranslated_symbols` → `verify_handoffs` (områdets rader) → STATE.  
-Seriell mellan områden när handoffs korsar; parallellisera bara *inom* område med gemensam CATALOG.
+Per area: details → map → Q1–Q3 → `list_untranslated_symbols` → `verify_handoffs` (area rows) → STATE.  
+Serial across areas when handoffs cross; parallelize only *within* an area with a shared CATALOG.
 
-### Fas 5 — L0 och navigering
+### Phase 5 — L0 and navigation
 
-Bygg/komplettera L0; `link_breakdown` för alla chevroner; `get_navigation_tree(rootModelId)`; `review_process_model` med L0-undantag.
+Build/complete L0; `link_breakdown` for all chevrons; `get_navigation_tree(rootModelId)`; `review_process_model` with L0 exceptions.
 
-### Fas 6 — Konsolidering (inte “börja översätta”)
+### Phase 6 — Consolidation (not “start translating”)
 
-1. `verify_handoffs` på hela 6.4.
-2. Dubbletter / alias → `retarget_vertex_symbol` eller reuse.
+1. `verify_handoffs` on all of 6.4.
+2. Duplicates / aliases → `retarget_vertex_symbol` or reuse.
 3. `list_untranslated_symbols` (secondary vs primary).
-4. Rollstickprov `describe_role`.
-5. Dokumentpaneler / `get_object_documents`.
+4. Role spot-check `describe_role`.
+5. Document panels / `get_object_documents`.
 
-### Fas 7 — Slutkontroll
+### Phase 7 — Final check
 
-Q4–Q5 + slutrapport (avsnitt 12).
+Q4–Q5 + final report (section 12).
 
 ---
 
-## 9. Standardrecept
+## 9. Standard recipes
 
-### 9.1 Detaljprocess
+### 9.1 Detail process
 
-| Steg | Åtgärd | Kontroll |
+| Step | Action | Check |
 |---|---|---|
-| 1 | `find_models` | Ingen dubblett |
-| 2 | `search_symbols` (roller, system, BO, dokument) | Notera UUID; handoff-BO från 6.4 |
-| 3 | Prefixad text → `propose_model_from_text` | |
-| 4 | Granska proposal | BO↔aktivitet; namingChecks; `or`; performers; usedByTypes |
+| 1 | `find_models` | No duplicate |
+| 2 | `search_symbols` (roles, systems, BO, documents) | Note UUID; handoff BO from 6.4 |
+| 3 | Prefixed text → `propose_model_from_text` | |
+| 4 | Review proposal | BO↔activity; namingChecks; `or`; performers; usedByTypes |
 | 5 | `apply_model_proposal` | `businessObjectCount > 0` |
-| 6 | `describe_process` vs kort | |
-| 7 | `review_process_model` → fix → om | 0 fel / loggat undantag |
+| 6 | `describe_process` vs card | |
+| 7 | `review_process_model` → fix → again | 0 errors / logged exception |
 | 8 | `get_detail_process_scope` → STATE | |
-| 9 | `link_breakdown` till förälder **nu** | |
-| 10 | Aktivitetsbeskrivningar: `update_symbol_description` **endast** där underlag ger syfte/varför/hänsyn — komplettera canvas, upprepa inte RACI/dokument/BO (`get_methodology` → `activity.descriptionGuidance`). Tomt > gissning. | |
-| 11 | Modellbeskrivning (`update_model_description`) + `link_document` där underlag finns | |
-| 12 | `update_titles` (primär + sekundär) | |
+| 9 | `link_breakdown` to parent **now** | |
+| 10 | Activity descriptions: `update_symbol_description` **only** where source material provides purpose/why/considerations — complement the canvas, do not repeat RACI/documents/BO (`get_methodology` → `activity.descriptionGuidance`). Empty > guesswork. | |
+| 11 | Model description (`update_model_description`) + `link_document` where source material exists | |
+| 12 | `update_titles` (primary + secondary) | |
 | 13 | STATE status | |
 
-Layoutfix: `move_canvas_vertices` (reortho default); symbolbyte: `retarget_vertex_symbol`.
+Layout fix: `move_canvas_vertices` (reortho default); symbol swap: `retarget_vertex_symbol`.
 
-### 9.2 Översiktskarta
+### 9.2 Overview map
 
-1. Alla detaljer klara + scope hämtat.
-2. Välj form: kedja / `parallelTracks` / `sideLoops` / manuella rader.
-3. Rätta handoffs i detaljer först — inga overview-only BO.
-4. Auto-map bara om scope delar UUID; annars manuell mall.
-5. `describe_process_map` → `scopeOk`; `get_navigation_tree` / breakdown på detaljer; `review_process_model`.
+1. All details done + scope fetched.
+2. Choose form: chain / `parallelTracks` / `sideLoops` / manual rows.
+3. Fix handoffs in details first — no overview-only BOs.
+4. Auto-map only if scopes share UUIDs; otherwise manual template.
+5. `describe_process_map` → `scopeOk`; `get_navigation_tree` / breakdown on details; `review_process_model`.
 
 ---
 
-## 10. Kvalitetssäkring
+## 10. Quality assurance
 
-| Grind | När | Krav |
+| Gate | When | Requirement |
 |---|---|---|
-| **Q1** | Varje modell | `review_process_model` 0 fel / undantag |
-| **Q2** | Detalj | **Stickprov + riskbaserat** (nya områden, vägval, handoffs). Aktivitetsbeskrivningar: finns underlag → fyllda enligt `descriptionGuidance`; saknas underlag → tomt (inte påhitt). Full rad-för-rad endast om budgeterat. |
-| **Q3** | Område | scopeOk; breakdowns; `list_untranslated_symbols` tomt; handoffs för området |
-| **Q4** | Fas 7 | `get_navigation_tree` + `verify_process_coverage` + `verify_handoffs` (hela 6.4) |
-| **Q5** | Fas 7 | SOURCE-MAP komplett |
+| **Q1** | Every model | `review_process_model` 0 errors / exception |
+| **Q2** | Detail | **Spot-check + risk-based** (new areas, vägval, handoffs). Activity descriptions: if source material exists → filled per `descriptionGuidance`; if no source material → empty (not invented). Full line-by-line only if budgeted. |
+| **Q3** | Area | scopeOk; breakdowns; `list_untranslated_symbols` empty; handoffs for the area |
+| **Q4** | Phase 7 | `get_navigation_tree` + `verify_process_coverage` + `verify_handoffs` (all of 6.4) |
+| **Q5** | Phase 7 | SOURCE-MAP complete |
 
-### 10.3 Godkända undantag (logga)
+### 10.3 Approved exceptions (log)
 
-- L0 ledning/stöd utan FLOW → `process-missing-input-bo`
-- Avsiktlig multi-IO-stapling / parallelTracks-layoutfynd om samma rad är linjerad
+- L0 management/support without FLOW → `process-missing-input-bo`
+- Intentional multi-IO stacking / parallelTracks layout findings if the same row is aligned
 
-### Klientgrind (explicit)
+### Client gate (explicit)
 
-Före stängning av pilot/område: öppna modell i 2c8 MT — dokumentpanel, sekundärspråk, breakdown-klick.
+Before closing pilot/area: open model in 2c8 MT — document panel, secondary language, breakdown click.
 
 ---
 
-## 11. Arbetsfiler
+## 11. Work files
 
-| Fil | Innehåll |
+| File | Contents |
 |---|---|
-| `STATE.md` | Parametrar, repositoryId, språk-ID, modelltabell, undantag, lärdomar |
-| `GAPS.md` | MOTSÄGELSE / LUCKA / ANTAGANDE / FRÅGA / BESLUT |
-| `SOURCE-MAP.md` | Dokument-avsnitt → modell / status |
-| `CATALOG.md` | Roller, system, dokument, handoff-BO (+ UUID), föreslagna dokumentrötter (`key`/`value`) |
-| `MCP-FEEDBACK.md` | modelM8-/API-fel med request/response |
-| `cards/<ID>.md` | Processkort |
-| `extract/` | Extraherad text/bilder |
-| `SLUTRAPPORT.md` | Fas 7 |
+| `STATE.md` | Parameters, repositoryId, language IDs, model table, exceptions, lessons |
+| `GAPS.md` | CONTRADICTION / GAP / ASSUMPTION / QUESTION / DECISION |
+| `SOURCE-MAP.md` | Document section → model / status |
+| `CATALOG.md` | Roles, systems, documents, handoff BO (+ UUID), proposed document roots (`key`/`value`) |
+| `MCP-FEEDBACK.md` | modelM8/API errors with request/response |
+| `cards/<ID>.md` | Process card |
+| `extract/` | Extracted text/images |
+| `SLUTRAPPORT.md` | Phase 7 |
 
-**Återupptagning:** läs STATE → `find_models` / `get_navigation_tree` innan fortsatt skrivning.
-
----
-
-## 12. Slutrapport
-
-- Repo + `repositoryId`, antal modeller/nivå, symboler per typ.
-- Navigeringsträd (från `get_navigation_tree`).
-- Coverage (`verify_process_coverage`), handoffs, översättningsstatus.
-- Granskning + undantag; GAPS- och MCP-FEEDBACK-sammanfattning.
-- Det som inte är färdigt — säg det rakt ut.
+**Resume:** read STATE → `find_models` / `get_navigation_tree` before continued writing.
 
 ---
 
-## 13. Rekommenderad ordning (komprimerad)
+## 12. Final report
 
-1. Extrakt + GAPS + CATALOG  
-2. Handoff-kontrakt (titlar → UUID efter repo)  
-3. Skapa repo + smoke (dokumenttyp, link_document, beskrivning)  
-4. Pilot → klient-OK  
-5. Per område: kort → propose/apply → review → aktivitetsbeskrivningar (källbaserat) + EN+docs → **breakdown** → handoff-verify → STATE  
-6. L0 (stub tidigt eller sist)  
-7. Konsolidering = handoff + dubbletter + untranslated + coverage — inte “börja översätta”  
-8. Q4/Q5 + slutrapport  
+- Repo + `repositoryId`, number of models/level, symbols per type.
+- Navigation tree (from `get_navigation_tree`).
+- Coverage (`verify_process_coverage`), handoffs, translation status.
+- Review + exceptions; GAPS and MCP-FEEDBACK summary.
+- What is not done — say it straight.
 
 ---
 
-## Bilaga A — Extraktion
+## 13. Recommended order (compressed)
 
-Återanvänd eller anpassa extraktionsskriptet från projektets befintliga plan (docx/pdf/xlsx/pptx → `extract/`). Hoppa över standardtexter och den här planfilen.
+1. Extract + GAPS + CATALOG  
+2. Handoff contract (titles → UUID after repo)  
+3. Create repo + smoke (document type, link_document, description)  
+4. Pilot → client OK  
+5. Per area: card → propose/apply → review → activity descriptions (source-based) + EN+docs → **breakdown** → handoff-verify → STATE  
+6. L0 (stub early or last)  
+7. Consolidation = handoff + duplicates + untranslated + coverage — not “start translating”  
+8. Q4/Q5 + final report  
 
-## Bilaga B — Prefixad text (exempel)
+---
+
+## Appendix A — Extraction
+
+Reuse or adapt the extraction script from the project's existing plan (docx/pdf/xlsx/pptx → `extract/`). Skip boilerplate texts and this plan file.
+
+## Appendix B — Prefixed text (example)
 
 ```
 Process: Registrera order
@@ -379,19 +379,19 @@ Nej: Output: Avvisad förfrågan
 Output: Överlämningspaket
 ```
 
-## Bilaga C — Vanliga fel → åtgärd
+## Appendix C — Common errors → action
 
-| Symptom | Åtgärd |
+| Symptom | Action |
 |---|---|
-| `businessObjectCount = 0` | Fixa proposal-kedja BO↔aktivitet; apply om |
+| `businessObjectCount = 0` | Fix proposal chain BO↔activity; apply again |
 | activity→activity / BO→BO | `delete_canvas_edge` + `set_step_io` |
-| Saknad performer | `set_activity_performer` |
-| EN == SV med åäö | `list_untranslated_symbols` → `update_titles` |
-| Alias-system på canvas | `retarget_vertex_symbol` |
-| Overview utan barn | `link_breakdown` + `get_navigation_tree` |
-| Document type must be provided | `type: URL\|file` + ev. `create_document_type` |
-| 400 efter move | `move_canvas_vertices` med default reortho |
+| Missing performer | `set_activity_performer` |
+| EN == SV with åäö | `list_untranslated_symbols` → `update_titles` |
+| Alias system on canvas | `retarget_vertex_symbol` |
+| Overview without children | `link_breakdown` + `get_navigation_tree` |
+| Document type must be provided | `type: URL\|file` + possibly `create_document_type` |
+| 400 after move | `move_canvas_vertices` with default reortho |
 
 ---
 
-*Mallversion: 2026-11-22 · modelM8 1.2+ (2c8 Modeling Tool)*
+*Template version: 2026-11-22 · modelM8 1.2+ (2c8 Modeling Tool)*

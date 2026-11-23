@@ -1,14 +1,14 @@
-# modelM8 — användardokumentation
+# modelM8 — user documentation
 
-**modelM8** = MCP-verktyg. **2c8** = Modeling Tool (modeller, metodik, repon).
+**modelM8** = MCP tool. **2c8** = Modeling Tool (models, methodology, repositories).
 
-## Börja här
+## Start here
 
-1. [Kom igång](getting-started.md)  
-2. [Anslut MCP-klient](connect.md)  
-3. [Begrepp](concepts.md)
+1. [Getting started](getting-started.md)  
+2. [Connect an MCP client](connect.md)  
+3. [Concepts](concepts.md)
 
-### Klientbilaga
+### Client notes
 
 - [VS Code + GitHub Copilot](clients/vscode-copilot.md)
 
@@ -16,20 +16,20 @@
 
 | Workflow | Doc |
 |---|---|
-| Läsa processer | [workflows/consume.md](workflows/consume.md) |
-| Text → modell | [workflows/text-to-model.md](workflows/text-to-model.md) |
-| Tal → modell | [workflows/speech-to-model.md](workflows/speech-to-model.md) |
-| Dokument → modell | [workflows/document-to-model.md](workflows/document-to-model.md) |
-| Helt IMS via plan | [workflows/ims-from-plan.md](workflows/ims-from-plan.md) |
+| Consume processes | [workflows/consume.md](workflows/consume.md) |
+| Text → model | [workflows/text-to-model.md](workflows/text-to-model.md) |
+| Speech → model | [workflows/speech-to-model.md](workflows/speech-to-model.md) |
+| Document → model | [workflows/document-to-model.md](workflows/document-to-model.md) |
+| Full IMS via plan | [workflows/ims-from-plan.md](workflows/ims-from-plan.md) |
 
-## Övrigt
+## Other
 
-- [Kvalitetsgrindar](quality-gates.md)  
-- [Felsökning](troubleshooting.md)  
-- Kopierbara prompts: [examples/prompts/](../examples/prompts/)  
-- IMS-planmall: [templates/Create-2c8-IMS-Plan-Template.md](../templates/Create-2c8-IMS-Plan-Template.md)
+- [Quality gates](quality-gates.md)  
+- [Troubleshooting](troubleshooting.md)  
+- Copy-paste prompts: [examples/prompts/](../examples/prompts/)  
+- IMS plan template: [templates/Create-2c8-IMS-Plan-Template.md](../templates/Create-2c8-IMS-Plan-Template.md)
 
-### För utvecklare av modelM8
+### For modelM8 developers
 
 - [dev/API-GAP-ANALYSIS.md](dev/API-GAP-ANALYSIS.md)  
 - [dev/mcp-errors.md](dev/mcp-errors.md)

@@ -1,21 +1,21 @@
-# Prompt: dokument → modell
+# Prompt: document → model
 
 ```
-Använd modelM8. Repo: <repositoryId>. Språk: <languageId>.
+Use modelM8. Repo: <repositoryId>. Language: <languageId>.
 
-Källa: <sökväg / documentId / bifogad fil>
-Typ: <URL | file | innehåll i chatten>
+Source: <path / documentId / attached file>
+Type: <URL | file | content in the chat>
 
-1. Delar dokumenten bas-URL/mapp? list_document_roots → create_document_root (key+value)
-2. Vid behov: list_document_types / create_document_type
-3. propose_model_from_document (eller extrahera text → propose_model_from_text)
-4. Fixa BO namingChecks; search_symbols i målrepo; apply
-5. businessObjectCount > 0; describe_process; review_process_model; fixa
-6. link_document: med rot → prefix=key + relativ content; annars absolut URL/path.
-   Symbol-länk: { id, source: mt.documents }
-7. Dokument på aktiviteter: CONTROLS/IS_USED_BY endast steg-specifikt —
-   processövergripande styrning på modellnivå, inte fan-out på alla steg
-8. Aktivitetsbeskrivningar från källan: update_symbol_description (syfte/varför/hänsyn) —
-   komplettera canvas; upprepa inte RACI/dokument/BO. Finns det inte i underlaget → skriv inte
+1. Do the documents share a base URL/folder? list_document_roots → create_document_root (key+value)
+2. As needed: list_document_types / create_document_type
+3. propose_model_from_document (or extract text → propose_model_from_text)
+4. Fix BO namingChecks; search_symbols in target repo; apply
+5. businessObjectCount > 0; describe_process; review_process_model; fix
+6. link_document: with root → prefix=key + relative content; else absolute URL/path.
+   Symbol link: { id, source: mt.documents }
+7. Documents on activities: CONTROLS/IS_USED_BY only step-specific —
+   process-wide governance on the model, not fan-out onto every step
+8. Activity descriptions from the source: update_symbol_description (purpose/why/considerations) —
+   complement the canvas; do not repeat RACI/documents/BOs. Not in the source → do not write
    (get_methodology activity.descriptionGuidance).
 ```
