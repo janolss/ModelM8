@@ -30,9 +30,7 @@ export function encodeRelativeDocumentPath(relativePath: string): string {
     throw new Error("relativePath is empty");
   }
   if (/^(https?:|file:)/i.test(cleaned)) {
-    throw new Error(
-      "relativePath must be relative to the document root base, not an absolute URL",
-    );
+    throw new Error("relativePath must be relative to the document root base, not an absolute URL");
   }
   return encodeUrlPath(cleaned);
 }
@@ -60,10 +58,7 @@ export type DocumentLinkIssueCode =
  * Used when building MT document content (full URL stored in 2c8).
  * API field `prefix` is NOT a document-root binding — do not use it for this.
  */
-export function joinRootValueAndRelativePath(
-  rootValue: string,
-  relativePath: string,
-): string {
+export function joinRootValueAndRelativePath(rootValue: string, relativePath: string): string {
   const base = normalizeDocumentRootValue(rootValue);
   const rel = encodeRelativeDocumentPath(relativePath);
   return `${base}${rel}`;
@@ -187,9 +182,7 @@ export function normalizeAbsoluteDocumentLink(content: string): string {
   }
   if (/^file:/i.test(trimmed)) {
     if (!isAbsoluteFileUrl(trimmed)) {
-      throw new Error(
-        `Invalid file URL (need file:///absolute/path): ${trimmed}`,
-      );
+      throw new Error(`Invalid file URL (need file:///absolute/path): ${trimmed}`);
     }
     const url = new URL(trimmed);
     return pathToFileURL(decodeURIComponent(url.pathname)).href;
@@ -215,9 +208,7 @@ export type MtDocumentLanguageEntry = {
  * Always store absolute URLs in languages.*.content so the UI can match them
  * to a document root by path prefix later.
  */
-export function normalizeMtDocumentBody(
-  body: Record<string, unknown>,
-): Record<string, unknown> {
+export function normalizeMtDocumentBody(body: Record<string, unknown>): Record<string, unknown> {
   if (typeof body.content === "string" && body.content.trim()) {
     throw new Error(
       "createDocumentBody.content at top level is invalid. Put the path in languages.<languageId>.content as a full absolute URL (or use link_document(documentRootKey, relativePath, title, languageId)).",
@@ -237,9 +228,7 @@ export function normalizeMtDocumentBody(
 
   const nextLanguages: Record<string, MtDocumentLanguageEntry> = {};
   let sawContent = false;
-  for (const [langId, raw] of Object.entries(
-    languages as Record<string, unknown>,
-  )) {
+  for (const [langId, raw] of Object.entries(languages as Record<string, unknown>)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       nextLanguages[langId] = raw as MtDocumentLanguageEntry;
       continue;
@@ -277,10 +266,7 @@ export function buildAbsoluteDocumentBody(args: {
   documentTypes?: string[];
   extraTitles?: Record<string, string>;
 }): Record<string, unknown> {
-  const content = joinRootValueAndRelativePath(
-    args.documentRootValue,
-    args.relativePath,
-  );
+  const content = joinRootValueAndRelativePath(args.documentRootValue, args.relativePath);
   const languages: Record<string, { title: string; content: string }> = {
     [args.languageId]: { title: args.title, content },
   };

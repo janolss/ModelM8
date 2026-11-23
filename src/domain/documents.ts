@@ -2,10 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { TwoC8Client } from "../api/twoc8-client.js";
 import type { DocumentRootView, DocumentTypeView, Page } from "../api/types.js";
 import { pickTitle } from "../util/titles.js";
-import {
-  normalizeDocumentRootValue,
-  normalizeMtDocumentBody,
-} from "./document-paths.js";
+import { normalizeDocumentRootValue, normalizeMtDocumentBody } from "./document-paths.js";
 
 export interface ResolvedDocView {
   source?: string;
@@ -149,9 +146,7 @@ export class DocumentsService {
 
   /** All language UUIDs in the repo (default language first when flagged). */
   async listLanguageIds(repositoryId: string): Promise<string[]> {
-    const page = await this.client.request<
-      Page<{ uuid?: string; defaultLanguage?: boolean }>
-    >({
+    const page = await this.client.request<Page<{ uuid?: string; defaultLanguage?: boolean }>>({
       path: "/api/v1/repositories/{repositoryId}/languages",
       pathParams: { repositoryId },
     });
@@ -160,9 +155,7 @@ export class DocumentsService {
       ...data.filter((l) => l.defaultLanguage),
       ...data.filter((l) => !l.defaultLanguage),
     ];
-    const ids = ordered
-      .map((l) => l.uuid?.trim())
-      .filter((id): id is string => Boolean(id));
+    const ids = ordered.map((l) => l.uuid?.trim()).filter((id): id is string => Boolean(id));
     return [...new Set(ids)];
   }
 

@@ -190,7 +190,9 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .string()
           .min(1)
           .optional()
-          .describe("Stable root id (e.g. inera-docs) — not used as MT document prefix for binding"),
+          .describe(
+            "Stable root id (e.g. inera-docs) — not used as MT document prefix for binding",
+          ),
         value: z
           .string()
           .min(1)
@@ -843,14 +845,11 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         const results: Record<string, unknown> = {};
         let linked = false;
 
-        let createBody = args.createDocumentBody
-          ? { ...args.createDocumentBody }
-          : undefined;
+        let createBody = args.createDocumentBody ? { ...args.createDocumentBody } : undefined;
         if (!createBody && args.documentRootKey && args.relativePath) {
           const titlesMap = args.titles ?? {};
           const primaryLanguageId =
-            args.languageId ??
-            Object.keys(titlesMap).find((id) => titlesMap[id]?.trim());
+            args.languageId ?? Object.keys(titlesMap).find((id) => titlesMap[id]?.trim());
           const primaryTitle =
             (args.languageId && args.title) ||
             (primaryLanguageId ? titlesMap[primaryLanguageId] : undefined) ||
@@ -904,10 +903,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         }
 
         if (createBody) {
-          results.created = await ctx.documents.createMtDocument(
-            args.repositoryId,
-            createBody,
-          );
+          results.created = await ctx.documents.createMtDocument(args.repositoryId, createBody);
           const created = results.created as {
             uuid?: string;
             id?: string;
@@ -944,7 +940,11 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             "Document symbol links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is success.",
             "After create/update: verify_document_links without languageId (checks all repo languages).",
           ],
-          nextSuggestedTools: ["get_object_documents", "resolve_documents", "verify_document_links"],
+          nextSuggestedTools: [
+            "get_object_documents",
+            "resolve_documents",
+            "verify_document_links",
+          ],
         };
       }),
   );

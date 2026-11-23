@@ -99,13 +99,11 @@ describe("DocumentsService", () => {
       languages: {
         lang: {
           title: "Needs",
-          content:
-            "file:///Users/jan/Inera/Dokumentbibliotek/2. Hantera behov/doc.pdf",
+          content: "file:///Users/jan/Inera/Dokumentbibliotek/2. Hantera behov/doc.pdf",
         },
       },
     });
-    const langs = (posted as { languages: Record<string, { content: string }> })
-      .languages;
+    const langs = (posted as { languages: Record<string, { content: string }> }).languages;
     expect(posted).toMatchObject({ showInPanel: false });
     expect(langs.lang.content.startsWith("file:///Users/jan/")).toBe(true);
     expect(langs.lang.content).toContain("2.%20Hantera%20behov");

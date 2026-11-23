@@ -32,19 +32,12 @@ export function registerDeleteTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional().describe("Single symbol UUID (or use symbolIds)"),
-        symbolIds: z
-          .array(uuid)
-          .min(1)
-          .optional()
-          .describe("One or more symbol UUIDs to delete"),
+        symbolIds: z.array(uuid).min(1).optional().describe("One or more symbol UUIDs to delete"),
       },
     },
     async (args) =>
       runTool(() => {
-        const symbolIds = [
-          ...(args.symbolIds ?? []),
-          ...(args.symbolId ? [args.symbolId] : []),
-        ];
+        const symbolIds = [...(args.symbolIds ?? []), ...(args.symbolId ? [args.symbolId] : [])];
         if (symbolIds.length === 0) {
           throw new Error("Provide symbolId or symbolIds");
         }

@@ -11,10 +11,7 @@ import type {
   SymbolView,
 } from "../api/types.js";
 import { pickTitle } from "../util/titles.js";
-import {
-  classifyResolvedDocumentLink,
-  expandRelativeLinkAgainstRoots,
-} from "./document-paths.js";
+import { classifyResolvedDocumentLink, expandRelativeLinkAgainstRoots } from "./document-paths.js";
 import type { DocumentsService } from "./documents.js";
 import type { ProcessReader } from "./process-reader.js";
 
@@ -854,12 +851,8 @@ export class QualityService {
     const maxIssues = args.maxResults ?? 100;
 
     const { roots } = await this.documents.listRoots(args.repositoryId);
-    const rootKeys = roots
-      .map((r) => r.key?.trim())
-      .filter((k): k is string => Boolean(k));
-    const rootValues = roots
-      .map((r) => r.value?.trim())
-      .filter((v): v is string => Boolean(v));
+    const rootKeys = roots.map((r) => r.key?.trim()).filter((k): k is string => Boolean(k));
+    const rootValues = roots.map((r) => r.value?.trim()).filter((v): v is string => Boolean(v));
 
     const languageIds = args.languageId
       ? [args.languageId]
@@ -917,8 +910,7 @@ export class QualityService {
           let absoluteLink = doc.link;
           const direct = classifyResolvedDocumentLink(doc.link);
           if (!direct.ok && rootValues.length > 0) {
-            absoluteLink = expandRelativeLinkAgainstRoots(doc.link, rootValues)
-              .absoluteLink;
+            absoluteLink = expandRelativeLinkAgainstRoots(doc.link, rootValues).absoluteLink;
           }
 
           const classification = classifyResolvedDocumentLink(absoluteLink);
@@ -929,9 +921,7 @@ export class QualityService {
               title: doc.title,
               link: absoluteLink ?? doc.link,
               code: classification.code ?? "invalid-link",
-              detail:
-                (classification.detail ?? "Invalid document link") +
-                ` [languageId=${languageId}]`,
+              detail: `${classification.detail ?? "Invalid document link"} [languageId=${languageId}]`,
             });
             if (findings.length >= maxIssues) break;
             continue;
