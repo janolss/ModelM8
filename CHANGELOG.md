@@ -10,12 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Write scope lock:** `get_write_scope`, `lock_write_repository`, `unlock_write_repository` — runtime allowlist for mutating calls (no new container per repo). Defaults: require lock before write, auto-lock after `create_repository`, unlock via operator confirm phrase. Optional deny lists (`TWO_C8_WRITE_DENY_REPOSITORY_IDS` / `_NAMES`). Client safetynet rejects out-of-scope `repositoryId` on mutating API calls.
+- IMS plan hardening after TechSeed haveri: binding gate evidence + `templates/STATE.md`; detail→overview order / repair-not-duplicate; G2 smoke cannot be deferred; source-fidelity checklist §10.4; hard stop rules (×3 errors / user correction) in plan + `SERVER_INSTRUCTIONS`
 - `verify_document_links` quality gate (absolute https/file:/// links; flags bare relative paths / missing roots)
 - `delete_symbol` and `delete_mt_document` (gated by `TWO_C8_ALLOW_DELETES`, same irreversible pattern as `delete_model`)
 - `link_document` `titles` map — write the same absolute URL to every language in one create
 
 ### Fixed
 
+- HTTP transport: share one `WriteScope` across requests (was reset every `POST /mcp`, so auto-lock/`lock_write_repository` looked unlocked on the next `get_write_scope`)
 - Soft-hyphen insertion for long Swedish compounds: use TeX patterns (`hyphen/sv`) plus suffix/exception rules instead of mid-word cuts (e.g. `leverans¬överlämning`)
 
 ### Changed

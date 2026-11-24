@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertClientWriteScope,
+  createWriteScopeFromConfig,
   extractCreatedRepositoryId,
   WriteScope,
   WriteScopeError,
@@ -125,5 +126,35 @@ describe("assertClientWriteScope", () => {
         body: { targetRepositoryId: "repo-b" },
       }),
     ).toThrow(/outside write scope/);
+  });
+});
+
+describe("createWriteScopeFromConfig / shared instance", () => {
+  it("keeps lock across simulated HTTP request boundaries when reused", () => {
+    const shared = createWriteScopeFromConfig({
+      requireLockBeforeWrite: true,
+      autoLockOnCreate: true,
+      unlockMode: "confirm_phrase",
+      unlockPhrase: "X",
+      denyRepositoryIds: [],
+      denyRepositoryNames: [],
+    });
+    // Request 1: create/lock
+    shared.tryAutoLockOnCreate({
+      repositoryId: "034c768c-717e-463c-bdeb-eb5a02798c5d",
+      repositoryName: "Inera IMS",
+    });
+    // Request 2: get_write_scope on same process instance
+    expect(shared.snapshot().locked).toBe(true);
+    expect(shared.snapshot().repositoryId).toBe("034c768c-717e-463c-bdeb-eb5a02798c5d");
+    // Fresh instance (old HTTP bug) would look unlocked
+    const fresh = createWriteScopeFromConfig({
+      requireLockBeforeWrite: true,
+      autoLockOnCreate: true,
+      unlockMode: "confirm_phrase",
+      denyRepositoryIds: [],
+      denyRepositoryNames: [],
+    });
+    expect(fresh.snapshot().locked).toBe(false);
   });
 });

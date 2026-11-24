@@ -297,3 +297,22 @@ export function assertClientWriteScope(
     }
   }
 }
+
+/** Build policy/state from AppConfig — share one instance per process (required for HTTP). */
+export function createWriteScopeFromConfig(config: {
+  requireLockBeforeWrite: boolean;
+  autoLockOnCreate: boolean;
+  unlockMode: UnlockMode;
+  unlockPhrase?: string;
+  denyRepositoryIds: string[];
+  denyRepositoryNames: string[];
+}): WriteScope {
+  return new WriteScope({
+    requireLockBeforeWrite: config.requireLockBeforeWrite,
+    autoLockOnCreate: config.autoLockOnCreate,
+    unlockMode: config.unlockMode,
+    unlockPhrase: config.unlockPhrase,
+    denyRepositoryIds: config.denyRepositoryIds,
+    denyRepositoryNames: config.denyRepositoryNames,
+  });
+}

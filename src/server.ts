@@ -5,7 +5,11 @@ import { DocumentsService } from "./domain/documents.js";
 import { ProcessReader } from "./domain/process-reader.js";
 import { ProcessWriter } from "./domain/process-writer.js";
 import { QualityService } from "./domain/quality.js";
-import { assertClientWriteScope, WriteScope } from "./domain/write-scope.js";
+import {
+  assertClientWriteScope,
+  createWriteScopeFromConfig,
+  type WriteScope,
+} from "./domain/write-scope.js";
 import { SERVER_INSTRUCTIONS } from "./mcp/instructions.js";
 import { registerMethodologyPrompts } from "./mcp/prompts.js";
 import { registerMethodologyResources } from "./mcp/resources.js";
@@ -13,7 +17,12 @@ import { loadMethodologyPack } from "./methodology/loader.js";
 import type { ToolContext } from "./tools/context.js";
 import { registerAllTools } from "./tools/index.js";
 
-export function createServer(config: AppConfig): McpServer {
+export interface CreateServerOptions {
+  /** Process-wide write scope. Required for HTTP so lock survives across requests. */
+  writeScope?: WriteScope;
+}
+
+export function createServer(config: AppConfig, options: CreateServerOptions = {}): McpServer {
   const pack = loadMethodologyPack(config.knowledgeDir);
 
   const server = new McpServer(
@@ -26,14 +35,7 @@ export function createServer(config: AppConfig): McpServer {
     },
   );
 
-  const writeScope = new WriteScope({
-    requireLockBeforeWrite: config.requireLockBeforeWrite,
-    autoLockOnCreate: config.autoLockOnCreate,
-    unlockMode: config.unlockMode,
-    unlockPhrase: config.unlockPhrase,
-    denyRepositoryIds: config.denyRepositoryIds,
-    denyRepositoryNames: config.denyRepositoryNames,
-  });
+  const writeScope = options.writeScope ?? createWriteScopeFromConfig(config);
 
   const client = new TwoC8Client(config.baseUrl, config.apiKey);
   if (config.allowWrites || config.allowDeletes) {
