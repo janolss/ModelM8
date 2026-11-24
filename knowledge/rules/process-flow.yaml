@@ -13,6 +13,17 @@ rules:
       A role responsible for several activities must be placed under each
       activity (shared symbol UUID, separate canvas vertices + RACI edges).
       Never one role icon with relations to multiple activities.
+  - id: compound-performer-titles
+    severity: warning
+    description: >
+      Performer titles that join two distinct actors with "och"
+      (e.g. 'Projektägare och Projektkontoret', 'Dokumentägare och
+      kvalitetsfunktion') should normally be modelled as two symbols and
+      two RACI_RESPONSIBLE edges (search_symbols for each part first). Keep
+      one combined title only when the organisation intentionally uses a
+      single joint function. Coordinated compounds with a hyphen before
+      och (e.g. 'Hälso- och sjukvårdschef') are one title. Soft hyphens (¬)
+      are layout-only and do not change the dual-name judgment.
   - id: flow-left-in-right-out
     severity: error
     description: >

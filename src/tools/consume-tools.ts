@@ -123,7 +123,7 @@ export function registerConsumeTools(server: McpServer, ctx: ToolContext): void 
     "review_process_model",
     {
       description:
-        "Post-create QA for a model: 2c8 methodology (activity/process BO in/out, performers, no join/gateway, no role fan-out) + visual layout (overlap, spine alignment, spacing, FLOW left-in/right-out, edge crossings, multi-I/O stacking). Call after apply_model_proposal / create_process_map before considering the work done. Optional detailModelIds for overview scope checks.",
+        "Post-create QA for a model: 2c8 methodology (activity/process BO in/out, performers, no join/gateway, no role fan-out, compound 'A och B' performer titles, orphan performer vertices without RACI, role→CONTROLS) + visual layout (overlap, spine alignment, spacing, FLOW left-in/right-out, edge crossings, multi-I/O stacking). Call after apply_model_proposal / create_process_map before considering the work done. Optional detailModelIds for overview scope checks.",
       inputSchema: {
         repositoryId,
         modelId: uuid.describe("Model UUID to review"),

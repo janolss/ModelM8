@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `review_process_model`: performer hygiene — `compound-performer-title`, `orphan-performer-vertex`, `role-controls-document`
 - **Write scope lock:** `get_write_scope`, `lock_write_repository`, `unlock_write_repository` — runtime allowlist for mutating calls (no new container per repo). Defaults: require lock before write, auto-lock after `create_repository`, unlock via operator confirm phrase. Optional deny lists (`TWO_C8_WRITE_DENY_REPOSITORY_IDS` / `_NAMES`). Client safetynet rejects out-of-scope `repositoryId` on mutating API calls.
 - IMS plan hardening after TechSeed haveri: binding gate evidence + `templates/STATE.md`; detail→overview order / repair-not-duplicate; G2 smoke cannot be deferred; source-fidelity checklist §10.4; hard stop rules (×3 errors / user correction) in plan + `SERVER_INSTRUCTIONS`
 - `verify_document_links` quality gate (absolute https/file:/// links; flags bare relative paths / missing roots)
@@ -20,9 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP transport: share one `WriteScope` across requests (was reset every `POST /mcp`, so auto-lock/`lock_write_repository` looked unlocked on the next `get_write_scope`)
 - `move_canvas_vertices`: re-route attached edges in the **same** PATCH as the move (was vertex-then-edge → HTTP 400 “Control point end must lie within the to-vertex bounds”); fallback delete→move→recreate if combined patch still fails
 - Soft-hyphen insertion for long Swedish compounds: use TeX patterns (`hyphen/sv`) plus suffix/exception rules instead of mid-word cuts (e.g. `leverans¬överlämning`)
+- Per-symbol mutex for `link_document` / `unlink_document` symbol panel merges (parallel calls to the same symbolId are queued; different symbols stay concurrent)
 
 ### Changed
 
+- Methodology: compound performer titles ("A och B") — prefer two symbols + two RACI edges; keep coordinated "X- och Y…" as one title. Covered in object-types/naming/process-flow/edges, `SERVER_INSTRUCTIONS` §5b, `get_methodology(raci)`, and `checkNaming` for role/position/organisation
 - Documentation, prompts, and IMS plan template are English throughout (consultant-oriented)
 - Refresh `docs/dev/API-GAP-ANALYSIS.md` for v1.3.2 tool inventory and knowledge pack counts
 - IMS plan / quality docs: empty `DOC_BASE_URL` → use `SOURCE_DIR` as document root; Q3/Q4 require `verify_document_links`

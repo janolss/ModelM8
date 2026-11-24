@@ -25,6 +25,22 @@ patterns:
   gateway:
     regex: '.+\?$'
     hint: 'Not a create type — use or (Regel Eller). Title still a question with ?'
+  role:
+    hint: >
+      One role name per symbol. If source writes "A och B" for two distinct
+      actors (e.g. Projektägare och Projektkontoret), create/reuse two
+      symbols and two RACI edges — do not keep the dual title. One combined
+      title only for an intentional joint function. "X- och Y…" (hyphen
+      before och) is one coordinated compound, not two performers.
+  position:
+    hint: >
+      Same as role: one job title per symbol; split "A och B" dual actors;
+      keep "X- och Y…" coordinated compounds as one title.
+  organisation:
+    hint: >
+      Official unit name. Prefer separate organisation symbols when source
+      clearly names two units joined only by "och"; keep coordinated
+      compounds (hyphen before och) as one title.
 swedishInfinitiveExamples:
   - Hantera
   - Registrera

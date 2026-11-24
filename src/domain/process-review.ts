@@ -1,5 +1,5 @@
 import type { CanvasDto, EdgeView, FlowStep, VertexView } from "../api/types.js";
-import type { QuickdrawDistance } from "../methodology/rules-engine.js";
+import { isCompoundPerformerTitle, type QuickdrawDistance } from "../methodology/rules-engine.js";
 import { isForbiddenJoinType } from "../util/object-types.js";
 
 export type ReviewSeverity = "error" | "warning" | "info";
@@ -76,11 +76,25 @@ function isFlowEdge(et: string | undefined): boolean {
 }
 
 function isRaciEdge(et: string | undefined): boolean {
-  return RESPONSIBLE_EDGE_TYPES.has(normType(et));
+  const n = normType(et);
+  // Compare normalized forms so "raciresponsible" matches "raci_responsible"
+  for (const t of RESPONSIBLE_EDGE_TYPES) {
+    if (normType(t) === n) return true;
+  }
+  return false;
+}
+
+function isControlsEdge(et: string | undefined): boolean {
+  const n = normType(et);
+  return n === "controls" || n === "control" || n === "styr";
 }
 
 function isDocLinkEdge(et: string | undefined): boolean {
-  return DOC_LINK_EDGE_TYPES.has(normType(et));
+  const n = normType(et);
+  for (const t of DOC_LINK_EDGE_TYPES) {
+    if (normType(t) === n) return true;
+  }
+  return false;
 }
 
 function symbolIdOf(v: VertexView): string {
@@ -474,6 +488,73 @@ export function reviewProcessCanvas(args: {
         vertexIds: [vid],
       });
     }
+  }
+
+  // Performer hygiene: compound titles, orphan placements, illegal role→CONTROLS
+  const raciVertexIds = new Set<string>();
+  for (const e of edges) {
+    if (!isRaciEdge(e.edgeType)) continue;
+    if (e.fromVertex) raciVertexIds.add(e.fromVertex);
+    if (e.toVertex) raciVertexIds.add(e.toVertex);
+  }
+  for (const v of vertices) {
+    if (!v.uuid) continue;
+    const ot = normType(objectTypeOf(v, steps));
+    if (!RESPONSIBILITY_TYPES.has(ot)) continue;
+    const title = steps.find((s) => s.vertexId === v.uuid)?.title ?? vertexTitle(v);
+
+    if (isCompoundPerformerTitle(title)) {
+      findings.push({
+        id: "compound-performer-title",
+        severity: "warning",
+        category: "methodology",
+        message: `Performer "${title}" joins two actors with "och" in one title.`,
+        suggestion:
+          "Prefer two symbols + two RACI_RESPONSIBLE edges (search_symbols per part). Keep one combined title only for an intentional joint function; coordinated 'X- och Y…' compounds are fine.",
+        titles: [title],
+        vertexIds: [v.uuid],
+      });
+    }
+
+    if (!raciVertexIds.has(v.uuid)) {
+      findings.push({
+        id: "orphan-performer-vertex",
+        severity: "warning",
+        category: "methodology",
+        message: `Performer "${title}" is on the canvas without a RACI_RESPONSIBLE edge.`,
+        suggestion:
+          "Link with set_activity_performer (one placement under the owned activity), or delete_canvas_vertex if the icon is leftover.",
+        titles: [title],
+        vertexIds: [v.uuid],
+      });
+    }
+  }
+
+  for (const e of edges) {
+    if (!isControlsEdge(e.edgeType)) continue;
+    const from = byId.get(e.fromVertex ?? "");
+    const to = byId.get(e.toVertex ?? "");
+    if (!from || !to) continue;
+    const fromOt = normType(objectTypeOf(from, steps));
+    const toOt = normType(objectTypeOf(to, steps));
+    const fromIsPerformer = RESPONSIBILITY_TYPES.has(fromOt);
+    const toIsPerformer = RESPONSIBILITY_TYPES.has(toOt);
+    if (!fromIsPerformer && !toIsPerformer) continue;
+    const performer = fromIsPerformer ? from : to;
+    const other = fromIsPerformer ? to : from;
+    const performerTitle =
+      steps.find((s) => s.vertexId === performer.uuid)?.title ?? vertexTitle(performer);
+    const otherTitle = steps.find((s) => s.vertexId === other.uuid)?.title ?? vertexTitle(other);
+    findings.push({
+      id: "role-controls-document",
+      severity: "error",
+      category: "methodology",
+      message: `CONTROLS edge involves performer "${performerTitle}" and "${otherTitle}" — checklists/policies govern activities, not roles.`,
+      suggestion:
+        "delete_canvas_edge the role CONTROLS link; attach step-specific CONTROLS on the activity (set_activity_controls) or process-wide docs on the process/model Documents panel.",
+      titles: [performerTitle, otherTitle],
+      vertexIds: [performer.uuid, other.uuid].filter(Boolean) as string[],
+    });
   }
 
   // Process-wide document fan-out: same CORE_DOCUMENT CONTROLS/IS_USED_BY on most activities

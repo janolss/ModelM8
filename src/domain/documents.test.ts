@@ -149,4 +149,35 @@ describe("DocumentsService", () => {
       ],
     });
   });
+
+  it("serializes parallel linkDocumentsToSymbol on the same symbol", async () => {
+    let stored: Array<{ id: string; source: string }> = [];
+    const client = mockClient(async (opts) => {
+      if (opts.method === undefined || opts.method === "GET") {
+        await new Promise((r) => setTimeout(r, 15));
+        return { documents: [...stored] };
+      }
+      if (opts.method === "PATCH") {
+        await new Promise((r) => setTimeout(r, 15));
+        stored = [...(opts.body as { documents: Array<{ id: string; source: string }> }).documents];
+        return { ok: true };
+      }
+      return {};
+    });
+    const docs = new DocumentsService(client);
+    await Promise.all([
+      docs.linkDocumentsToSymbol({
+        repositoryId: "repo-1",
+        symbolId: "sym-shared",
+        documentIds: ["doc-a"],
+      }),
+      docs.linkDocumentsToSymbol({
+        repositoryId: "repo-1",
+        symbolId: "sym-shared",
+        documentIds: ["doc-b"],
+      }),
+    ]);
+    const ids = stored.map((d) => d.id).sort();
+    expect(ids).toEqual(["doc-a", "doc-b"]);
+  });
 });

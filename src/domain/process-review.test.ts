@@ -143,5 +143,141 @@ describe("reviewProcessCanvas", () => {
       (f) => f.category === "methodology" && f.severity === "error",
     );
     expect(methodologyErrors.map((f) => f.id)).toEqual([]);
+    expect(result.findings.map((f) => f.id)).not.toContain("orphan-performer-vertex");
+    expect(result.findings.map((f) => f.id)).not.toContain("compound-performer-title");
+  });
+
+  it("flags compound performer titles, orphan roles, and role→CONTROLS", () => {
+    const steps: FlowStep[] = [
+      {
+        vertexId: "v-act",
+        objectType: "activity",
+        title: "Godkänna plan",
+        x: 200,
+        y: 120,
+        width: 75,
+        height: 50,
+        inputs: [],
+        outputs: [],
+        responsible: [
+          {
+            vertexId: "v-dual",
+            objectType: "role",
+            title: "Projektägare och Projektkontoret",
+          },
+        ],
+      },
+      {
+        vertexId: "v-dual",
+        objectType: "role",
+        title: "Projektägare och Projektkontoret",
+        x: 200,
+        y: 220,
+      },
+      {
+        vertexId: "v-orphan",
+        objectType: "role",
+        title: "Kvalitetsfunktion",
+        x: 40,
+        y: 220,
+      },
+      {
+        vertexId: "v-doc",
+        objectType: "core_document",
+        title: "Checklista",
+        x: 40,
+        y: 40,
+      },
+    ];
+    const canvas: CanvasDto = {
+      vertices: [
+        vertex("v-act", "activity", 200, 120, "Godkänna plan"),
+        vertex("v-dual", "role", 200, 220, "Projektägare och Projektkontoret"),
+        vertex("v-orphan", "role", 40, 220, "Kvalitetsfunktion"),
+        {
+          ...vertex("v-doc", "core_document", 40, 40, "Checklista"),
+          width: 60,
+          height: 40,
+        },
+      ],
+      edges: [
+        {
+          uuid: "e-raci",
+          edgeType: "raciresponsible",
+          fromVertex: "v-dual",
+          toVertex: "v-act",
+        },
+        {
+          uuid: "e-ctrl",
+          edgeType: "controls",
+          fromVertex: "v-orphan",
+          toVertex: "v-doc",
+        },
+      ],
+    };
+    const result = reviewProcessCanvas({ steps, canvas, modelKind: "process" });
+    const ids = result.findings.map((f) => f.id);
+    expect(ids).toContain("compound-performer-title");
+    expect(ids).toContain("orphan-performer-vertex");
+    expect(ids).toContain("role-controls-document");
+  });
+
+  it("does not flag coordinated X- och Y… performer titles as compound", () => {
+    const steps: FlowStep[] = [
+      {
+        vertexId: "v-act",
+        objectType: "activity",
+        title: "Leder vården",
+        x: 200,
+        y: 120,
+        inputs: [{ vertexId: "v-in", objectType: "businessObject", title: "Behov" }],
+        outputs: [{ vertexId: "v-out", objectType: "businessObject", title: "Beslut" }],
+        responsible: [
+          { vertexId: "v-role", objectType: "position", title: "Hälso- och sjukvårdschef" },
+        ],
+      },
+      {
+        vertexId: "v-in",
+        objectType: "businessObject",
+        title: "Behov",
+        x: 80,
+        y: 135,
+      },
+      {
+        vertexId: "v-out",
+        objectType: "businessObject",
+        title: "Beslut",
+        x: 320,
+        y: 135,
+      },
+      {
+        vertexId: "v-role",
+        objectType: "position",
+        title: "Hälso- och sjukvårdschef",
+        x: 200,
+        y: 220,
+      },
+    ];
+    const canvas: CanvasDto = {
+      vertices: [
+        vertex("v-in", "businessObject", 80, 135, "Behov"),
+        vertex("v-act", "activity", 200, 120, "Leder vården"),
+        vertex("v-out", "businessObject", 320, 135, "Beslut"),
+        vertex("v-role", "position", 200, 220, "Hälso- och sjukvårdschef"),
+      ],
+      edges: [
+        { uuid: "e1", edgeType: "flow", fromVertex: "v-in", toVertex: "v-act" },
+        { uuid: "e2", edgeType: "flow", fromVertex: "v-act", toVertex: "v-out" },
+        {
+          uuid: "e3",
+          edgeType: "raciresponsible",
+          fromVertex: "v-role",
+          toVertex: "v-act",
+        },
+      ],
+    };
+    const result = reviewProcessCanvas({ steps, canvas, modelKind: "process" });
+    expect(result.findings.map((f) => f.id)).not.toContain("compound-performer-title");
+    expect(result.findings.map((f) => f.id)).not.toContain("orphan-performer-vertex");
   });
 });

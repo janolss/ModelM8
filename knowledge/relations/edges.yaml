@@ -10,6 +10,7 @@ guidance:
   - IS_FOLLOWED_BY — sometimes used between chained decisions (decision→decision); still part of the choice path
   - RACI_RESPONSIBLE (API: raciresponsible) — role/position → activity ownership; do not infer from placement alone
   - Same role for N activities → N canvas placements under each activity (shared symbol UUID); never one vertex with multiple RACI edges
+  - Dual "A och B" performer titles → prefer two symbols + two RACI edges when A and B are distinct actors; one combined symbol only for an intentional joint function (see naming / process-flow compound-performer-titles)
   - FLOW on process/activity: left-in / right-out only (never top/bottom attach)
   - CONTROLS — core_document → activity when the document steers how THIS activity is performed (step-specific)
   - IS_USED_BY (API: isusedby) — application or template document → activity when it is used as support for THIS step, not governance

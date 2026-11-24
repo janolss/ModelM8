@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { TwoC8Client } from "../api/twoc8-client.js";
 import type { DocumentRootView, DocumentTypeView, Page } from "../api/types.js";
+import { symbolDocumentLinkMutex, symbolDocumentLockKey } from "../util/keyed-async-mutex.js";
 import { pickTitle } from "../util/titles.js";
 import { normalizeDocumentRootValue, normalizeMtDocumentBody } from "./document-paths.js";
 
@@ -480,6 +481,19 @@ export class DocumentsService {
     documentIds: string[];
     merge?: boolean;
   }) {
+    // Serialize read-modify-write per symbol so parallel link_document calls do not clobber each other.
+    return symbolDocumentLinkMutex.runExclusive(
+      symbolDocumentLockKey(args.repositoryId, args.symbolId),
+      () => this.linkDocumentsToSymbolUnlocked(args),
+    );
+  }
+
+  private async linkDocumentsToSymbolUnlocked(args: {
+    repositoryId: string;
+    symbolId: string;
+    documentIds: string[];
+    merge?: boolean;
+  }) {
     // API expects MtbDocumentIdDto objects — plain UUID strings are rejected (400).
     const toRef = (id: string) => ({ id, source: "mt.documents" as const });
     const extractId = (d: unknown): string | null => {
@@ -527,6 +541,17 @@ export class DocumentsService {
 
   /** Remove MT document refs from a symbol (documents panel). */
   async unlinkDocumentsFromSymbol(args: {
+    repositoryId: string;
+    symbolId: string;
+    documentIds: string[];
+  }) {
+    return symbolDocumentLinkMutex.runExclusive(
+      symbolDocumentLockKey(args.repositoryId, args.symbolId),
+      () => this.unlinkDocumentsFromSymbolUnlocked(args),
+    );
+  }
+
+  private async unlinkDocumentsFromSymbolUnlocked(args: {
     repositoryId: string;
     symbolId: string;
     documentIds: string[];

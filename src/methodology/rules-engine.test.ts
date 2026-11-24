@@ -3,7 +3,9 @@ import { loadMethodologyPack } from "./loader.js";
 import {
   checkBusinessObjectValue,
   checkNaming,
+  getMethodologyTopic,
   isBusinessObjectStatusEcho,
+  isCompoundPerformerTitle,
 } from "./rules-engine.js";
 
 describe("rules-engine naming", () => {
@@ -26,5 +28,25 @@ describe("rules-engine naming", () => {
 
     const good = checkBusinessObjectValue(pack, "Riskanalys", "Dokumentera risk");
     expect(good.pass).toBe(true);
+  });
+
+  it("flags dual-actor performer titles joined by och", () => {
+    expect(isCompoundPerformerTitle("Projektägare och Projektkontoret")).toBe(true);
+    expect(isCompoundPerformerTitle("Dokument¬ägare och kvalitets¬funktion")).toBe(true);
+    expect(isCompoundPerformerTitle("Hälso- och sjukvårdschef")).toBe(false);
+    expect(isCompoundPerformerTitle("Projektägare")).toBe(false);
+
+    const bad = checkNaming(pack, "role", "Projektägare och Projektkontoret");
+    expect(bad.pass).toBe(false);
+    expect(bad.hint).toMatch(/two performer|RACI/i);
+
+    const coordinated = checkNaming(pack, "position", "Hälso- och sjukvårdschef");
+    expect(coordinated.pass).toBe(true);
+  });
+
+  it("get_methodology(raci) surfaces compound-performer guidance", () => {
+    const topic = getMethodologyTopic(pack, "raci") as { kind?: string; summary?: string };
+    expect(topic.kind).toBe("raci");
+    expect(topic.summary).toMatch(/och/i);
   });
 });

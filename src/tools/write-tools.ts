@@ -826,7 +826,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "link_document",
     {
       description:
-        "Create/update an MT document and/or attach to a symbol. PRIMARY: documentRootKey + relativePath + title + languageId (+ optional titles map for other languages) — stores a FULL absolute file:/// or https URL. content/URL is per language like titles: set every active language or secondary GUI languages get empty non-clickable links. Prefer titles:{ [langId]: title } so the same absolute URL is written to all languages in one call. API prefix is NOT a document-root binding; after mass create the user matches paths to roots in the 2c8 UI. createDocumentBody must use absolute languages.*.content. Symbol PATCH: [{ id, source: 'mt.documents' }]. showInPanel defaults to false.",
+        "Create/update an MT document and/or attach to a symbol. PRIMARY: documentRootKey + relativePath + title + languageId (+ optional titles map for other languages) — stores a FULL absolute file:/// or https URL. content/URL is per language like titles: set every active language or secondary GUI languages get empty non-clickable links. Prefer titles:{ [langId]: title } so the same absolute URL is written to all languages in one call. API prefix is NOT a document-root binding; after mass create the user matches paths to roots in the 2c8 UI. createDocumentBody must use absolute languages.*.content. Symbol PATCH: [{ id, source: 'mt.documents' }]. showInPanel defaults to false. Parallel link_document to the same symbolId are queued in MCP (per-symbol mutex) so document-panel merges do not race.",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
@@ -980,6 +980,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             "content/URL is language-specific like titles — one languageId alone leaves other languages with empty GUI links.",
             "API prefix is not a document-root foreign key — do not set prefix to the root key for binding.",
             "Document symbol links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is success.",
+            "Same-symbol link/unlink is serialized in MCP (parallel calls to different symbols still run concurrently).",
             "After create/update: verify_document_links without languageId (checks all repo languages).",
           ],
           nextSuggestedTools: [

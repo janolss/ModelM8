@@ -816,7 +816,7 @@ export class ProcessReader {
       findings,
       summaryText: summaryLines.join("\n"),
       methodologyNotes: [
-        "review_process_model checks methodology (BO in/out, performers, no join/gateway, no role fan-out) and layout (overlap, spine alignment, spacing, FLOW sides, crossings, multi-I/O stacking).",
+        "review_process_model checks methodology (BO in/out, performers, no join/gateway, no role fan-out, compound performer titles, orphan performers, role→CONTROLS) and layout (overlap, spine alignment, spacing, FLOW sides, crossings, multi-I/O stacking).",
         "Text-to-model / create flows should end with this review; fix errors before considering the model done.",
         "Visual goal: readable for end users — straight baselines, orthogonal FLOW, no spaghetti.",
       ],

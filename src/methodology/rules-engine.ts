@@ -31,26 +31,59 @@ export function findObjectType(
   );
 }
 
+const COMPOUND_PERFORMER_HINT =
+  "Prefer two performer symbols + two RACI edges when the title joins two distinct actors with 'och' (e.g. 'Projektägare' + 'Projektkontoret'). Keep one combined title only for an intentional joint function. Coordinated compounds with a hyphen before och (e.g. 'Hälso- och sjukvårdschef') are one title.";
+
+const PERFORMER_TYPE_IDS = new Set(["role", "position", "organisation"]);
+
+/**
+ * Dual-actor titles like "A och B" (not "X- och Y…" coordinated compounds).
+ * Soft hyphens / ¬ are ignored for the judgment.
+ */
+export function isCompoundPerformerTitle(title: string): boolean {
+  const plain = plainTitle(title);
+  if (!plain) return false;
+  // Swedish coordinated compound: hyphen immediately before och → one title
+  if (/-\s*och\b/i.test(plain)) return false;
+  const m = plain.match(/^(.+?)\s+och\s+(.+)$/i);
+  if (!m) return false;
+  const left = m[1]?.trim() ?? "";
+  const right = m[2]?.trim() ?? "";
+  // Both sides need a real actor phrase (avoid noise like "och" alone)
+  return left.length >= 2 && right.length >= 2;
+}
+
 export function checkNaming(pack: MethodologyPack, objectType: string, title: string): NamingCheck {
   const def = findObjectType(pack, objectType);
   const patternKey = def?.id ?? normalize(objectType);
   const pattern = pack.naming?.patterns?.[patternKey];
+  const objectTypeId = def?.id;
+  const hint = pattern?.hint ?? def?.naming;
+
+  if (objectTypeId && PERFORMER_TYPE_IDS.has(objectTypeId) && isCompoundPerformerTitle(title)) {
+    return {
+      pass: false,
+      hint: COMPOUND_PERFORMER_HINT,
+      objectTypeId,
+    };
+  }
+
   if (!pattern?.regex) {
     return {
       pass: title.trim().length > 0,
-      hint: pattern?.hint ?? def?.naming,
-      objectTypeId: def?.id,
+      hint,
+      objectTypeId,
     };
   }
   try {
     const re = new RegExp(pattern.regex, "u");
     return {
       pass: re.test(title.trim()),
-      hint: pattern.hint ?? def?.naming,
-      objectTypeId: def?.id,
+      hint,
+      objectTypeId,
     };
   } catch {
-    return { pass: true, hint: pattern.hint, objectTypeId: def?.id };
+    return { pass: true, hint: pattern?.hint, objectTypeId };
   }
 }
 
@@ -526,6 +559,37 @@ export function getMethodologyTopic(pack: MethodologyPack, topic: string): unkno
     if (rule) {
       return { kind: "rule", ...(rule as object) };
     }
+  }
+
+  // RACI / performers (compound titles + placement)
+  const raciAliases = new Set(["raci", "performer", "performers", "ansvar", "roll-raci"]);
+  if (raciAliases.has(t) || raciAliases.has(tFold)) {
+    const role = pack.objectTypes.find((ot) => ot.id === "role");
+    const position = pack.objectTypes.find((ot) => ot.id === "position");
+    const processFlow = pack.rules["process-flow"];
+    const edges = pack.relations.edges;
+    return {
+      kind: "raci",
+      id: "raci",
+      summary:
+        "Performers (role/position/organisation) own activities via RACI_RESPONSIBLE; place under each activity. Split dual 'A och B' titles into two symbols unless intentional joint function.",
+      objectTypes: { role, position },
+      naming: pack.naming?.patterns
+        ? {
+            role: pack.naming.patterns.role,
+            position: pack.naming.patterns.position,
+            organisation: pack.naming.patterns.organisation,
+          }
+        : undefined,
+      processFlow,
+      edges,
+      nextSuggestedTools: [
+        "set_activity_performer",
+        "search_symbols",
+        "validate_against_methodology",
+        "describe_role",
+      ],
+    };
   }
 
   if (pack.rules[t]) {

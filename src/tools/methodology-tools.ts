@@ -62,7 +62,7 @@ export function registerMethodologyTools(server: McpServer, ctx: ToolContext): v
           .string()
           .min(1)
           .describe(
-            "e.g. vägval, or, and, process, process-map, activity, naming, business-objects, reuse-first",
+            "e.g. vägval, or, and, process, process-map, activity, naming, raci, role, business-objects, reuse-first",
           ),
       },
     },
