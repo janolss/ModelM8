@@ -6,6 +6,7 @@ import { registerDeleteTools } from "./delete-tools.js";
 import { registerMethodologyTools } from "./methodology-tools.js";
 import { registerProposeTools } from "./propose-tools.js";
 import { registerQualityTools } from "./quality-tools.js";
+import { registerScopeTools } from "./scope-tools.js";
 import { registerWriteTools } from "./write-tools.js";
 
 export function registerAllTools(server: McpServer, ctx: ToolContext): void {
@@ -15,6 +16,9 @@ export function registerAllTools(server: McpServer, ctx: ToolContext): void {
   registerQualityTools(server, ctx);
   registerProposeTools(server, ctx);
 
+  if (ctx.config.allowWrites || ctx.config.allowDeletes) {
+    registerScopeTools(server, ctx);
+  }
   if (ctx.config.allowWrites) {
     registerWriteTools(server, ctx);
   }

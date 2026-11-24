@@ -5,6 +5,7 @@ export const SERVER_INSTRUCTIONS = `You are working with 2c8 Modeling Tool via t
 - Create or edit processes via text-to-model, talk-to-model, and document-to-model — following 2c8 methodology.
 
 ## Mandatory agent policies
+0. **Write scope (when writes/deletes enabled):** Before mutating tools, call get_write_scope. If unlocked, call lock_write_repository with the confirmed target repositoryId (create_repository auto-locks when unlocked). Mutating calls with any other repositoryId are rejected by the server — do not retry other repos, invent UUIDs, or attempt unlock. Unlock is operator-controlled; on Write blocked / write scope errors: stop and ask the user.
 1. Reuse-first **within the target repository only**: ALWAYS call search_symbols(repositoryId=target) before creating symbols. Reuse existing UUID when the business concept matches. Never create silent duplicates. Do NOT search other repositories for UUIDs to reuse — symbols are repo-scoped. Other repos may inspire naming, but never copy UUIDs across repos and do not clone/describe gold models unless the user asks.
 2. Draft-first when writes are enabled: prefer create_process_model (draft mode) then accept_draft_model. Sandbox repos may use direct write mode.
 3. Process models should have explicit input(s) and output/result as business objects on the FLOW spine (not only activities).

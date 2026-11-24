@@ -5,6 +5,7 @@ import { DocumentsService } from "./domain/documents.js";
 import { ProcessReader } from "./domain/process-reader.js";
 import { ProcessWriter } from "./domain/process-writer.js";
 import { QualityService } from "./domain/quality.js";
+import { assertClientWriteScope, WriteScope } from "./domain/write-scope.js";
 import { SERVER_INSTRUCTIONS } from "./mcp/instructions.js";
 import { registerMethodologyPrompts } from "./mcp/prompts.js";
 import { registerMethodologyResources } from "./mcp/resources.js";
@@ -25,7 +26,22 @@ export function createServer(config: AppConfig): McpServer {
     },
   );
 
+  const writeScope = new WriteScope({
+    requireLockBeforeWrite: config.requireLockBeforeWrite,
+    autoLockOnCreate: config.autoLockOnCreate,
+    unlockMode: config.unlockMode,
+    unlockPhrase: config.unlockPhrase,
+    denyRepositoryIds: config.denyRepositoryIds,
+    denyRepositoryNames: config.denyRepositoryNames,
+  });
+
   const client = new TwoC8Client(config.baseUrl, config.apiKey);
+  if (config.allowWrites || config.allowDeletes) {
+    client.setBeforeMutatingRequest((options) => {
+      assertClientWriteScope(writeScope, options);
+    });
+  }
+
   const reader = new ProcessReader(client);
   const documents = new DocumentsService(client);
   const quality = new QualityService(client, reader, documents);
@@ -42,6 +58,7 @@ export function createServer(config: AppConfig): McpServer {
     writer,
     documents,
     quality,
+    writeScope,
   };
 
   registerMethodologyResources(server, pack);

@@ -56,6 +56,8 @@ export async function startHttpServer(config: AppConfig): Promise<void> {
       allowWrites: config.allowWrites,
       allowDeletes: config.allowDeletes,
       writeMode: config.writeMode,
+      requireLockBeforeWrite: config.requireLockBeforeWrite,
+      unlockMode: config.unlockMode,
       transport: "http",
     });
   });
@@ -67,7 +69,7 @@ export async function startHttpServer(config: AppConfig): Promise<void> {
         return;
       }
       console.error(
-        `modelM8 (HTTP) listening on http://${config.host}:${config.port}/mcp (writes=${config.allowWrites}, deletes=${config.allowDeletes}, writeMode=${config.writeMode})`,
+        `modelM8 (HTTP) listening on http://${config.host}:${config.port}/mcp (writes=${config.allowWrites}, deletes=${config.allowDeletes}, writeMode=${config.writeMode}, requireLock=${config.requireLockBeforeWrite}, unlockMode=${config.unlockMode})`,
       );
       resolve();
     });

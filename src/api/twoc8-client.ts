@@ -20,13 +20,21 @@ export interface RequestOptions {
 }
 
 export class TwoC8Client {
+  private beforeMutatingRequest?: (options: RequestOptions) => void;
+
   constructor(
     private readonly baseUrl: string,
     private readonly apiKey: string,
   ) {}
 
+  /** Optional safetynet (e.g. write-scope assert) before mutating API calls. */
+  setBeforeMutatingRequest(hook: ((options: RequestOptions) => void) | undefined): void {
+    this.beforeMutatingRequest = hook;
+  }
+
   async request<T = unknown>(options: RequestOptions): Promise<T> {
     const method = options.method ?? "GET";
+    this.beforeMutatingRequest?.(options);
     let path = options.path;
     for (const [key, value] of Object.entries(options.pathParams ?? {})) {
       path = path.replace(`{${key}}`, encodeURIComponent(value));

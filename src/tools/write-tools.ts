@@ -1,9 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { buildAbsoluteDocumentBody } from "../domain/document-paths.js";
+import { extractCreatedRepositoryId, WriteScopeError } from "../domain/write-scope.js";
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { jsonBody, languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
+import { requireWritableRepo } from "./write-guard.js";
 
 export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   if (!ctx.writer) {
@@ -15,7 +17,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_repository",
     {
       description:
-        "Create a new 2c8 repository (POST /repositories). Use for sandboxes such as 'Utveckling MCP'.",
+        "Create a new 2c8 repository (POST /repositories). Use for sandboxes such as 'Utveckling MCP'. " +
+        "When write scope is unlocked and auto-lock is enabled, locks mutating tools to the new repositoryId.",
       inputSchema: {
         name: z.string().min(1),
         languages: z
@@ -36,8 +39,14 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
-        writer.createRepository({
+      runTool(async () => {
+        if (ctx.writeScope.isDeniedName(args.name)) {
+          throw new WriteScopeError(
+            "denied",
+            `Cannot create repository with denied name "${args.name}".`,
+          );
+        }
+        const result = await writer.createRepository({
           name: args.name,
           languages: args.languages,
           template: args.template,
@@ -45,8 +54,40 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           directory: args.directory,
           colorScheme: args.colorScheme,
           body: args.body,
-        }),
-      ),
+        });
+        const createdId = extractCreatedRepositoryId(result.data);
+        let writeScope = ctx.writeScope.snapshot();
+        const notes = [...(result.methodologyNotes ?? [])];
+        if (createdId) {
+          const locked = ctx.writeScope.tryAutoLockOnCreate({
+            repositoryId: createdId,
+            repositoryName: args.name,
+          });
+          writeScope = ctx.writeScope.snapshot();
+          if (locked) {
+            notes.push(
+              `Write scope auto-locked to ${createdId} (${args.name}). ` +
+                "Mutating tools reject other repositoryIds until unlock/restart.",
+            );
+          } else if (writeScope.locked && writeScope.repositoryId !== createdId) {
+            notes.push(
+              `Repository created but write scope remains locked to ${writeScope.repositoryId}. ` +
+                "Unlock before using the new repo for writes.",
+            );
+          }
+        } else {
+          notes.push(
+            "Repository created but id could not be parsed for auto-lock. " +
+              "Call lock_write_repository with the new repositoryId before writes.",
+          );
+        }
+        return {
+          ...result,
+          writeScope,
+          methodologyNotes: notes,
+          nextSuggestedTools: ["get_write_scope", ...(result.nextSuggestedTools ?? [])],
+        };
+      }),
   );
 
   server.registerTool(
@@ -334,15 +375,16 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ repositoryId: id, modelId, permissionGroup, body }) =>
-      runTool(() =>
-        ctx.client.request({
+      runTool(() => {
+        requireWritableRepo(ctx, id);
+        return ctx.client.request({
           method: "POST",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions/accept",
           pathParams: { repositoryId: id, modelId },
           headers: { "2c8-Permission-Group": permissionGroup },
           body,
-        }),
-      ),
+        });
+      }),
   );
 
   server.registerTool(

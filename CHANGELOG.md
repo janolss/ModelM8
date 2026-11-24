@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Write scope lock:** `get_write_scope`, `lock_write_repository`, `unlock_write_repository` — runtime allowlist for mutating calls (no new container per repo). Defaults: require lock before write, auto-lock after `create_repository`, unlock via operator confirm phrase. Optional deny lists (`TWO_C8_WRITE_DENY_REPOSITORY_IDS` / `_NAMES`). Client safetynet rejects out-of-scope `repositoryId` on mutating API calls.
 - `verify_document_links` quality gate (absolute https/file:/// links; flags bare relative paths / missing roots)
 - `delete_symbol` and `delete_mt_document` (gated by `TWO_C8_ALLOW_DELETES`, same irreversible pattern as `delete_model`)
 - `link_document` `titles` map — write the same absolute URL to every language in one create
