@@ -143,7 +143,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "move_canvas_vertices",
     {
       description:
-        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. By default reorthogonalizes attached edges in the same call (set reorthogonalizeEdges:false to skip).",
+        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. Attached edges are re-routed in the **same** PATCH (required by 2c8 — moving then update_canvas_edges separately causes 'Control point end must lie within the to-vertex bounds').",
       inputSchema: {
         repositoryId,
         modelId: uuid,

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - HTTP transport: share one `WriteScope` across requests (was reset every `POST /mcp`, so auto-lock/`lock_write_repository` looked unlocked on the next `get_write_scope`)
+- `move_canvas_vertices`: re-route attached edges in the **same** PATCH as the move (was vertex-then-edge → HTTP 400 “Control point end must lie within the to-vertex bounds”); fallback delete→move→recreate if combined patch still fails
 - Soft-hyphen insertion for long Swedish compounds: use TeX patterns (`hyphen/sv`) plus suffix/exception rules instead of mid-word cuts (e.g. `leverans¬överlämning`)
 
 ### Changed

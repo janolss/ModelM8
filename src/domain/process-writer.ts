@@ -12,6 +12,7 @@ import {
   type SymbolSizeSpec,
   validateProposedSymbol,
 } from "../methodology/rules-engine.js";
+import { withControlPointBoundsHint } from "../util/canvas-layout-hints.js";
 import { applySoftBreaks, stripSoftBreaks } from "../util/soft-breaks.js";
 import { pickTitle } from "../util/titles.js";
 import { ProcessReader } from "./process-reader.js";
@@ -2866,6 +2867,10 @@ export class ProcessWriter {
   /**
    * Move one or more canvas vertices via PATCH /canvas (API has no per-vertex PATCH).
    * Agent supplies vertexId + x/y; width/height/zOrder/breakdowns are filled from current state.
+   *
+   * Attached edges MUST be re-routed in the **same** PATCH as the vertex move. Updating
+   * vertices alone (or edges alone against the old position) yields HTTP 400:
+   * "Control point end must lie within the to-vertex bounds".
    */
   async moveCanvasVertices(args: {
     repositoryId: string;
@@ -2878,14 +2883,34 @@ export class ProcessWriter {
       height?: number;
     }>;
     /**
-     * When true (default), reorthogonalize all edges attached to moved vertices
-     * in the same call — avoids stale control points → 400 on later patches.
+     * Kept for compatibility. Attached edges are always re-routed in the same PATCH
+     * as the move (2c8 rejects vertex-only patches when control points go out of bounds).
      */
     reorthogonalizeEdges?: boolean;
   }) {
     if (!args.vertices.length) {
       throw new Error("move_canvas_vertices requires at least one vertex");
     }
+    type CanvasVert = {
+      uuid?: string;
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      zOrder?: number;
+      objectType?: string;
+      symbol?: string | { uuid?: string; objectType?: string };
+      breakdowns?: unknown[];
+    };
+    type CanvasEdge = {
+      uuid?: string;
+      fromVertex?: string;
+      toVertex?: string;
+      edgeType?: string;
+      points?: Array<{ x?: number; y?: number }>;
+      breakdowns?: unknown[];
+      labels?: Record<string, { x?: number; y?: number; width?: number; height?: number }>;
+    };
     const canvas = (await this.client.request({
       path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
       pathParams: {
@@ -2893,80 +2918,205 @@ export class ProcessWriter {
         modelId: args.modelId,
       },
     })) as {
-      vertices?: Array<{
-        uuid?: string;
-        x?: number;
-        y?: number;
-        width?: number;
-        height?: number;
-        zOrder?: number;
-        breakdowns?: unknown[];
-      }>;
-      edges?: Array<{
-        uuid?: string;
-        fromVertex?: string;
-        toVertex?: string;
-      }>;
+      vertices?: CanvasVert[];
+      edges?: CanvasEdge[];
     };
+
+    const objectTypeOf = (v: CanvasVert): string | undefined => {
+      if (v.objectType) return v.objectType;
+      if (v.symbol && typeof v.symbol === "object" && v.symbol.objectType) {
+        return v.symbol.objectType;
+      }
+      return undefined;
+    };
+
     const byId = new Map((canvas.vertices ?? []).filter((v) => v.uuid).map((v) => [v.uuid!, v]));
     const patchVertices: Array<Record<string, unknown>> = [];
     const missing: string[] = [];
     const movedIds = new Set<string>();
+
+    // Post-move geometry for routing (unmoved verts keep current box)
+    const nextGeom = new Map<
+      string,
+      { x: number; y: number; width: number; height: number; objectType?: string }
+    >();
+    for (const [id, cur] of byId) {
+      nextGeom.set(id, {
+        x: cur.x ?? 0,
+        y: cur.y ?? 0,
+        width: cur.width ?? DEFAULT_WIDTH,
+        height: cur.height ?? DEFAULT_HEIGHT,
+        objectType: objectTypeOf(cur),
+      });
+    }
+
     for (const mv of args.vertices) {
       const cur = byId.get(mv.vertexId);
       if (!cur) {
         missing.push(mv.vertexId);
         continue;
       }
+      const width = mv.width ?? cur.width ?? DEFAULT_WIDTH;
+      const height = mv.height ?? cur.height ?? DEFAULT_HEIGHT;
+      const x = Math.round(mv.x);
+      const y = Math.round(mv.y);
       patchVertices.push({
         uuid: mv.vertexId,
-        x: Math.round(mv.x),
-        y: Math.round(mv.y),
-        width: mv.width ?? cur.width ?? DEFAULT_WIDTH,
-        height: mv.height ?? cur.height ?? DEFAULT_HEIGHT,
+        x,
+        y,
+        width,
+        height,
         zOrder: cur.zOrder ?? 0,
         breakdowns: cur.breakdowns ?? [],
       });
       movedIds.add(mv.vertexId);
+      nextGeom.set(mv.vertexId, {
+        x,
+        y,
+        width,
+        height,
+        objectType: objectTypeOf(cur),
+      });
     }
     if (missing.length) {
       throw new Error(`Unknown vertexId(s) on canvas: ${missing.join(", ")}`);
     }
-    await this.client.request({
-      method: "PATCH",
-      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-      pathParams: {
-        repositoryId: args.repositoryId,
-        modelId: args.modelId,
-      },
-      body: { vertices: patchVertices },
-    });
 
-    const reortho = args.reorthogonalizeEdges !== false;
-    let reorthogonalized: string[] = [];
-    if (reortho) {
-      const edgeIds = [
-        ...new Set(
-          (canvas.edges ?? [])
-            .filter(
-              (e) =>
-                e.uuid &&
-                ((e.fromVertex && movedIds.has(e.fromVertex)) ||
-                  (e.toVertex && movedIds.has(e.toVertex))),
-            )
-            .map((e) => e.uuid!),
-        ),
-      ];
-      if (edgeIds.length) {
-        const updated = await this.updateCanvasEdges({
+    const attached = (canvas.edges ?? []).filter(
+      (e) =>
+        e.uuid &&
+        ((e.fromVertex && movedIds.has(e.fromVertex)) || (e.toVertex && movedIds.has(e.toVertex))),
+    );
+
+    // Always re-route attached edges in the same PATCH — vertex-only / edge-only updates 400.
+    const patchEdges: Array<Record<string, unknown>> = [];
+    for (const e of attached) {
+      if (!e.uuid || !e.fromVertex || !e.toVertex) continue;
+      const from = nextGeom.get(e.fromVertex);
+      const to = nextGeom.get(e.toVertex);
+      if (!from || !to) continue;
+      const points = this.orthogonalPoints(from, to, e.edgeType ?? "FLOW").map((p) => ({
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+      }));
+      let labels = e.labels as Record<string, Record<string, unknown>> | undefined;
+      if (labels && points.length >= 2) {
+        const midX = Math.floor(((points[0]?.x ?? 0) + (points[points.length - 1]?.x ?? 0)) / 2);
+        const midY =
+          Math.floor(((points[0]?.y ?? 0) + (points[points.length - 1]?.y ?? 0)) / 2) - 10;
+        const nextLabels: Record<string, unknown> = {};
+        for (const [lang, lab] of Object.entries(labels)) {
+          const w = typeof lab.width === "number" ? lab.width : 40;
+          const h = typeof lab.height === "number" ? lab.height : 20;
+          nextLabels[lang] = {
+            ...lab,
+            x: midX - Math.floor(w / 2),
+            y: midY,
+            width: w,
+            height: h,
+          };
+        }
+        labels = nextLabels as typeof labels;
+      }
+      patchEdges.push({
+        uuid: e.uuid,
+        points,
+        ...(labels ? { labels } : {}),
+        breakdowns: e.breakdowns ?? [],
+      });
+    }
+
+    const patchBody: {
+      vertices: Array<Record<string, unknown>>;
+      edges?: Array<Record<string, unknown>>;
+    } = { vertices: patchVertices };
+    if (patchEdges.length) {
+      patchBody.edges = patchEdges;
+    }
+
+    try {
+      await this.client.request({
+        method: "PATCH",
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+        pathParams: {
           repositoryId: args.repositoryId,
           modelId: args.modelId,
-          edges: edgeIds.map((edgeId) => ({
-            edgeId,
-            reorthogonalize: true,
-          })),
+        },
+        body: patchBody,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Fallback: delete attached edges → move → recreate (same strategy as retargetVertexSymbol)
+      if (!attached.length || !/Control point|400/.test(msg)) {
+        throw new Error(withControlPointBoundsHint(msg, "move"), { cause: err });
+      }
+      try {
+        const edgeSnapshots = attached.filter((e) => e.uuid && e.fromVertex && e.toVertex);
+        await this.deleteCanvasEdges({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          edgeIds: edgeSnapshots.map((e) => e.uuid!),
         });
-        reorthogonalized = (updated.data as { updated?: string[] })?.updated ?? edgeIds;
+        await this.client.request({
+          method: "PATCH",
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+          },
+          body: { vertices: patchVertices },
+        });
+        const defLang = await this.defaultLanguageId(args.repositoryId);
+        const languageId = defLang ?? Object.keys(edgeSnapshots[0]?.labels ?? {})[0];
+        if (!languageId) {
+          throw new Error(
+            withControlPointBoundsHint(
+              `Move fell back to delete/recreate edges but no languageId is available. Original error: ${msg}`,
+              "move",
+            ),
+          );
+        }
+        const recreated: string[] = [];
+        for (const e of edgeSnapshots) {
+          const labelEntry = e.labels?.[languageId] as { title?: string } | undefined;
+          const created = await this.createCanvasEdge({
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+            fromVertexId: e.fromVertex!,
+            toVertexId: e.toVertex!,
+            edgeType: e.edgeType ?? "FLOW",
+            languageId,
+            label: labelEntry?.title?.trim() || undefined,
+          });
+          const id =
+            created.data && typeof created.data === "object" && "uuid" in (created.data as object)
+              ? String((created.data as { uuid?: string }).uuid ?? "")
+              : "";
+          if (id) recreated.push(id);
+        }
+        return {
+          data: {
+            moved: patchVertices.map((v) => v.uuid),
+            count: patchVertices.length,
+            reorthogonalized: recreated,
+            fallback: "delete-edges-move-recreate",
+          },
+          methodologyNotes: [
+            "Combined vertex+edge PATCH failed; automatically fell back to delete edges → move → recreate.",
+            "After layout fixes: review_process_model.",
+          ],
+          nextSuggestedTools: ["review_process_model", "describe_process", "delete_canvas_edge"],
+        };
+      } catch (fallbackErr) {
+        const fb = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        throw new Error(
+          withControlPointBoundsHint(
+            `move_canvas_vertices failed after combined PATCH and delete→move→recreate fallback.\n` +
+              `First error: ${msg}\nFallback error: ${fb}`,
+            "move",
+          ),
+          { cause: fallbackErr },
+        );
       }
     }
 
@@ -2974,16 +3124,14 @@ export class ProcessWriter {
       data: {
         moved: patchVertices.map((v) => v.uuid),
         count: patchVertices.length,
-        reorthogonalized,
+        reorthogonalized: patchEdges.map((e) => e.uuid),
       },
       methodologyNotes: [
-        "Moved vertices via PATCH /canvas.",
-        reortho
-          ? "Attached edges were reorthogonalized automatically (reorthogonalizeEdges defaults to true)."
-          : "Pass reorthogonalizeEdges:true (default) or call update_canvas_edges with reorthogonalize:true to fix stale routes.",
+        "Moved vertices via PATCH /canvas with attached edges re-routed in the same request.",
+        "Do not move then update_canvas_edges separately — 2c8 rejects stale control points.",
         "After layout fixes: review_process_model.",
       ],
-      nextSuggestedTools: ["update_canvas_edges", "review_process_model", "describe_process"],
+      nextSuggestedTools: ["review_process_model", "describe_process"],
     };
   }
 
@@ -3223,21 +3371,26 @@ export class ProcessWriter {
     if (missing.length) {
       throw new Error(`Unknown edgeId(s) on canvas: ${missing.join(", ")}`);
     }
-    await this.client.request({
-      method: "PATCH",
-      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-      pathParams: {
-        repositoryId: args.repositoryId,
-        modelId: args.modelId,
-      },
-      body: { edges: patchEdges },
-    });
+    try {
+      await this.client.request({
+        method: "PATCH",
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+        pathParams: {
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+        },
+        body: { edges: patchEdges },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(withControlPointBoundsHint(msg, "update_edges"), { cause: err });
+    }
     return {
       data: { updated: patchEdges.map((e) => e.uuid), count: patchEdges.length },
       methodologyNotes: [
-        "Updated edge routes via PATCH /canvas. Prefer reorthogonalize:true after moving vertices.",
+        "Updated edge routes via PATCH /canvas. To move symbols, use move_canvas_vertices (not edges-then-move).",
       ],
-      nextSuggestedTools: ["review_process_model", "describe_process"],
+      nextSuggestedTools: ["review_process_model", "describe_process", "move_canvas_vertices"],
     };
   }
 

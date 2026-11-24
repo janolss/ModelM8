@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { withControlPointBoundsHint } from "./canvas-layout-hints.js";
 
 export interface AgentPayload {
   data?: unknown;
@@ -22,7 +23,8 @@ export function jsonResult(data: unknown): CallToolResult {
 }
 
 export function errorResult(error: unknown): CallToolResult {
-  const message = error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  const message = withControlPointBoundsHint(raw, "generic");
   return {
     isError: true,
     content: [{ type: "text", text: message }],
