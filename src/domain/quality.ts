@@ -522,11 +522,27 @@ export class QualityService {
           uuid?: string;
           title?: string;
         }>;
-        const exact = symbols.find(
-          (s) => (s.title ?? "").toLowerCase() === title!.trim().toLowerCase(),
-        );
-        symbolId = exact?.uuid ?? symbols[0]?.uuid;
-        title = exact?.title ?? symbols[0]?.title ?? title;
+        const needle = title!.trim().toLowerCase();
+        const exact = symbols.find((s) => (s.title ?? "").toLowerCase() === needle);
+        if (exact?.uuid) {
+          symbolId = exact.uuid;
+          title = exact.title ?? title;
+        } else {
+          results.push({
+            fromModelId: h.fromModelId,
+            toModelId: h.toModelId,
+            symbolId: h.symbolId,
+            title: h.title,
+            source: h.source,
+            pass: false,
+            error: `No exact businessObject title match for "${h.title}" (refusing first-search-hit fallback)`,
+            candidates: symbols.slice(0, 5).map((s) => ({
+              uuid: s.uuid,
+              title: s.title,
+            })),
+          });
+          continue;
+        }
       }
       if (!symbolId) {
         results.push({

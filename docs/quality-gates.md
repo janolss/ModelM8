@@ -23,7 +23,7 @@ Use these after every model and before closing an area / IMS.
 
 ## Handoffs and coverage
 
-- `verify_handoffs` — same BO UUID on producer and consumer (`handoffs[]`, `contract[]`, and/or `autoDiscover.modelIds`)  
+- `verify_handoffs` — same BO UUID on producer and consumer (`handoffs[]`, `contract[]`, and/or `autoDiscover.modelIds`). Title resolve requires an **exact** match (no first-search-hit fallback).  
 - `list_orphan_symbols` — canvas orphans (e.g. `titlePrefix: "ZZ_"`) before close-out  
 - `verify_process_coverage` — process-register rows → models (+ reachability from L0)
 

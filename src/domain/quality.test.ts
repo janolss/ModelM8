@@ -1,6 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { collectModelTitles, modelMatchesExpected } from "./quality.js";
 
+/** Mirrors verify_handoffs title resolution (exact match only; no first-hit fallback). */
+function resolveHandoffSymbolId(
+  title: string,
+  symbols: Array<{ uuid?: string; title?: string }>,
+): { symbolId?: string; error?: string } {
+  const needle = title.trim().toLowerCase();
+  const exact = symbols.find((s) => (s.title ?? "").toLowerCase() === needle);
+  if (exact?.uuid) return { symbolId: exact.uuid };
+  return {
+    error: `No exact businessObject title match for "${title}" (refusing first-search-hit fallback)`,
+  };
+}
+
+describe("verify_handoffs exact title resolve", () => {
+  it("uses exact title match only", () => {
+    const r = resolveHandoffSymbolId("Order", [
+      { uuid: "u1", title: "Order draft" },
+      { uuid: "u2", title: "Order" },
+    ]);
+    expect(r.symbolId).toBe("u2");
+    expect(r.error).toBeUndefined();
+  });
+
+  it("refuses symbols[0] when no exact match", () => {
+    const r = resolveHandoffSymbolId("Order", [
+      { uuid: "u1", title: "Order draft" },
+      { uuid: "u2", title: "Customer order" },
+    ]);
+    expect(r.symbolId).toBeUndefined();
+    expect(r.error).toMatch(/exact businessObject title match/i);
+  });
+});
+
 describe("verify_process_coverage multi-lang matching", () => {
   const svId = "lang-sv";
   const enId = "lang-en";

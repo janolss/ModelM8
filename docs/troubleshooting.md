@@ -55,7 +55,11 @@ Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`
 | Error | Action |
 |---|---|
 | gateway / join | `resolve_branching_object_type` → `or`; never Join |
-| `businessObjectCount = 0` | Alternate BO ↔ activity in the chain |
+| `businessObjectCount = 0` / apply hard-fail | Alternate BO ↔ activity; fix proposal and re-apply. Apply **throws** when no BOs were placed (not soft `ok: false`). |
+| Apply fail on **existing** `modelId` | No auto-rollback — error includes partial placed titles. Inspect canvas; delete orphans; fix chain; re-apply. New models created in the same call still roll back on failure. |
+| `move_canvas_vertices` fallback incomplete | Combined PATCH failed; delete→recreate did not restore all edges. Error lists `missing` edge metadata — recreate with `create_canvas_edge`, then `review_process_model`. |
+| `retarget_vertex_symbol` incomplete | Vertex already swapped; some edges missing. Use `missing` in the error + `create_canvas_edge`. |
+| `verify_handoffs` no exact title | Pass `symbolId` or an **exact** BO title — first search hit is never used. |
 | 400 after moving symbols (`Control point end must lie within the to-vertex bounds`) | Use `move_canvas_vertices` only — it patches **vertices + attached edges together**. Do not `update_canvas_edges` before/after a separate move; that chicken-and-egg fails validation. |
 
 ## Developer docs

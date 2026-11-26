@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadMethodologyPack } from "../methodology/loader.js";
-import { chainAlternationIssues, proposeModelFromText } from "./proposals.js";
+import { chainAlternationIssues, normalizeProposal, proposeModelFromText } from "./proposals.js";
 
 describe("proposeModelFromText / chain alternation", () => {
   const pack = loadMethodologyPack();
@@ -292,5 +292,87 @@ Output: Done
     expect(proposal.chain?.some((n) => n.kind === "activity" && /Output:/i.test(n.title))).toBe(
       false,
     );
+  });
+
+  it("prefers prefixed Activity:/Output: over narrative heuristics (mixed prose)", () => {
+    const text = `
+Först händer något i prosa. Därefter mer text. Sedan en sista mening.
+
+Process: Mixed route
+Activity: Registrera ärende
+Output: Ärende
+Activity: Beslutar
+Output: Beslut
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(proposal.chain?.map((n) => `${n.kind}:${n.title}`)).toEqual([
+      "activity:Registrera ärende",
+      "businessObject:Ärende",
+      "activity:Beslutar",
+      "businessObject:Beslut",
+    ]);
+    expect(proposal.chain?.some((n) => /prosa|mening/i.test(n.title))).toBe(false);
+  });
+
+  it("normalizeProposal with pack runs finalize / alternation namingChecks", () => {
+    const proposal = normalizeProposal(
+      {
+        modelType: "process",
+        title: "Broken hand apply",
+        steps: [
+          { title: "First step", objectType: "activity" },
+          { title: "Second step", objectType: "activity" },
+        ],
+      },
+      pack,
+    );
+    expect(
+      proposal.namingChecks.some((c) => !c.pass && /Consecutive activities/i.test(c.hint ?? "")),
+    ).toBe(true);
+    expect(proposal.repairHints?.length).toBeGreaterThan(0);
+  });
+
+  it("normalizeProposal weaves step I/O even when chain already has a BO", () => {
+    const proposal = normalizeProposal(
+      {
+        modelType: "process",
+        title: "Partial chain",
+        chain: [
+          { kind: "businessObject", title: "Lead", objectType: "businessObject" },
+          { kind: "activity", title: "Qualify", objectType: "activity" },
+          { kind: "activity", title: "Close", objectType: "activity" },
+        ],
+        activities: [
+          { title: "Qualify", performers: [], controlledBy: [], usedBy: [] },
+          { title: "Close", performers: [], controlledBy: [], usedBy: [] },
+        ],
+        steps: [
+          {
+            title: "Qualify",
+            objectType: "activity",
+            inputs: ["Lead"],
+            outputs: ["Qualified lead"],
+          },
+          {
+            title: "Close",
+            objectType: "activity",
+            inputs: ["Qualified lead"],
+            outputs: ["Closed deal"],
+          },
+        ],
+      },
+      pack,
+    );
+    expect(proposal.chain?.map((n) => `${n.kind}:${n.title}`)).toEqual([
+      "businessObject:Lead",
+      "activity:Qualify",
+      "businessObject:Qualified lead",
+      "activity:Close",
+      "businessObject:Closed deal",
+    ]);
+    const altFails = (proposal.namingChecks ?? []).filter(
+      (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
+    );
+    expect(altFails).toEqual([]);
   });
 });

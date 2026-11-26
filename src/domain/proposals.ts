@@ -574,21 +574,8 @@ function extractRolesFromSentence(sentence: string): string[] {
   return roles;
 }
 
-function looksLikeNarrative(text: string): boolean {
-  const lower = text.toLowerCase();
-  const paras = text.split(/\n\s*\n/).filter((p) => p.trim());
-  if (paras.length >= 2 && /först|därefter|sedan|sista|heter\s+/i.test(lower)) {
-    return true;
-  }
-  if (/heter\s+\S+/.test(lower) && /när\s+/.test(lower)) {
-    return true;
-  }
-  // Prose paragraphs without "Aktivitet:" prefixes
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const prefixed = lines.filter(
+function countPrefixedLines(lines: string[]): number {
+  return lines.filter(
     (l) =>
       ACTIVITY_HINTS.test(l) ||
       ROLE_HINTS.test(l) ||
@@ -597,10 +584,30 @@ function looksLikeNarrative(text: string): boolean {
       INPUT_HINTS.test(l) ||
       OUTPUT_HINTS.test(l) ||
       GATEWAY_HINTS.test(l) ||
+      BRANCH_HINTS.test(l) ||
       DOC_HINTS.test(l) ||
       APP_HINTS.test(l),
   ).length;
-  return lines.length >= 2 && prefixed === 0 && text.length > 120;
+}
+
+function looksLikeNarrative(text: string): boolean {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  // Prefixed structure always wins — never route mixed Activity:/Output: text through narrative.
+  if (countPrefixedLines(lines) > 0) {
+    return false;
+  }
+  const lower = text.toLowerCase();
+  const paras = text.split(/\n\s*\n/).filter((p) => p.trim());
+  if (paras.length >= 2 && /först|därefter|sedan|sista|heter\s+/i.test(lower)) {
+    return true;
+  }
+  if (/heter\s+\S+/.test(lower) && /när\s+/.test(lower)) {
+    return true;
+  }
+  return lines.length >= 2 && text.length > 120;
 }
 
 /**
@@ -1361,13 +1368,20 @@ function proposeFromPrefixedLines(
 
 /**
  * Text → process proposal (no API writes).
- * Prefers Swedish narrative extraction; falls back to prefix-line parser.
+ * Prefixed Activity:/Output: structure wins; narrative only when no prefixes.
  */
 export function proposeModelFromText(
   pack: MethodologyPack,
   text: string,
   modelType = "process",
 ): ModelProposal {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (hasPrefixedStructure(lines) || countPrefixedLines(lines) > 0) {
+    return proposeFromPrefixedLines(pack, text, modelType);
+  }
   const narrative = proposeFromNarrative(pack, text, modelType);
   if (narrative) {
     return narrative;
@@ -1412,18 +1426,39 @@ function pushBoUnique(chain: ProposedChainNode[], title: string | undefined): vo
   });
 }
 
+function pushBoNode(chain: ProposedChainNode[], title: string, symbolId?: string): void {
+  const t = title.trim();
+  if (!t) return;
+  const last = chain[chain.length - 1];
+  if (last?.kind === "businessObject" && last.title.toLowerCase() === t.toLowerCase()) {
+    if (symbolId && !last.symbolId) last.symbolId = symbolId;
+    return;
+  }
+  chain.push({
+    kind: "businessObject",
+    title: t,
+    objectType: "businessObject",
+    ...(symbolId ? { symbolId } : {}),
+  });
+}
+
 function enrichChainFromStepIo(
   chain: ProposedChainNode[],
   steps: ProposedStep[],
 ): ProposedChainNode[] {
   if (!chain.length) return chain;
-  if (chain.some((n) => n.kind === "businessObject")) return chain;
   const byTitle = new Map(steps.map((s) => [s.title.trim().toLowerCase(), s]));
   const hasIo = steps.some((s) => (s.inputs?.length ?? 0) > 0 || (s.outputs?.length ?? 0) > 0);
   if (!hasIo) return chain;
 
+  // Weave per activity even when the chain already has some BOs (avoid leftover activity→activity).
+  // Deduplicate consecutive BOs so spine BO + step I/O with the same title do not double up.
   const out: ProposedChainNode[] = [];
   for (const node of chain) {
+    if (node.kind === "businessObject") {
+      pushBoNode(out, node.title, node.symbolId);
+      continue;
+    }
     if (node.kind !== "activity") {
       out.push(node);
       continue;
@@ -1436,72 +1471,116 @@ function enrichChainFromStepIo(
   return out;
 }
 
-export function normalizeProposal(proposal: ModelProposal): ModelProposal {
+function applyReuseHints(chain: ProposedChainNode[], reuseHints?: Record<string, string>): void {
+  if (!reuseHints) return;
+  for (const node of chain) {
+    if (node.symbolId) continue;
+    const hit = reuseHints[node.title] ?? reuseHints[node.title.toLowerCase()];
+    if (hit) node.symbolId = hit;
+  }
+}
+
+/**
+ * Normalize legacy/hand-built proposals, then run the same finalize checks as text-to-model
+ * (alternation, namingChecks, repairHints) when a methodology pack is provided.
+ */
+export function normalizeProposal(proposal: ModelProposal, pack?: MethodologyPack): ModelProposal {
+  let chain: ProposedChainNode[];
+  let activities: ProposedActivityDetail[];
+  const branches = proposal.branches ?? [];
+
   if (proposal.chain?.length && proposal.activities) {
-    const chain = enrichChainFromStepIo(proposal.chain, proposal.steps ?? []);
-    // Apply reuseHints onto chain nodes missing symbolId
-    if (proposal.reuseHints) {
-      for (const node of chain) {
-        if (node.symbolId) continue;
-        const hit =
-          proposal.reuseHints[node.title] ?? proposal.reuseHints[node.title.toLowerCase()];
-        if (hit) node.symbolId = hit;
+    chain = enrichChainFromStepIo(proposal.chain, proposal.steps ?? []);
+    applyReuseHints(chain, proposal.reuseHints);
+    activities = proposal.activities;
+  } else {
+    chain = [];
+    activities = [];
+    for (const step of proposal.steps) {
+      const ot = step.objectType.toLowerCase().replace(/[_\s-]/g, "");
+      if (ot.includes("business") || ot === "businessobject") {
+        pushBoUnique(chain, step.title);
+      } else if (
+        ot === "gateway" ||
+        ot === "decision" ||
+        ot === "vägval" ||
+        ot === "vagval" ||
+        ot === "eller" ||
+        ot === "or" ||
+        ot === "xor"
+      ) {
+        chain.push({
+          kind: "gateway",
+          title: step.title,
+          objectType: "or",
+        });
+      } else if (ot === "and" || ot === "och") {
+        chain.push({ kind: "and", title: step.title, objectType: "and" });
+      } else if (ot === "join" || ot.includes("forbind") || ot.includes("förbind")) {
+        // drop forbidden join
+      } else {
+        for (const inp of step.inputs ?? []) pushBoUnique(chain, inp);
+        chain.push({
+          kind: "activity",
+          title: step.title,
+          objectType: "activity",
+        });
+        activities.push({
+          title: step.title,
+          performers: step.performers ?? (step.performerTitle ? [step.performerTitle] : []),
+          controlledBy: step.controlledBy ?? step.documents ?? [],
+          usedBy: step.usedBy ?? [],
+        });
+        for (const o of step.outputs ?? []) pushBoUnique(chain, o);
       }
     }
-    return {
-      ...proposal,
-      processTitle: proposal.processTitle ?? proposal.title,
+    applyReuseHints(chain, proposal.reuseHints);
+  }
+
+  if (pack) {
+    const finalized = finalizeProposal(
+      pack,
+      proposal.modelType,
+      proposal.title,
       chain,
-      branches: proposal.branches ?? [],
-      steps: stepsFromChain(chain, proposal.activities),
+      activities,
+      proposal.methodologyNotes ?? [],
+      branches,
+      proposal.secondaryOutputs ?? [],
+    );
+    return {
+      ...finalized,
+      reuseHints: proposal.reuseHints,
+      nextSuggestedTools: proposal.nextSuggestedTools ?? finalized.nextSuggestedTools,
     };
   }
-  const chain: ProposedChainNode[] = [];
-  const activities: ProposedActivityDetail[] = [];
-  for (const step of proposal.steps) {
-    const ot = step.objectType.toLowerCase().replace(/[_\s-]/g, "");
-    if (ot.includes("business") || ot === "businessobject") {
-      pushBoUnique(chain, step.title);
-    } else if (
-      ot === "gateway" ||
-      ot === "decision" ||
-      ot === "vägval" ||
-      ot === "vagval" ||
-      ot === "eller" ||
-      ot === "or" ||
-      ot === "xor"
-    ) {
-      chain.push({
-        kind: "gateway",
-        title: step.title,
-        objectType: "or",
-      });
-    } else if (ot === "and" || ot === "och") {
-      chain.push({ kind: "and", title: step.title, objectType: "and" });
-    } else if (ot === "join" || ot.includes("forbind") || ot.includes("förbind")) {
-    } else {
-      // Legacy steps: inputs/outputs become spine BOs (were previously ignored).
-      for (const inp of step.inputs ?? []) pushBoUnique(chain, inp);
-      chain.push({
-        kind: "activity",
-        title: step.title,
-        objectType: "activity",
-      });
-      activities.push({
-        title: step.title,
-        performers: step.performers ?? (step.performerTitle ? [step.performerTitle] : []),
-        controlledBy: step.controlledBy ?? step.documents ?? [],
-        usedBy: step.usedBy ?? [],
-      });
-      for (const o of step.outputs ?? []) pushBoUnique(chain, o);
-    }
+
+  const alternation = chainAlternationIssues(chain);
+  const namingChecks = [...(proposal.namingChecks ?? [])];
+  for (const msg of alternation) {
+    namingChecks.push({
+      title: proposal.title,
+      objectType: "process",
+      pass: false,
+      hint: msg,
+    });
   }
   return {
     ...proposal,
     processTitle: proposal.processTitle ?? proposal.title,
     chain,
     activities,
-    branches: proposal.branches ?? [],
+    branches,
     steps: stepsFromChain(chain, activities),
+    namingChecks,
+    ...(alternation.length
+      ? {
+          repairHints: [
+            "Re-propose or fix chain alternation (BO ↔ activity) before apply.",
+            ...alternation.slice(0, 5),
+          ],
+          suggestedPrefixedText: suggestedPrefixedFromChain(proposal.title, chain, branches),
+        }
+      : {}),
   };
 }

@@ -3719,23 +3719,62 @@ export class ProcessWriter {
             ),
           );
         }
+        const expected = edgeSnapshots.length;
         const recreated: string[] = [];
+        const failedEdges: Array<{
+          oldEdgeId?: string;
+          fromVertex?: string;
+          toVertex?: string;
+          edgeType?: string;
+          label?: string;
+        }> = [];
         for (const e of edgeSnapshots) {
           const labelEntry = e.labels?.[languageId] as { title?: string } | undefined;
-          const created = await this.createCanvasEdge({
-            repositoryId: args.repositoryId,
-            modelId: args.modelId,
-            fromVertexId: e.fromVertex!,
-            toVertexId: e.toVertex!,
-            edgeType: e.edgeType ?? "FLOW",
-            languageId,
-            label: labelEntry?.title?.trim() || undefined,
-          });
-          const id =
-            created.data && typeof created.data === "object" && "uuid" in (created.data as object)
-              ? String((created.data as { uuid?: string }).uuid ?? "")
-              : "";
-          if (id) recreated.push(id);
+          const label = labelEntry?.title?.trim() || undefined;
+          try {
+            const created = await this.createCanvasEdge({
+              repositoryId: args.repositoryId,
+              modelId: args.modelId,
+              fromVertexId: e.fromVertex!,
+              toVertexId: e.toVertex!,
+              edgeType: e.edgeType ?? "FLOW",
+              languageId,
+              label,
+            });
+            const id =
+              created.data && typeof created.data === "object" && "uuid" in (created.data as object)
+                ? String((created.data as { uuid?: string }).uuid ?? "")
+                : "";
+            if (id) {
+              recreated.push(id);
+            } else {
+              failedEdges.push({
+                oldEdgeId: e.uuid,
+                fromVertex: e.fromVertex,
+                toVertex: e.toVertex,
+                edgeType: e.edgeType ?? "FLOW",
+                label,
+              });
+            }
+          } catch {
+            failedEdges.push({
+              oldEdgeId: e.uuid,
+              fromVertex: e.fromVertex,
+              toVertex: e.toVertex,
+              edgeType: e.edgeType ?? "FLOW",
+              label,
+            });
+          }
+        }
+        if (recreated.length !== expected || failedEdges.length) {
+          throw new Error(
+            withControlPointBoundsHint(
+              `move_canvas_vertices fallback incomplete: deleted ${expected} edge(s), recreated ${recreated.length}. ` +
+                `Vertices were moved; restore missing edges via create_canvas_edge. ` +
+                `missing=${JSON.stringify(failedEdges)}. Original error: ${msg}`,
+              "move",
+            ),
+          );
         }
         return {
           data: {
@@ -3743,9 +3782,11 @@ export class ProcessWriter {
             count: patchVertices.length,
             reorthogonalized: recreated,
             fallback: "delete-edges-move-recreate",
+            edgesExpected: expected,
+            edgesRecreated: recreated.length,
           },
           methodologyNotes: [
-            "Combined vertex+edge PATCH failed; automatically fell back to delete edges → move → recreate.",
+            "Combined vertex+edge PATCH failed; automatically fell back to delete edges → move → recreate (all edges restored).",
             "After layout fixes: review_process_model.",
           ],
           nextSuggestedTools: ["review_process_model", "describe_process", "delete_canvas_edge"],
@@ -3755,7 +3796,8 @@ export class ProcessWriter {
         throw new Error(
           withControlPointBoundsHint(
             `move_canvas_vertices failed after combined PATCH and delete→move→recreate fallback.\n` +
-              `First error: ${msg}\nFallback error: ${fb}`,
+              `First error: ${msg}\nFallback error: ${fb}\n` +
+              `Model may have moved vertices and/or missing edges — inspect canvas before retry.`,
             "move",
           ),
           { cause: fallbackErr },
@@ -3886,23 +3928,58 @@ export class ProcessWriter {
       throw new Error("retarget_vertex_symbol: create vertex returned no uuid");
     }
 
+    const recreatable = attached.filter((e) => e.uuid && e.fromVertex && e.toVertex && e.edgeType);
     const recreated: string[] = [];
-    for (const e of attached) {
-      const fromVertex = e.fromVertex === args.vertexId ? newVertexId : e.fromVertex;
-      const toVertex = e.toVertex === args.vertexId ? newVertexId : e.toVertex;
-      if (!fromVertex || !toVertex || !e.edgeType) continue;
+    const failedEdges: Array<{
+      oldEdgeId?: string;
+      fromVertex?: string;
+      toVertex?: string;
+      edgeType?: string;
+      label?: string;
+    }> = [];
+    for (const e of recreatable) {
+      const fromVertex = e.fromVertex === args.vertexId ? newVertexId : e.fromVertex!;
+      const toVertex = e.toVertex === args.vertexId ? newVertexId : e.toVertex!;
       const label = Object.values(e.labels ?? {}).find((l) => l.title?.trim())?.title ?? undefined;
-      const edge = await this.createCanvasEdge({
-        repositoryId: args.repositoryId,
-        modelId: args.modelId,
-        fromVertexId: fromVertex,
-        toVertexId: toVertex,
-        edgeType: e.edgeType,
-        languageId: args.languageId,
-        label,
-      });
-      const eid = (edge.data as { uuid?: string })?.uuid;
-      if (eid) recreated.push(eid);
+      try {
+        const edge = await this.createCanvasEdge({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          fromVertexId: fromVertex,
+          toVertexId: toVertex,
+          edgeType: e.edgeType!,
+          languageId: args.languageId,
+          label,
+        });
+        const eid = (edge.data as { uuid?: string })?.uuid;
+        if (eid) {
+          recreated.push(eid);
+        } else {
+          failedEdges.push({
+            oldEdgeId: e.uuid,
+            fromVertex,
+            toVertex,
+            edgeType: e.edgeType,
+            label,
+          });
+        }
+      } catch {
+        failedEdges.push({
+          oldEdgeId: e.uuid,
+          fromVertex,
+          toVertex,
+          edgeType: e.edgeType,
+          label,
+        });
+      }
+    }
+
+    if (recreated.length !== recreatable.length || failedEdges.length) {
+      throw new Error(
+        `retarget_vertex_symbol incomplete: old vertex ${args.vertexId} deleted; new vertex ${newVertexId} ` +
+          `(symbol ${args.newSymbolId}) created; edges ${recreated.length}/${recreatable.length} restored. ` +
+          `Recreate missing edges with create_canvas_edge. missing=${JSON.stringify(failedEdges)}`,
+      );
     }
 
     return {
@@ -3911,13 +3988,16 @@ export class ProcessWriter {
         newVertexId,
         oldSymbolId: oldSymbol,
         newSymbolId: args.newSymbolId,
+        edgesExpected: recreatable.length,
         edgesRecreated: recreated.length,
         edgeIds: recreated,
+        ok: true,
       },
       methodologyNotes: [
         "Vertex.symbol is read-only on PATCH /canvas — retarget deletes+recreates the vertex and its edges.",
         "Old symbol UUID remains in the repository (search_symbols / reuse_symbol).",
         "Prefer this over manual delete_canvas_edge + delete_canvas_vertex + reuse_symbol.",
+        "Non-transactional: if recreate fails mid-way the error includes recovery edge metadata.",
       ],
       nextSuggestedTools: ["review_process_model", "find_symbol_usage"],
     };
@@ -4495,7 +4575,7 @@ export class ProcessWriter {
     group?: string;
     modelId?: string;
   }) {
-    const proposal = normalizeProposal(args.proposal);
+    const proposal = normalizeProposal(args.proposal, this.pack);
     let modelId = args.modelId;
     let createdThisCall = false;
     const results: unknown[] = [];
@@ -4556,7 +4636,18 @@ export class ProcessWriter {
         const msg = err instanceof Error ? err.message : String(err);
         throw new Error(`${msg}${note ? ` (${note})` : ""}`);
       }
-      throw err;
+      // Existing modelId: API has no transaction — surface partial progress for recovery.
+      const msg = err instanceof Error ? err.message : String(err);
+      const progress =
+        placed.length > 0
+          ? ` Partial apply on existing model ${modelId}: ${placed.length} vertex/vertices already placed (${placed
+              .slice(0, 8)
+              .map((p) => p.title)
+              .join(
+                ", ",
+              )}${placed.length > 8 ? ", …" : ""}). Review canvas, delete orphans, or re-apply after fix — no automatic rollback.`
+          : ` Apply failed on existing model ${modelId}; no vertices were recorded as placed. Inspect canvas before retry.`;
+      throw new Error(`${msg}${progress}`, { cause: err });
     }
   }
 
@@ -5314,6 +5405,14 @@ export class ProcessWriter {
       (p) => p.kind === "businessObject" || p.objectType === "businessObject",
     ).length;
     const missingBos = boCount === 0 || placedBoCount === 0;
+    if (missingBos) {
+      throw new Error(
+        `apply_model_proposal produced 0 business objects on FLOW (chainBusinessObjectCount=${boCount}, ` +
+          `placed=${placedBoCount}, modelId=${modelId}, placedVertices=${placed.length}). ` +
+          `Fix chain (BO→activity→BO) / reuseHints and re-apply, or add BOs with set_step_io. ` +
+          `Do NOT treat this as done. Partial vertices may remain on the canvas — review and clean up.`,
+      );
+    }
     return {
       data: {
         modelId,
@@ -5323,10 +5422,7 @@ export class ProcessWriter {
         businessObjectCount: placedBoCount,
         chainBusinessObjectCount: boCount,
         branchCount: branches.length,
-        ok: !missingBos,
-        warning: missingBos
-          ? "NO business objects on FLOW spine — model is incomplete. Fix chain (BO→activity→BO) and re-apply, or add BOs with set_step_io. Do NOT treat this as done."
-          : undefined,
+        ok: true,
       },
       methodologyNotes: [
         ...(proposal.methodologyNotes ?? []),
@@ -5338,17 +5434,10 @@ export class ProcessWriter {
               "Applied gateway branches with FLOW edge labels (Ja/Nej). Side targets align under the main-path activity (not under the diamond) with space for RACI/apps.",
             ]
           : []),
-        ...(missingBos
-          ? [
-              "ERROR: chain had no business objects (or none were placed). Value stream requires BO → activity → BO. If you put BO titles only in steps.inputs/outputs, ensure they are woven into chain — re-run apply after fixing the proposal. ALWAYS call review_process_model next.",
-            ]
-          : []),
         "Always verify: businessObjectCount > 0, then describe_process + review_process_model before reporting done.",
       ],
       namingChecks: proposal.namingChecks,
-      nextSuggestedTools: missingBos
-        ? ["review_process_model", "describe_process", "set_step_io", "propose_model_from_text"]
-        : ["describe_process", "review_process_model", "get_process_flow"],
+      nextSuggestedTools: ["describe_process", "review_process_model", "get_process_flow"],
     };
   }
 

@@ -14,7 +14,7 @@ Process description:
 4. Fix businessObject namingChecks (no status-echo BOs)
 5. search_symbols in the TARGET REPO before apply — reuse UUIDs
 6. apply_model_proposal (draft unless sandbox; draft still requires write-scope lock)
-7. Check businessObjectCount > 0
+7. apply hard-fails if no BOs placed — fix chain / namingChecks and re-apply
 8. describe_process + review_process_model — fix findings
 9. For branching: resolve_branching_object_type first (objectType or)
 10. Activity descriptions: update_symbol_description only if source text gives purpose/why/considerations —

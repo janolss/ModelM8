@@ -169,13 +169,16 @@ export function registerProposeTools(server: McpServer, ctx: ToolContext): void 
       },
       async (args) =>
         runMutatingTool(ctx, args.repositoryId, () => {
-          const proposal = normalizeProposal({
-            ...(args.proposal as ModelProposal),
-            reuseHints: {
-              ...((args.proposal as ModelProposal).reuseHints ?? {}),
-              ...(args.reuseHints ?? {}),
+          const proposal = normalizeProposal(
+            {
+              ...(args.proposal as ModelProposal),
+              reuseHints: {
+                ...((args.proposal as ModelProposal).reuseHints ?? {}),
+                ...(args.reuseHints ?? {}),
+              },
             },
-          });
+            ctx.pack,
+          );
           return ctx.writer!.applyProposal({
             repositoryId: args.repositoryId,
             languageId: args.languageId,

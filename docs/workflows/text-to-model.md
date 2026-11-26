@@ -22,7 +22,7 @@ MCP prompt: `text_to_process_model`
 3. Fix `namingChecks` for business objects
 4. Branching: `resolve_branching_object_type` → `or` (never gateway/join)
 5. `search_symbols` in the target repo — reuse UUIDs
-6. `apply_model_proposal` — require `businessObjectCount > 0`
+6. `apply_model_proposal` — hard-fails if no business objects were placed; fix chain and re-apply
 7. `describe_process`
 8. Gaps: `set_activity_performer`, `set_step_io`, `create_canvas_edge` (Yes/No)
 9. **`review_process_model`** → fix → repeat until OK
