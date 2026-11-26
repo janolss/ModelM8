@@ -752,8 +752,8 @@ export class ProcessWriter {
         rawTitle: plain,
         width: typeof prev.width === "number" ? prev.width : width,
         height: typeof prev.height === "number" ? prev.height : 20,
-        x: typeof prev.x === "number" ? prev.x : sample?.x ?? 0,
-        y: typeof prev.y === "number" ? prev.y : sample?.y ?? 0,
+        x: typeof prev.x === "number" ? prev.x : (sample?.x ?? 0),
+        y: typeof prev.y === "number" ? prev.y : (sample?.y ?? 0),
         ...(defLang && langId === defLang ? {} : { translated: true }),
       };
     };
@@ -2674,11 +2674,7 @@ export class ProcessWriter {
         "L1 without L0-upward is an approved exception when core uses shared-BO L2 only (document in STATE).",
         ...notes,
       ],
-      nextSuggestedTools: [
-        "review_process_model",
-        "get_navigation_tree",
-        "describe_process_map",
-      ],
+      nextSuggestedTools: ["review_process_model", "get_navigation_tree", "describe_process_map"],
     };
   }
 
