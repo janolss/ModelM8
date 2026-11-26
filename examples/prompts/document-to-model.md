@@ -6,10 +6,11 @@ Use modelM8. Repo: <repositoryId>. Language: <languageId>.
 Source: <path / documentId / attached file>
 Type: <URL | file | content in the chat>
 
+0. get_write_scope → lock_write_repository to the target repositoryId if unlocked
 1. Do the documents share a base URL/folder? list_document_roots → create_document_root (key+value). Later: store full absolute URLs on docs; user matches roots in 2c8 UI.
 2. As needed: list_document_types / create_document_type
 3. propose_model_from_document (or extract text → propose_model_from_text)
-4. Fix BO namingChecks; search_symbols in target repo; apply
+4. Fix BO namingChecks; search_symbols in target repo; apply (draft still requires write-scope lock)
 5. businessObjectCount > 0; describe_process; review_process_model; fix
 6. link_document: documentRootKey + relativePath + titles for ALL languages (same full absolute URL per language).
    content/URL is language-specific like titles — one language alone leaves others empty.

@@ -5,8 +5,13 @@
 | Symptom | Action |
 |---|---|
 | No tools / auth errors | Restart modelM8; reconnect the MCP client |
+| HTTP `401 Unauthorized` on `/mcp` | `MCP_HTTP_AUTH_TOKEN` is set — send `Authorization: Bearer <token>` from the client |
 | `list_repositories` fails | Check `TWO_C8_BASE_URL`, API key, network |
 | Write tools missing | `TWO_C8_ALLOW_WRITES=true` and restart |
+| Security warning about non-loopback HOST | Set `MCP_HTTP_AUTH_TOKEN` or bind `HOST=127.0.0.1` |
+| Write blocked: write scope is unlocked / draft requires a locked write scope | Call `lock_write_repository` (or `create_repository` when unlocked) then retry |
+| Cannot create_repository while write scope is locked | Unlock first (`unlock_write_repository` per policy), then create |
+| Write blocked: repositoryId … outside write scope | Wrong repo — use `get_write_scope`; do not invent other UUIDs |
 
 ## Empty HTTP 200
 
@@ -29,6 +34,9 @@ Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`
 | `verify_document_links` `relative-without-absolute-url` | Stored path is not absolute; recreate with full URL (`documentRootKey` + `relativePath` joins root.value) |
 | Empty URL in secondary language (SV) while EN works | `content` is per language. Re-link with `titles` map or `updateDocumentBody` setting `languages.<svId>.content` to the same absolute URL. Re-run `verify_document_links` **without** `languageId` |
 | `verify_document_links` allPass but GUI empty on SV | You verified only EN. Omit `languageId` (checks all languages) |
+| `get_document_content` refuses `file://` / “outside allowed document roots” | Path must sit under a repo document root (`file:///…`) or `TWO_C8_DOCUMENT_READ_ROOTS`. Create/match roots first |
+| `get_document_content` refuses private/loopback HTTP host | Expected SSRF guard — use a public URL or host the file under an allowed `file:///` root |
+| `relativePath must not contain '.' or '..'` | Do not use `../` in `link_document` relative paths |
 
 ## Translations / globes in the 2c8 UI
 
@@ -47,7 +55,14 @@ Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`
 | Error | Action |
 |---|---|
 | gateway / join | `resolve_branching_object_type` → `or`; never Join |
-| `businessObjectCount = 0` | Alternate BO ↔ activity in the chain |
+| `businessObjectCount = 0` / apply hard-fail | Alternate BO ↔ activity; fix proposal and re-apply. Apply **throws** when no BOs were placed (not soft `ok: false`). |
+| Apply fail on **existing** `modelId` | No auto-rollback — error includes partial placed titles. Inspect canvas; delete orphans; fix chain; re-apply. New models created in the same call still roll back on failure. |
+| `move_canvas_vertices` fallback incomplete | Combined PATCH failed; delete→recreate did not restore all edges. Error lists `missing` edge metadata — recreate with `create_canvas_edge`, then `review_process_model`. |
+| `retarget_vertex_symbol` incomplete | Vertex already swapped; some edges missing. Use `missing` in the error + `create_canvas_edge`. |
+| `verify_handoffs` no exact title | Pass `symbolId` or an **exact** BO title — first search hit is never used. |
+| `verify_handoffs` autoDiscover truncated | Max 20 `modelIds` — use `contract[]` for larger sets. |
+| Huge MCP tool response / truncated JSON | Narrow query / lower `maxResults` (cap 500); `jsonResult` truncates ~400k chars. |
+| `find_symbol_usage` truncated | Raise `maxModels` (default 80, max 200) or `maxUsages`. |
 | 400 after moving symbols (`Control point end must lie within the to-vertex bounds`) | Use `move_canvas_vertices` only — it patches **vertices + attached edges together**. Do not `update_canvas_edges` before/after a separate move; that chicken-and-egg fails validation. |
 
 ## Developer docs

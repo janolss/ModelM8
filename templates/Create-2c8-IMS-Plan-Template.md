@@ -116,7 +116,7 @@ Confirm that modelM8 is connected. Run `list_repositories`, `get_api_versions`; 
 | # | Limitation | Handling |
 |---|---|---|
 | 1 | `review_process_model` assumes a horizontal spine | L0 three bands / parallelTracks → approved exceptions (10.3) |
-| 2 | `create_process_map` linear/parallelTracks need shared BO between peers | Use `layout: { mode: "peerRows" }` + `detailModelIds` for independent rows; review with `layoutMode: "peerRows"` |
+| 2 | `create_process_map` linear/parallelTracks need shared BO between peers | L1: `layout: { mode: "peerRows" }` + `detailModelIds`. L0: `coreDetailModelIds` = only linear shared-BO spine; peer områdes-L1 via `coreProcessIds` (core-band chevrons without FLOW) — do **not** put kärna in support band. Review `layoutMode: "threeBand"` |
 | 3 | Breakdowns live on the **detail** (`broken-down-from`); overview often returns empty/404 | Use `get_navigation_tree`, not `get_breakdowns(L0)` |
 | 4 | New repo may lack description/document types until the client has been opened | Smoke test in phase 2; `create_document_type` as needed |
 | 5 | MT documents require `type: URL\|file` + link via `{id, source:"mt.documents"}` | See `link_document`; test on a dummy before mass linking |
@@ -267,9 +267,10 @@ Build/complete L0; `link_breakdown` for all chevrons; `get_navigation_tree(rootM
 
 1. `verify_handoffs` on all of 6.4.
 2. Duplicates / aliases → `retarget_vertex_symbol` or reuse.
-3. `list_untranslated_symbols` (secondary vs primary).
+3. `list_untranslated_symbols` (secondary vs primary) — schedule time for **BO + ROLE** EN (not only ACTIVITY) before Q4 if Q6 must be empty earlier.
 4. Role spot-check `describe_role`.
 5. Document panels / `get_object_documents`.
+6. Keep running outside the MCP repo (`WORK_DIR` external) when the plan says so; always `list_languages` before writes.
 
 ### Phase 7 — Final check
 
@@ -308,7 +309,9 @@ Layout fix: `move_canvas_vertices` (reortho default); symbol swap: `retarget_ver
 3. Choose form: chain / `parallelTracks` / `sideLoops` / manual rows (peer variants → `parallelTracks`, not a false linear chain).
 4. Fix handoffs in details first — no overview-only BOs.
 5. Prefer `create_process_map({ detailModelIds })` when scopes share UUIDs. Peers with **distinct** inputs → `create_process_map({ layout: { mode: "peerRows" }, detailModelIds })`. Manual rows only if peerRows fails — log TOOL-FRICTION when `MCP_DEBUG=Yes`.
-6. `describe_process_map(detailModelIds)` → `scopeOk`; `review_process_model` **with** `detailModelIds` and `layoutMode: "peerRows"` when applicable (review without details is insufficient); `get_navigation_tree` / breakdowns on details.
+5b. **L0 first choice:** `create_process_map({ layout: { mode: "threeBand", coreDetailModelIds: [linear shared-BO details], coreProcessIds: [peer L1 areas], managementProcessIds, supportProcessIds } })`. Document STATE BESLUT if only a short L2 handoff stays on FLOW and peers use `coreProcessIds`.
+6. `describe_process_map(detailModelIds)` → `scopeOk`; `review_process_model` **with** `detailModelIds` and `layoutMode: "peerRows"` when applicable (review without details is insufficient); L0 review with `layoutMode: "threeBand"`; `get_navigation_tree` / breakdowns on details.
+6b. `verify_process_coverage`: SV `title`/`titleContains` matches all language titles by default (no EN workaround needed after translation).
 
 ---
 

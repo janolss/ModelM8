@@ -15,6 +15,8 @@ Start HTTP mode:
 npm run start:http
 ```
 
+If `.env` has `MCP_HTTP_AUTH_TOKEN`, the MCP client must send `Authorization: Bearer <token>` on `POST /mcp`. Loopback without a token is fine for local use; beyond loopback, set the token (see [getting-started](getting-started.md)).
+
 ## Checklist after connecting
 
 Ask the agent (or run the tools) in this order:
@@ -24,7 +26,7 @@ Ask the agent (or run the tools) in this order:
 3. `list_languages` on the chosen repo — keep the language UUIDs  
 4. If you will write: confirm write tools are registered (`create_repository`, `propose_model_from_text`, …)
 
-If steps 1–2 fail: check `TWO_C8_BASE_URL`, API key, and that the server is running (`GET /health`).
+If steps 1–2 fail: check `TWO_C8_BASE_URL`, API key, Bearer token (if configured), and that the server is running (`GET /health` → `{ "ok": true }`).
 
 ## Naming in the client
 

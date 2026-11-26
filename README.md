@@ -44,24 +44,27 @@ npm run start:http     # http://127.0.0.1:3000/mcp
 | `TWO_C8_WRITE_DENY_REPOSITORY_NAMES` | *(empty)* | Comma-separated repo names that can never be locked/created |
 | `MCP_TRANSPORT` | `stdio` | `stdio` \| `http` |
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | HTTP |
+| `MCP_HTTP_AUTH_TOKEN` | *(empty)* | When set, `POST /mcp` requires `Authorization: Bearer …` |
+| `TWO_C8_DOCUMENT_READ_ROOTS` | *(empty)* | Extra dirs for `get_document_content` `file://` allowlist |
 
 ```bash
 npm start              # stdio
 npm run start:http     # Streamable HTTP
 ```
 
-Health: `GET /health`
+Health: `GET /health` → `{ "ok": true }`
 
 ### Docker
 
 Base image: `node:26-alpine`. CI builds and pushes to GHCR on `v*` tags (e.g. `v1.2.0`).
 
-HTTP `/mcp` has **no authentication**. The image defaults to `HOST=127.0.0.1`; for port publishing you must set `HOST=0.0.0.0` deliberately — do not expose it on untrusted networks.
+`POST /mcp` has no auth unless `MCP_HTTP_AUTH_TOKEN` is set. The image defaults to `HOST=127.0.0.1`; for port publishing set `HOST=0.0.0.0` **and** a Bearer token (and/or a reverse proxy) — do not expose an open `/mcp` on untrusted networks.
 
 ```bash
 docker build -t modelm8 .
 docker run --rm -p 3000:3000 \
   -e HOST=0.0.0.0 \
+  -e MCP_HTTP_AUTH_TOKEN=change-me \
   -e TWO_C8_BASE_URL=https://host/mt-backend \
   -e TWO_C8_API_KEY=... \
   -e TWO_C8_ALLOW_WRITES=false \
@@ -80,7 +83,7 @@ docker pull ghcr.io/<owner>/modelm8:1.2.0
 - Domain tools (consume, propose/apply, quality gates) + analysis  
 - Resources `methodology://…`, prompts, server instructions  
 - Writes gated by `TWO_C8_ALLOW_WRITES`; deletes by `TWO_C8_ALLOW_DELETES`
-- Runtime **write scope** (`lock_write_repository` / `get_write_scope` / `unlock_write_repository`) — one target repo per process without rebuilding the container
+- Runtime **write scope** (`lock_write_repository` / `get_write_scope` / `unlock_write_repository`) — one target repo per process; draft creates and deletes also require the lock; `create_repository` only when unlocked
 
 ## Development
 

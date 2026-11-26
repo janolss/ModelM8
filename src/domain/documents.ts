@@ -9,6 +9,12 @@ import {
 } from "../util/keyed-async-mutex.js";
 import { pickTitle } from "../util/titles.js";
 import {
+  assertFilePathAllowed,
+  fetchDocumentBytes,
+  filesystemPathsFromDocumentRootValues,
+  parseDocumentReadRootsEnv,
+} from "./document-fetch-guard.js";
+import {
   absoluteUrlsFromMtDocumentBody,
   linksMatchForDedupe,
   normalizeDocumentRootValue,
@@ -314,9 +320,10 @@ export class DocumentsService {
     });
 
     const maxChars = args.maxChars ?? 12000;
+    const allowedFileRoots = await this.resolveAllowedFileReadRoots(args.repositoryId);
     const enriched = [];
     for (const doc of documents) {
-      const content = await this.extractTextFromLink(doc.link, maxChars);
+      const content = await this.extractTextFromLink(doc.link, maxChars, allowedFileRoots);
       enriched.push({
         ...doc,
         content: content.text,
@@ -330,16 +337,32 @@ export class DocumentsService {
       sourceId,
       documents: enriched,
       methodologyNotes: [
-        "PDF/text extraction works for local file:// paths and http(s) URLs reachable from the MCP host.",
-        "If link is file:// on another machine, contentNote explains the limitation — share a published URL or place the file where the MCP server can read it.",
+        "PDF/text extraction: file:// only under repository document roots or TWO_C8_DOCUMENT_READ_ROOTS; http(s) blocks private/loopback targets and caps download size.",
+        "If link is file:// on another machine or outside the allowlist, contentNote explains the limitation.",
       ],
       nextSuggestedTools: ["search_documents", "describe_role"],
     };
   }
 
+  /** Document-root file paths + optional TWO_C8_DOCUMENT_READ_ROOTS env. */
+  private async resolveAllowedFileReadRoots(repositoryId: string): Promise<string[]> {
+    const envRoots = parseDocumentReadRootsEnv(process.env.TWO_C8_DOCUMENT_READ_ROOTS);
+    let rootValues: string[] = [];
+    try {
+      const listed = await this.listRoots(repositoryId);
+      rootValues = listed.roots
+        .map((r) => r.value)
+        .filter((v): v is string => typeof v === "string" && Boolean(v.trim()));
+    } catch {
+      // Allowlist may still come from env when roots API fails
+    }
+    return [...filesystemPathsFromDocumentRootValues(rootValues), ...envRoots];
+  }
+
   private async extractTextFromLink(
     link: string | undefined,
     maxChars: number,
+    allowedFileRoots: readonly string[],
   ): Promise<{
     text?: string;
     source?: string;
@@ -360,20 +383,26 @@ export class DocumentsService {
           return { note: `Could not parse file URL: ${link}` };
         }
         try {
-          buffer = await readFile(filePath);
-          source = `file:${filePath}`;
-        } catch {
+          const allowedPath = await assertFilePathAllowed(filePath, allowedFileRoots);
+          buffer = await readFile(allowedPath);
+          source = `file:${allowedPath}`;
+        } catch (error) {
           return {
-            note: `file:// link not readable from MCP host (${filePath}). Use a published URL or run MCP on a machine with access to the path.`,
+            note:
+              error instanceof Error
+                ? error.message
+                : `file:// link not readable from MCP host (${filePath}).`,
           };
         }
       } else if (link.startsWith("http://") || link.startsWith("https://")) {
-        const res = await fetch(link);
-        if (!res.ok) {
-          return { note: `HTTP fetch failed with ${res.status} for ${link}` };
+        try {
+          buffer = await fetchDocumentBytes(link);
+          source = link;
+        } catch (error) {
+          return {
+            note: error instanceof Error ? error.message : `HTTP fetch failed for ${link}`,
+          };
         }
-        buffer = Buffer.from(await res.arrayBuffer());
-        source = link;
       } else {
         return { note: `Unsupported link scheme: ${link}` };
       }

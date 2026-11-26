@@ -127,6 +127,51 @@ describe("assertClientWriteScope", () => {
       }),
     ).toThrow(/outside write scope/);
   });
+
+  it("requires lock for draft API paths", () => {
+    const s = scope();
+    expect(() =>
+      assertClientWriteScope(s, {
+        method: "POST",
+        path: "/api/v1/repositories/draft/models",
+      }),
+    ).toThrow(/draft API requires a locked write scope/);
+    s.lock({ repositoryId: "repo-a" });
+    expect(() =>
+      assertClientWriteScope(s, {
+        method: "POST",
+        path: "/api/v1/repositories/draft/models",
+      }),
+    ).not.toThrow();
+  });
+
+  it("blocks create_repository while locked", () => {
+    const s = scope();
+    s.lock({ repositoryId: "repo-a" });
+    expect(() =>
+      assertClientWriteScope(s, {
+        method: "POST",
+        path: "/api/v1/repositories",
+      }),
+    ).toThrow(/Cannot create_repository while write scope is locked/);
+  });
+
+  it("allows create_repository when unlocked", () => {
+    const s = scope();
+    expect(() =>
+      assertClientWriteScope(s, {
+        method: "POST",
+        path: "/api/v1/repositories",
+      }),
+    ).not.toThrow();
+  });
+
+  it("treats draft alias as lock requirement", () => {
+    const s = scope();
+    expect(() => s.assertWritable("draft")).toThrow(/draft requires a locked write scope/);
+    s.lock({ repositoryId: "repo-a" });
+    expect(() => s.assertWritable("draft")).not.toThrow();
+  });
 });
 
 describe("createWriteScopeFromConfig / shared instance", () => {

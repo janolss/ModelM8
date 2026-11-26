@@ -49,6 +49,10 @@ function normalizeName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+export function isDraftAlias(repositoryId: string): boolean {
+  return repositoryId.trim().toLowerCase() === "draft";
+}
+
 export class WriteScope {
   private repositoryId: string | null = null;
   private repositoryName: string | null = null;
@@ -97,6 +101,12 @@ export class WriteScope {
       throw new WriteScopeError("invalid", "Write blocked: repositoryId is missing or empty.");
     }
 
+    // Draft alias is not a target repo — require an active lock instead.
+    if (isDraftAlias(repositoryId)) {
+      this.assertLockedForUnscopedMutation("draft");
+      return;
+    }
+
     if (this.isDeniedId(repositoryId)) {
       throw new WriteScopeError(
         "denied",
@@ -125,6 +135,40 @@ export class WriteScope {
           `(locked to ${this.repositoryId}` +
           `${this.repositoryName ? ` ${this.repositoryName}` : ""}). ` +
           "Call get_write_scope. Do not retry other repositories.",
+      );
+    }
+  }
+
+  /**
+   * Draft API paths and other mutations without pathParams.repositoryId still
+   * require an active lock when requireLockBeforeWrite is enabled.
+   */
+  assertLockedForUnscopedMutation(context = "mutation"): void {
+    if (this.repositoryId !== null) {
+      return;
+    }
+    if (!this.policy.requireLockBeforeWrite) {
+      return;
+    }
+    throw new WriteScopeError(
+      "not_locked",
+      `Write blocked: ${context} requires a locked write scope. ` +
+        "Call lock_write_repository with the confirmed target repositoryId first " +
+        "(or create_repository, which auto-locks when unlocked). " +
+        "Call get_write_scope. Do not retry other repositories.",
+    );
+  }
+
+  /**
+   * create_repository is only allowed while unlocked (then auto-lock may apply).
+   */
+  assertCanCreateRepository(): void {
+    if (this.repositoryId !== null) {
+      throw new WriteScopeError(
+        "already_locked",
+        `Cannot create_repository while write scope is locked to ${this.repositoryId}` +
+          `${this.repositoryName ? ` (${this.repositoryName})` : ""}. ` +
+          "Unlock first (per server unlock policy), then create or lock the intended repository.",
       );
     }
   }
@@ -255,14 +299,27 @@ export function extractCreatedRepositoryId(created: unknown): string | undefined
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+function normalizedApiPath(path: string | undefined): string {
+  return (path ?? "").split("?")[0]?.replace(/\/+$/, "") || "";
+}
+
+export function isDraftApiPath(path: string | undefined): boolean {
+  return /\/repositories\/draft(\/|$)/i.test(path ?? "");
+}
+
+export function isCreateRepositoryApiPath(path: string | undefined): boolean {
+  return normalizedApiPath(path) === "/api/v1/repositories";
+}
+
 /**
  * Safetynet for TwoC8Client: assert pathParams.repositoryId on mutating calls.
- * Also checks common body target fields when present.
+ * Also checks draft/create_repository paths and common body target fields.
  */
 export function assertClientWriteScope(
   scope: WriteScope,
   options: {
     method?: string;
+    path?: string;
     pathParams?: Record<string, string>;
     body?: unknown;
   },
@@ -272,9 +329,21 @@ export function assertClientWriteScope(
     return;
   }
 
+  if (isCreateRepositoryApiPath(options.path)) {
+    scope.assertCanCreateRepository();
+    return;
+  }
+
+  if (isDraftApiPath(options.path)) {
+    scope.assertLockedForUnscopedMutation("draft API");
+    return;
+  }
+
+  let asserted = false;
   const fromPath = options.pathParams?.repositoryId;
   if (fromPath) {
     scope.assertWritable(fromPath);
+    asserted = true;
   }
 
   if (options.body && typeof options.body === "object" && !Array.isArray(options.body)) {
@@ -288,13 +357,20 @@ export function assertClientWriteScope(
       const v = body[key];
       if (typeof v === "string" && v.trim()) {
         scope.assertWritable(v.trim());
+        asserted = true;
       } else if (v && typeof v === "object" && !Array.isArray(v)) {
         const id = (v as Record<string, unknown>).id;
         if (typeof id === "string" && id.trim()) {
           scope.assertWritable(id.trim());
+          asserted = true;
         }
       }
     }
+  }
+
+  // Fail closed: mutating call with no identifiable repository still needs a lock.
+  if (!asserted) {
+    scope.assertLockedForUnscopedMutation("unscoped mutating API call");
   }
 }
 

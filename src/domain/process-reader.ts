@@ -2,15 +2,21 @@ import type { TwoC8Client } from "../api/twoc8-client.js";
 import type {
   BreakdownView,
   CanvasDto,
-  EdgeView,
   FlowStep,
   FlowStepRef,
   ModelView,
   Page,
   SymbolView,
-  VertexView,
 } from "../api/types.js";
 import { extractQuickdrawDistance, loadRepoConfiguration } from "../methodology/rules-engine.js";
+import { mapWithConcurrency } from "../util/concurrency.js";
+import {
+  ACTIVITY_TYPES,
+  BUSINESS_OBJECT_TYPES,
+  DECISION_TYPES,
+  PROCESS_OBJECT_TYPES,
+  RESPONSIBILITY_TYPES,
+} from "../util/model-type-sets.js";
 import {
   GATEWAY_SEARCH_HINT,
   isForbiddenJoinType,
@@ -19,142 +25,56 @@ import {
 } from "../util/object-types.js";
 import { pickTitle, titleMatches } from "../util/titles.js";
 import { reviewProcessCanvas } from "./process-review.js";
+import { buildFlowFromCanvas } from "./reader/flow-from-canvas.js";
+import { scopeFromFlow } from "./reader/scope-from-flow.js";
+import {
+  documentIdOf,
+  documentTitleOf,
+  isProcessLike,
+  normType,
+  objectTypeOf,
+  symbolIdOf,
+  titleOf,
+  toWildcardFilter,
+} from "./reader/vertex-utils.js";
 
-const PROCESS_TYPE_HINTS = ["process", "swimlane", "simbane"];
-
-const RESPONSIBILITY_TYPES = new Set([
-  "role",
-  "position",
-  "organisation",
-  "organization",
-  "befattning",
-  "roll",
-  "stakeholder",
-  "intressent",
-]);
-
-/** Executable steps in a process model (excludes PROCESS map objects). */
-const ACTIVITY_TYPES = new Set(["activity", "aktivitet"]);
-
-/** Process chevrons on overview / process-map canvases. */
-const PROCESS_OBJECT_TYPES = new Set(["process"]);
-
-/** Vägval = Regel (Eller)=or; also and; legacy DECISION. */
-const DECISION_TYPES = new Set([
-  "decision",
-  "or",
-  "eller",
-  "and",
-  "och",
-  "gateway",
-  "regel",
-  "vägval",
-  "vagval",
-]);
-
-const APPLICATION_TYPES = new Set(["application", "applikation", "it", "system"]);
-
-const BUSINESS_OBJECT_TYPES = new Set([
-  "businessobject",
-  "business_object",
-  "verksamhetsobjekt",
-  "document",
-  "message",
-  "meddelande",
-]);
-
-const FLOW_EDGE_TYPES = new Set(["flow", "sequence"]);
-const RESPONSIBLE_EDGE_TYPES = new Set([
-  "raci_responsible",
-  "responsible",
-  "ansvarig",
-  "performs",
-  "utför",
-]);
-const APPLICATION_EDGE_TYPES = new Set(["is_used_by", "uses", "used_by", "application"]);
-const CONTROLS_EDGE_TYPES = new Set(["controls", "control", "styr"]);
-
-function isProcessLike(modelType: string | undefined): boolean {
-  const t = (modelType ?? "").toLowerCase();
-  return PROCESS_TYPE_HINTS.some((h) => t.includes(h));
-}
-
-function normType(value: string | undefined): string {
-  return (value ?? "").toLowerCase().replace(/[\s-]+/g, "");
-}
-
-function symbolIdOf(vertex: VertexView): string | undefined {
-  if (typeof vertex.symbol === "string") {
-    return vertex.symbol;
-  }
-  if (vertex.symbol && typeof vertex.symbol === "object") {
-    return vertex.symbol.uuid;
-  }
-  return undefined;
-}
-
-function objectTypeOf(vertex: VertexView): string | undefined {
-  if (vertex.objectType) {
-    return vertex.objectType;
-  }
-  if (vertex.symbol && typeof vertex.symbol === "object") {
-    return vertex.symbol.objectType;
-  }
-  return undefined;
-}
-
-function titleOf(vertex: VertexView): string | undefined {
-  // Canvas returns titles on labels; vertices?projection=ALL expands symbol.titles
-  return (
-    pickTitle(vertex.labels) ??
-    pickTitle(typeof vertex.symbol === "object" ? vertex.symbol?.titles : undefined) ??
-    pickTitle((vertex as { titles?: VertexView["labels"] }).titles)
-  );
-}
-
-function documentIdOf(doc: unknown): string | undefined {
-  if (typeof doc === "string") {
-    return doc;
-  }
-  if (doc && typeof doc === "object") {
-    const o = doc as Record<string, unknown>;
-    if (typeof o.uuid === "string") {
-      return o.uuid;
-    }
-    if (typeof o.id === "string") {
-      return o.id;
-    }
-  }
-  return undefined;
-}
-
-function documentTitleOf(doc: unknown): string | undefined {
-  if (!doc || typeof doc !== "object") {
-    return undefined;
-  }
-  const o = doc as Record<string, unknown>;
-  if (typeof o.title === "string") {
-    return o.title;
-  }
-  return pickTitle(o.titles as SymbolView["titles"]);
-}
-
-function toWildcardFilter(query: string): string {
-  const q = query.trim();
-  if (!q) {
-    return "*";
-  }
-  if (q.includes("*")) {
-    return q;
-  }
-  return `*${q}*`;
-}
+/** Default scan budget for find_symbol_usage (models checked for canvas placement). */
+const DEFAULT_USAGE_MAX_MODELS = 80;
+const USAGE_SCAN_CONCURRENCY = 6;
+const HR_MODEL_QUERY_CONCURRENCY = 4;
 
 export class ProcessReader {
   /** Per-instance request cache for symbol fetches within one reader usage. */
   private readonly symbolCache = new Map<string, SymbolView>();
 
   constructor(private readonly client: TwoC8Client) {}
+
+  /** Shared model+canvas fetch — avoids double GETs when overview and flow run together. */
+  private async loadModelAndCanvas(args: {
+    repositoryId: string;
+    modelId: string;
+  }): Promise<{ model: ModelView | null; canvas: CanvasDto }> {
+    const [model, canvas] = await Promise.all([
+      this.client
+        .request<ModelView>({
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+          },
+          query: { projection: "ALL" },
+        })
+        .catch(() => null),
+      this.client.request<CanvasDto>({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+        pathParams: {
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+        },
+      }),
+    ]);
+    return { model, canvas };
+  }
 
   async findModels(args: {
     repositoryId: string;
@@ -224,36 +144,28 @@ export class ProcessReader {
     };
   }
 
-  async getOverview(args: {
-    repositoryId: string;
-    modelId: string;
-  }): Promise<Record<string, unknown>> {
-    const [model, canvas, layers] = await Promise.all([
-      this.client.request<ModelView>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}",
+  async getOverview(
+    args: {
+      repositoryId: string;
+      modelId: string;
+    },
+    preloaded?: { model: ModelView | null; canvas: CanvasDto },
+  ): Promise<Record<string, unknown>> {
+    const loaded = preloaded ?? (await this.loadModelAndCanvas(args));
+    const model = loaded.model;
+    const canvas = loaded.canvas;
+    if (!model) {
+      throw new Error(`Model ${args.modelId} not found`);
+    }
+    const layers = await this.client
+      .request({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers",
         pathParams: {
           repositoryId: args.repositoryId,
           modelId: args.modelId,
         },
-        query: { projection: "ALL" },
-      }),
-      this.client.request<CanvasDto>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-        pathParams: {
-          repositoryId: args.repositoryId,
-          modelId: args.modelId,
-        },
-      }),
-      this.client
-        .request({
-          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers",
-          pathParams: {
-            repositoryId: args.repositoryId,
-            modelId: args.modelId,
-          },
-        })
-        .catch(() => null),
-    ]);
+      })
+      .catch(() => null);
 
     return {
       uuid: model.uuid,
@@ -269,249 +181,25 @@ export class ProcessReader {
     };
   }
 
-  async getFlow(args: {
-    repositoryId: string;
-    modelId: string;
-    includeDocuments?: boolean;
-  }): Promise<{
+  async getFlow(
+    args: {
+      repositoryId: string;
+      modelId: string;
+      includeDocuments?: boolean;
+    },
+    preloaded?: { model: ModelView | null; canvas: CanvasDto },
+  ): Promise<{
     steps: FlowStep[];
     edges: Array<Record<string, unknown>>;
     swimlaneSettings: unknown;
     modelTitle?: string;
   }> {
-    const [model, canvas] = await Promise.all([
-      this.client
-        .request<ModelView>({
-          path: "/api/v1/repositories/{repositoryId}/models/{modelId}",
-          pathParams: {
-            repositoryId: args.repositoryId,
-            modelId: args.modelId,
-          },
-          query: { projection: "ALL" },
-        })
-        .catch(() => null),
-      this.client.request<CanvasDto>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-        pathParams: {
-          repositoryId: args.repositoryId,
-          modelId: args.modelId,
-        },
-      }),
-    ]);
-
-    const vertices = canvas.vertices ?? [];
-    const edges = canvas.edges ?? [];
-    const byId = new Map(vertices.filter((v) => v.uuid).map((v) => [v.uuid!, v]));
-
-    const outgoing = new Map<string, EdgeView[]>();
-    const incoming = new Map<string, EdgeView[]>();
-    for (const e of edges) {
-      if (e.fromVertex) {
-        const list = outgoing.get(e.fromVertex) ?? [];
-        list.push(e);
-        outgoing.set(e.fromVertex, list);
-      }
-      if (e.toVertex) {
-        const list = incoming.get(e.toVertex) ?? [];
-        list.push(e);
-        incoming.set(e.toVertex, list);
-      }
-    }
-
-    const refOf = (vertexId: string | undefined): FlowStepRef | undefined => {
-      if (!vertexId) {
-        return undefined;
-      }
-      const v = byId.get(vertexId);
-      if (!v) {
-        return { vertexId };
-      }
-      return {
-        vertexId: v.uuid,
-        symbolId: symbolIdOf(v),
-        objectType: objectTypeOf(v),
-        title: titleOf(v),
-      };
-    };
-
-    const classifyEdge = (
-      edgeType: string | undefined,
-      fromOt: string | undefined,
-      toOt: string | undefined,
-    ): "flow" | "responsible" | "application" | "controls" | "other" => {
-      const et = normType(edgeType);
-      if (RESPONSIBLE_EDGE_TYPES.has(et)) {
-        return "responsible";
-      }
-      if (APPLICATION_EDGE_TYPES.has(et)) {
-        return "application";
-      }
-      if (CONTROLS_EDGE_TYPES.has(et)) {
-        return "controls";
-      }
-      if (FLOW_EDGE_TYPES.has(et) || !et) {
-        return "flow";
-      }
-      // Heuristic fallback from endpoint types
-      if (RESPONSIBILITY_TYPES.has(normType(fromOt)) || RESPONSIBILITY_TYPES.has(normType(toOt))) {
-        return "responsible";
-      }
-      if (APPLICATION_TYPES.has(normType(fromOt)) || APPLICATION_TYPES.has(normType(toOt))) {
-        return "application";
-      }
-      return "other";
-    };
-
-    const buildStep = (v: VertexView): FlowStep => {
-      const vid = v.uuid!;
-      const ot = objectTypeOf(v);
-      const step: FlowStep = {
-        vertexId: vid,
-        symbolId: symbolIdOf(v),
-        objectType: ot,
-        title: titleOf(v),
-        x: v.x,
-        y: v.y,
-        width: v.width,
-        height: v.height,
-        hasDocument: v.hasDocument,
-        inputs: [],
-        outputs: [],
-        responsible: [],
-        applications: [],
-        controls: [],
-        controlledBy: [],
-        otherRelations: [],
-        outgoing: [],
-      };
-
-      for (const e of outgoing.get(vid) ?? []) {
-        const to = refOf(e.toVertex);
-        step.outgoing!.push({
-          edgeId: e.uuid,
-          edgeType: e.edgeType,
-          toVertexId: e.toVertex,
-          toTitle: to?.title,
-          toObjectType: to?.objectType,
-        });
-        const kind = classifyEdge(e.edgeType, ot, to?.objectType);
-        if (kind === "flow" && to) {
-          step.outputs!.push(to);
-        } else if (kind === "responsible" && to) {
-          step.responsible!.push(to);
-        } else if (kind === "application" && to) {
-          step.applications!.push(to);
-        } else if (kind === "controls" && to) {
-          // Document CONTROLS activity: from doc → activity means activity is controlledBy doc
-          step.controls!.push(to);
-        } else if (to) {
-          step.otherRelations!.push({
-            ...to,
-            edgeType: e.edgeType,
-            direction: "out",
-          });
-        }
-      }
-
-      for (const e of incoming.get(vid) ?? []) {
-        const from = refOf(e.fromVertex);
-        const kind = classifyEdge(e.edgeType, from?.objectType, ot);
-        if (kind === "flow" && from) {
-          step.inputs!.push(from);
-        } else if (kind === "responsible" && from) {
-          step.responsible!.push(from);
-        } else if (kind === "application" && from) {
-          step.applications!.push(from);
-        } else if (kind === "controls" && from) {
-          step.controlledBy!.push(from);
-        } else if (from) {
-          step.otherRelations!.push({
-            ...from,
-            edgeType: e.edgeType,
-            direction: "in",
-          });
-        }
-      }
-
-      // Deduplicate relation arrays by vertexId
-      const dedupe = (list: FlowStepRef[] | undefined) => {
-        const seen = new Set<string>();
-        return (list ?? []).filter((r) => {
-          const key = r.vertexId ?? r.symbolId ?? r.title ?? "";
-          if (!key || seen.has(key)) {
-            return false;
-          }
-          seen.add(key);
-          return true;
-        });
-      };
-      step.inputs = dedupe(step.inputs);
-      step.outputs = dedupe(step.outputs);
-      step.responsible = dedupe(step.responsible);
-      step.applications = dedupe(step.applications);
-      step.controls = dedupe(step.controls);
-      step.controlledBy = dedupe(step.controlledBy);
-
-      return step;
-    };
-
-    // Order: left-to-right by x, with flow-chain walk as secondary preference
-    const starts = vertices.filter((v) => v.uuid && !incoming.get(v.uuid)?.length);
-    const orderedIds: string[] = [];
-    const visited = new Set<string>();
-    const queue = [
-      ...starts
-        .slice()
-        .sort((a, b) => (a.x ?? 0) - (b.x ?? 0))
-        .map((v) => v.uuid!),
-      ...vertices
-        .slice()
-        .sort((a, b) => (a.x ?? 0) - (b.x ?? 0))
-        .map((v) => v.uuid!)
-        .filter((id) => id && !starts.some((s) => s.uuid === id)),
-    ];
-
-    for (const startId of queue) {
-      let current: string | undefined = startId;
-      while (current && !visited.has(current)) {
-        visited.add(current);
-        orderedIds.push(current);
-        const flowNext = (outgoing.get(current) ?? [])
-          .filter((e) => FLOW_EDGE_TYPES.has(normType(e.edgeType)) || !e.edgeType)
-          .map((e) => e.toVertex)
-          .filter((id): id is string => typeof id === "string" && id.length > 0 && !visited.has(id))
-          .sort((a, b) => (byId.get(a)?.x ?? 0) - (byId.get(b)?.x ?? 0));
-        current = flowNext[0];
-      }
-    }
-    for (const v of vertices) {
-      if (v.uuid && !visited.has(v.uuid)) {
-        orderedIds.push(v.uuid);
-      }
-    }
-
-    let steps = orderedIds
-      .map((id) => byId.get(id))
-      .filter((v): v is VertexView => Boolean(v))
-      .map(buildStep);
-
+    const loaded = preloaded ?? (await this.loadModelAndCanvas(args));
+    const built = buildFlowFromCanvas(loaded);
     if (args.includeDocuments !== false) {
-      steps = await this.enrichDocuments(args.repositoryId, steps);
+      built.steps = await this.enrichDocuments(args.repositoryId, built.steps);
     }
-
-    return {
-      modelTitle: pickTitle(model?.titles),
-      steps,
-      edges: edges.map((e) => ({
-        uuid: e.uuid,
-        edgeType: e.edgeType,
-        fromVertex: e.fromVertex,
-        toVertex: e.toVertex,
-        fromTitle: refOf(e.fromVertex)?.title,
-        toTitle: refOf(e.toVertex)?.title,
-      })),
-      swimlaneSettings: canvas.swimlaneSettings ?? null,
-    };
+    return built;
   }
 
   private async enrichDocuments(repositoryId: string, steps: FlowStep[]): Promise<FlowStep[]> {
@@ -547,9 +235,10 @@ export class ProcessReader {
     repositoryId: string;
     modelId: string;
   }): Promise<Record<string, unknown>> {
+    const loaded = await this.loadModelAndCanvas(args);
     const [overview, flow] = await Promise.all([
-      this.getOverview(args),
-      this.getFlow({ ...args, includeDocuments: true }),
+      this.getOverview(args, loaded),
+      this.getFlow({ ...args, includeDocuments: true }, loaded),
     ]);
 
     const steps = flow.steps;
@@ -748,17 +437,12 @@ export class ProcessReader {
     detailModelIds?: string[];
     layoutMode?: "linear" | "parallelTracks" | "peerRows" | "threeBand" | "auto";
   }): Promise<Record<string, unknown>> {
-    const [flow, canvas, repoConfig] = await Promise.all([
-      this.getFlow({ ...args, includeDocuments: true }),
-      this.client.request<CanvasDto>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-        pathParams: {
-          repositoryId: args.repositoryId,
-          modelId: args.modelId,
-        },
-      }),
+    const loaded = await this.loadModelAndCanvas(args);
+    const [flow, repoConfig] = await Promise.all([
+      this.getFlow({ ...args, includeDocuments: true }, loaded),
       loadRepoConfiguration(this.client, args.repositoryId),
     ]);
+    const canvas = loaded.canvas;
 
     const activities = flow.steps.filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)));
     const processes = flow.steps.filter((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)));
@@ -855,9 +539,10 @@ export class ProcessReader {
      */
     detailModelIds?: string[];
   }): Promise<Record<string, unknown>> {
+    const loaded = await this.loadModelAndCanvas(args);
     const [overview, flow, breakdownsResult] = await Promise.all([
-      this.getOverview(args),
-      this.getFlow({ ...args, includeDocuments: true }),
+      this.getOverview(args, loaded),
+      this.getFlow({ ...args, includeDocuments: true }, loaded),
       this.getBreakdowns(args).catch(() => ({ breakdowns: [] })),
     ]);
 
@@ -1021,19 +706,37 @@ export class ProcessReader {
         const orderedPeers = mainProcesses.toSorted(
           (a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0),
         );
-        for (let i = 0; i < orderedPeers.length; i++) {
-          const p = orderedPeers[i]!;
-          const detailId = args.detailModelIds[i];
+        const peerPairs = orderedPeers.map((p, i) => ({
+          p,
+          i,
+          detailId: args.detailModelIds![i],
+        }));
+        const peerScopes = await mapWithConcurrency(
+          peerPairs,
+          USAGE_SCAN_CONCURRENCY,
+          async (pair) => {
+            if (!pair.detailId)
+              return {
+                ...pair,
+                scope: null as Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>> | null,
+              };
+            return {
+              ...pair,
+              scope: await this.getDetailProcessScope({
+                repositoryId: args.repositoryId,
+                modelId: pair.detailId,
+              }),
+            };
+          },
+        );
+        for (const { p, i, detailId, scope } of peerScopes) {
           if (!detailId) {
             scopeViolations.push(
               `Peer process "${p.title}" has no detailModelIds[${i}] — pass one detail id per row.`,
             );
             continue;
           }
-          const scope = await this.getDetailProcessScope({
-            repositoryId: args.repositoryId,
-            modelId: detailId,
-          });
+          if (!scope) continue;
           const inTitles = new Set(
             (p.inputs ?? [])
               .filter((x) => BUSINESS_OBJECT_TYPES.has(normType(x.objectType)))
@@ -1257,40 +960,13 @@ export class ProcessReader {
     methodologyNotes: string[];
     nextSuggestedTools: string[];
   }> {
-    const described = (await this.describeProcess(args)) as {
-      overview?: { title?: string };
-      inputs?: Array<{ title?: string; symbolId?: string }>;
-      outputs?: Array<{ title?: string; symbolId?: string }>;
-      secondaryOutputs?: Array<{ title?: string; symbolId?: string }>;
-      steps?: Array<{
-        objectType?: string;
-        title?: string;
-        symbolId?: string;
-        x?: number;
-        y?: number;
-      }>;
-    };
-    const processChevron = (described.steps ?? []).find(
-      (s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)) && (s.x ?? 999) < 100,
-    );
-    const processTitle = processChevron?.title ?? described.overview?.title ?? "Okänd process";
-    const inputs = (described.inputs ?? [])
-      .filter((i): i is { title: string; symbolId?: string } => Boolean(i.title))
-      .map((i) => ({ title: i.title, symbolId: i.symbolId }));
-    const outputs = (described.outputs ?? [])
-      .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
-      .map((o) => ({ title: o.title, symbolId: o.symbolId }));
-    const secondaryOutputs = (described.secondaryOutputs ?? [])
-      .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
-      .map((o) => ({ title: o.title, symbolId: o.symbolId }));
+    // Scope only needs FLOW I/O — skip full describe_process narrative.
+    const flow = await this.getFlow(args);
+    const scoped = scopeFromFlow(args.modelId, flow);
+    const { processTitle, inputs, outputs, secondaryOutputs } = scoped;
 
     return {
-      modelId: args.modelId,
-      processTitle,
-      processSymbolId: processChevron?.symbolId,
-      inputs,
-      outputs,
-      secondaryOutputs,
+      ...scoped,
       rule:
         "On an overview, this process chevron MUST have the same primary input(s) and output(s) " +
         "as listed here (same symbol UUID). secondaryOutputs are branch terminals — stack, do not use as handoffs.",
@@ -1351,15 +1027,12 @@ export class ProcessReader {
     uncertainLinks: string[];
     readyForCreate: boolean;
   }> {
-    const scopes: Array<Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>> = [];
-    for (const modelId of args.modelIds) {
-      scopes.push(
-        await this.getDetailProcessScope({
-          repositoryId: args.repositoryId,
-          modelId,
-        }),
-      );
-    }
+    const scopes = await mapWithConcurrency(args.modelIds, USAGE_SCAN_CONCURRENCY, (modelId) =>
+      this.getDetailProcessScope({
+        repositoryId: args.repositoryId,
+        modelId,
+      }),
+    );
 
     let ordered = [...scopes];
     if (!args.preserveOrder) {
@@ -1579,7 +1252,24 @@ export class ProcessReader {
     errors: string[];
     methodologyNotes: string[];
   }> {
-    const cache = new Map<string, Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>>();
+    const detailIds = [
+      ...new Set(
+        args.chain
+          .filter((n) => n.kind === "process" && n.detailModelId)
+          .map((n) => n.detailModelId!),
+      ),
+    ];
+    const cache = new Map(
+      (
+        await mapWithConcurrency(detailIds, USAGE_SCAN_CONCURRENCY, async (modelId) => {
+          const scope = await this.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId,
+          });
+          return [modelId, scope] as const;
+        })
+      ).map((pair) => pair),
+    );
     const loadScope = async (modelId: string) => {
       const hit = cache.get(modelId);
       if (hit) return hit;
@@ -1994,10 +1684,16 @@ export class ProcessReader {
     symbolId?: string;
     titleQuery?: string;
     enrich?: "basic" | "full";
+    /** Max models to scan for canvas placement (default 80, hard max 200). */
+    maxModels?: number;
+    /** Stop after this many usages (default: no early exit beyond maxModels). */
+    maxUsages?: number;
   }): Promise<Record<string, unknown>> {
     const enrich = args.enrich ?? "basic";
     let symbolId = args.symbolId;
     let symbolMeta: Record<string, unknown> | undefined;
+    const maxModels = Math.min(200, Math.max(1, args.maxModels ?? DEFAULT_USAGE_MAX_MODELS));
+    const maxUsages = args.maxUsages !== undefined ? Math.max(1, args.maxUsages) : undefined;
 
     if (!symbolId && args.titleQuery) {
       const found = await this.searchSymbols({
@@ -2036,16 +1732,23 @@ export class ProcessReader {
 
     const models = await this.findModels({
       repositoryId: args.repositoryId,
-      maxResults: "200",
+      maxResults: String(maxModels),
     });
 
     const usages: Array<Record<string, unknown>> = [];
-    const modelList = models.models;
-    const concurrency = 6;
-    for (let i = 0; i < modelList.length; i += concurrency) {
-      const chunk = modelList.slice(i, i + concurrency);
+    const modelList = models.models.slice(0, maxModels);
+    const truncated = modelList.length < (models.total ?? modelList.length);
+    let stoppedEarly = false;
+
+    for (let i = 0; i < modelList.length; i += USAGE_SCAN_CONCURRENCY) {
+      if (maxUsages !== undefined && usages.length >= maxUsages) {
+        stoppedEarly = true;
+        break;
+      }
+      const chunk = modelList.slice(i, i + USAGE_SCAN_CONCURRENCY);
       await Promise.all(
         chunk.map(async (model) => {
+          if (maxUsages !== undefined && usages.length >= maxUsages) return;
           const canvas = await this.client.request<CanvasDto>({
             path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
             pathParams: {
@@ -2059,11 +1762,15 @@ export class ProcessReader {
             return;
           }
 
-          const flow = await this.getFlow({
-            repositoryId: args.repositoryId,
-            modelId: String(model.uuid),
-            includeDocuments: enrich === "full",
-          });
+          // Reuse already-fetched canvas — avoids a second canvas GET inside getFlow.
+          const flow = await this.getFlow(
+            {
+              repositoryId: args.repositoryId,
+              modelId: String(model.uuid),
+              includeDocuments: enrich === "full",
+            },
+            { model: null, canvas },
+          );
           const roleStep = flow.steps.find((s) => s.symbolId === symbolId);
           const responsibleFor = flow.steps
             .filter((s) => (s.responsible ?? []).some((r) => r.symbolId === symbolId))
@@ -2094,6 +1801,7 @@ export class ProcessReader {
               return base;
             });
 
+          if (maxUsages !== undefined && usages.length >= maxUsages) return;
           usages.push({
             modelId: model.uuid,
             modelTitle: model.title,
@@ -2108,11 +1816,18 @@ export class ProcessReader {
         }),
       );
     }
+    if (maxUsages !== undefined && usages.length > maxUsages) {
+      usages.length = maxUsages;
+      stoppedEarly = true;
+    }
 
     return {
       symbol: symbolMeta,
       usageCount: usages.length,
       enrich,
+      scannedModels: modelList.length,
+      maxModels,
+      truncated: truncated || stoppedEarly,
       usages,
       methodologyNotes: [
         "Usages are process/swimlane models where the symbol is placed on the canvas.",
@@ -2120,6 +1835,12 @@ export class ProcessReader {
         enrich === "full"
           ? "enrich=full adds inputs/outputs/controlledBy refs from the same model only (no cross-model chain inference)."
           : "Pass enrich=full for per-activity inputs/outputs in the same model.",
+        `Scan budget: maxModels=${maxModels}${maxUsages !== undefined ? `, maxUsages=${maxUsages}` : ""}.`,
+        ...(truncated || stoppedEarly
+          ? [
+              "Scan truncated — raise maxModels/maxUsages if you need a fuller catalogue (hard maxModels=200).",
+            ]
+          : []),
       ],
       nextSuggestedTools: ["describe_role_introduction", "describe_role", "describe_process"],
     };
@@ -2129,8 +1850,10 @@ export class ProcessReader {
     repositoryId: string;
     symbolId?: string;
     titleQuery?: string;
+    /** Reuse a prior findSymbolUsage result (avoids a second full repo scan). */
+    usage?: Record<string, unknown>;
   }): Promise<Record<string, unknown>> {
-    const usage = await this.findSymbolUsage(args);
+    const usage = args.usage ?? (await this.findSymbolUsage(args));
     const symbol = usage.symbol as Record<string, unknown> | null;
     const usages = (usage.usages as Array<Record<string, unknown>>) ?? [];
 
@@ -2289,11 +2012,12 @@ export class ProcessReader {
     }
 
     const roleTitle = String(symbol.title ?? args.titleQuery ?? "Roll");
+    // Single usage pass — do not re-scan via describeRole.
     const operational = await this.describeRole({
       repositoryId: args.repositoryId,
       symbolId: String(symbol.uuid),
+      usage,
     });
-    // Re-attach enriched usages from the usage call
     operational.processes = (usage.usages as Array<Record<string, unknown>>).map((u) => ({
       modelId: u.modelId,
       modelTitle: u.modelTitle,
@@ -2303,12 +2027,14 @@ export class ProcessReader {
 
     const hrQueries = ["rekrytera", "anställa", "introduktion", "onboarding", "personal"];
     const hrModelsMap = new Map<string, Record<string, unknown>>();
-    for (const q of hrQueries) {
-      const found = await this.findModels({
+    const hrFinds = await mapWithConcurrency(hrQueries, HR_MODEL_QUERY_CONCURRENCY, async (q) =>
+      this.findModels({
         repositoryId: args.repositoryId,
         query: q,
         maxResults: "20",
-      });
+      }),
+    );
+    for (const found of hrFinds) {
       for (const m of found.models) {
         if (m.uuid) {
           hrModelsMap.set(String(m.uuid), m);

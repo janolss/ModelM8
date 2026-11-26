@@ -9,6 +9,7 @@ import {
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
+import { runMutatingTool } from "./write-guard.js";
 
 const proposedStepSchema = z.object({
   title: z.string(),
@@ -22,8 +23,15 @@ const proposedStepSchema = z.object({
   usedBy: z.array(z.string()).optional(),
 });
 
+const chainKindSchema = z.preprocess(
+  (v) => (v === "gateway" ? "or" : v),
+  z
+    .enum(["businessObject", "activity", "or", "and"])
+    .describe('Exclusive choice is "or" (Regel Eller) — "gateway" is rejected/normalized to "or"'),
+);
+
 const chainNodeSchema = z.object({
-  kind: z.enum(["businessObject", "activity", "gateway", "and"]),
+  kind: chainKindSchema,
   title: z.string(),
   objectType: z.string(),
   symbolId: uuid.optional().describe("Reuse existing symbol UUID (handoff / CATALOG)"),
@@ -38,10 +46,13 @@ const activityDetailSchema = z.object({
 });
 
 const branchSchema = z.object({
-  fromTitle: z.string().describe("Vägval / gateway / decision title"),
+  fromTitle: z.string().describe("Vägval / or / decision title"),
   label: z.string().optional().describe("FLOW edge label, e.g. Ja / Nej"),
   toTitle: z.string(),
-  toKind: z.enum(["businessObject", "activity", "gateway", "and", "process"]).optional(),
+  toKind: z.preprocess(
+    (v) => (v === "gateway" ? "or" : v),
+    z.enum(["businessObject", "activity", "or", "and", "process"]).optional(),
+  ),
   objectType: z.string().optional(),
 });
 
@@ -167,14 +178,17 @@ export function registerProposeTools(server: McpServer, ctx: ToolContext): void 
         },
       },
       async (args) =>
-        runTool(() => {
-          const proposal = normalizeProposal({
-            ...(args.proposal as ModelProposal),
-            reuseHints: {
-              ...((args.proposal as ModelProposal).reuseHints ?? {}),
-              ...(args.reuseHints ?? {}),
+        runMutatingTool(ctx, args.repositoryId, () => {
+          const proposal = normalizeProposal(
+            {
+              ...(args.proposal as ModelProposal),
+              reuseHints: {
+                ...((args.proposal as ModelProposal).reuseHints ?? {}),
+                ...(args.reuseHints ?? {}),
+              },
             },
-          });
+            ctx.pack,
+          );
           return ctx.writer!.applyProposal({
             repositoryId: args.repositoryId,
             languageId: args.languageId,

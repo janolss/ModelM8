@@ -12,6 +12,11 @@ export interface AppConfig {
   transport: TransportMode;
   port: number;
   host: string;
+  /**
+   * When set, HTTP POST /mcp requires Authorization: Bearer <token>.
+   * Strongly recommended whenever HOST is non-loopback (/mcp has no other auth).
+   */
+  httpAuthToken?: string;
   knowledgeDir?: string;
   /** Require lock_write_repository (or auto-lock) before mutating repo calls. */
   requireLockBeforeWrite: boolean;
@@ -76,6 +81,7 @@ export function loadConfig(argv: string[] = process.argv.slice(2)): AppConfig {
   const writeMode: WriteMode = writeModeRaw === "direct" ? "direct" : "draft";
   const port = Number.parseInt(process.env.PORT ?? "3000", 10);
   const host = process.env.HOST?.trim() || "127.0.0.1";
+  const httpAuthToken = process.env.MCP_HTTP_AUTH_TOKEN?.trim() || undefined;
   const knowledgeDir = process.env.KNOWLEDGE_DIR?.trim() || undefined;
   // Default true when mutating tools may be on; explicit false still wins.
   const requireLockBeforeWrite = parseBool(process.env.TWO_C8_WRITE_REQUIRE_LOCK, true);
@@ -98,6 +104,7 @@ export function loadConfig(argv: string[] = process.argv.slice(2)): AppConfig {
     transport: wantsHttp ? "http" : "stdio",
     port,
     host,
+    httpAuthToken,
     knowledgeDir,
     requireLockBeforeWrite,
     autoLockOnCreate,

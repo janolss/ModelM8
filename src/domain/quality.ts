@@ -10,6 +10,7 @@ import type {
   Page,
   SymbolView,
 } from "../api/types.js";
+import { mapWithConcurrency } from "../util/concurrency.js";
 import { pickTitle } from "../util/titles.js";
 import { classifyResolvedDocumentLink, expandRelativeLinkAgainstRoots } from "./document-paths.js";
 import type { DocumentsService } from "./documents.js";
@@ -40,6 +41,58 @@ function titleForLang(
 ): string | undefined {
   const t = titles?.[languageId]?.title?.trim();
   return t || undefined;
+}
+
+/** Collect candidate titles for coverage matching (default + all languages). */
+export function collectModelTitles(
+  model: { title?: string; titles?: Record<string, LocalizedTitle> },
+  opts?: { languageId?: string; matchAnyLanguage?: boolean },
+): string[] {
+  const matchAny = opts?.matchAnyLanguage !== false && !opts?.languageId;
+  const out: string[] = [];
+  const push = (t?: string) => {
+    const s = t?.trim();
+    if (s && !out.includes(s)) out.push(s);
+  };
+  if (opts?.languageId) {
+    push(titleForLang(model.titles, opts.languageId));
+    // Fallback: default title when language entry missing
+    if (out.length === 0) push(model.title);
+    return out;
+  }
+  push(model.title);
+  if (matchAny) {
+    for (const loc of Object.values(model.titles ?? {})) {
+      push(loc?.title);
+    }
+  }
+  return out;
+}
+
+/**
+ * Match a process-register expected row to a model.
+ * Default: any language title (fixes SV expected vs EN default after translation).
+ */
+export function modelMatchesExpected(
+  model: { title?: string; titles?: Record<string, LocalizedTitle> },
+  exp: { code?: string; title?: string; titleContains?: string },
+  opts?: { languageId?: string; matchAnyLanguage?: boolean },
+): boolean {
+  const titles = collectModelTitles(model, opts).map((t) => t.toLowerCase());
+  if (titles.length === 0) return false;
+  if (exp.code) {
+    const c = exp.code.toLowerCase();
+    if (titles.some((t) => t.includes(c))) return true;
+  }
+  if (exp.title) {
+    const want = exp.title.toLowerCase();
+    if (titles.some((t) => t === want)) return true;
+  }
+  if (exp.titleContains) {
+    const needle = exp.titleContains.toLowerCase();
+    if (titles.some((t) => t.includes(needle))) return true;
+  }
+  return false;
 }
 
 /**
@@ -370,25 +423,30 @@ export class QualityService {
     }> = [];
 
     if (args.autoDiscover?.modelIds?.length) {
-      const ids = [...new Set(args.autoDiscover.modelIds)];
-      const checkIo = args.autoDiscover.checkIo;
-      const scopeCache = new Map<
-        string,
-        Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>> | null
-      >();
-      for (const id of ids) {
-        try {
-          scopeCache.set(
-            id,
-            await this.reader.getDetailProcessScope({
-              repositoryId: args.repositoryId,
-              modelId: id,
-            }),
-          );
-        } catch {
-          scopeCache.set(id, null);
-        }
+      const AUTO_DISCOVER_MAX = 20;
+      const uniqueIds = [...new Set(args.autoDiscover.modelIds)];
+      const ids = uniqueIds.slice(0, AUTO_DISCOVER_MAX);
+      if (uniqueIds.length > AUTO_DISCOVER_MAX) {
+        // Prefer contract[] for large sets — pairwise scope fan-out is O(n²).
+        emptyIntersections.push({
+          fromModelId: ids[0] ?? "",
+          toModelId: ids[1] ?? ids[0] ?? "",
+          reason: `autoDiscover truncated to ${AUTO_DISCOVER_MAX} modelIds (got ${uniqueIds.length}) — prefer contract[]`,
+        });
       }
+      const checkIo = args.autoDiscover.checkIo;
+      const scopeEntries = await mapWithConcurrency(ids, 4, async (id) => {
+        try {
+          const scope = await this.reader.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId: id,
+          });
+          return [id, scope] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      });
+      const scopeCache = new Map(scopeEntries);
 
       for (const fromId of ids) {
         for (const toId of ids) {
@@ -470,11 +528,27 @@ export class QualityService {
           uuid?: string;
           title?: string;
         }>;
-        const exact = symbols.find(
-          (s) => (s.title ?? "").toLowerCase() === title!.trim().toLowerCase(),
-        );
-        symbolId = exact?.uuid ?? symbols[0]?.uuid;
-        title = exact?.title ?? symbols[0]?.title ?? title;
+        const needle = title!.trim().toLowerCase();
+        const exact = symbols.find((s) => (s.title ?? "").toLowerCase() === needle);
+        if (exact?.uuid) {
+          symbolId = exact.uuid;
+          title = exact.title ?? title;
+        } else {
+          results.push({
+            fromModelId: h.fromModelId,
+            toModelId: h.toModelId,
+            symbolId: h.symbolId,
+            title: h.title,
+            source: h.source,
+            pass: false,
+            error: `No exact businessObject title match for "${h.title}" (refusing first-search-hit fallback)`,
+            candidates: symbols.slice(0, 5).map((s) => ({
+              uuid: s.uuid,
+              title: s.title,
+            })),
+          });
+          continue;
+        }
       }
       if (!symbolId) {
         results.push({
@@ -756,6 +830,8 @@ export class QualityService {
 
   /**
    * Map expected process codes/titles to models (generic process-register coverage).
+   * Title matching defaults to **all language titles** (after translation default
+   * title is often EN while the register still uses SV).
    */
   async verifyProcessCoverage(args: {
     repositoryId: string;
@@ -766,6 +842,16 @@ export class QualityService {
     }>;
     /** When set, also require reachability from this root via navigation tree. */
     rootModelId?: string;
+    /**
+     * Restrict title/code match to this language's titles map entry.
+     * Omit to match any language (recommended after bilingual update_titles).
+     */
+    languageId?: string;
+    /**
+     * When true (default), title/titleContains/code match against default title
+     * and every titles[lang].title. Set false + languageId to pin one language.
+     */
+    matchAnyLanguage?: boolean;
   }) {
     const models = await this.listAllModels(args.repositoryId);
     let reachable: Set<string> | undefined;
@@ -784,26 +870,13 @@ export class QualityService {
       walk(nav.data.roots as Array<{ modelId: string; children: unknown[] }>);
     }
 
+    const matchOpts = {
+      languageId: args.languageId,
+      matchAnyLanguage: args.matchAnyLanguage,
+    };
+
     const rows = args.expected.map((exp) => {
-      const matches = models.filter((m) => {
-        const t = (m.title ?? "").toLowerCase();
-        if (exp.code) {
-          const c = exp.code.toLowerCase();
-          if (
-            t.includes(c) ||
-            Object.values(m.titles ?? {}).some((x) => (x.title ?? "").toLowerCase().includes(c))
-          ) {
-            return true;
-          }
-        }
-        if (exp.title) {
-          if (t === exp.title.toLowerCase()) return true;
-        }
-        if (exp.titleContains) {
-          if (t.includes(exp.titleContains.toLowerCase())) return true;
-        }
-        return false;
-      });
+      const matches = models.filter((m) => modelMatchesExpected(m, exp, matchOpts));
       const covered = matches.length > 0;
       const reachableOk = !reachable || matches.some((m) => reachable!.has(m.uuid));
       return {
@@ -826,9 +899,13 @@ export class QualityService {
         passCount,
         total: rows.length,
         allPass: passCount === rows.length,
+        matchAnyLanguage: args.matchAnyLanguage !== false && !args.languageId,
+        languageId: args.languageId,
       },
       methodologyNotes: [
         "Pass expected[] from your process register (code and/or titleContains). Does not parse documents.",
+        "By default title/titleContains match ALL language titles (not only default title) — after EN translation SV register rows still match.",
+        "Optional languageId pins match to that language; matchAnyLanguage:false + languageId for strict single-lang.",
         "Optional rootModelId checks navigation reachability via get_navigation_tree.",
       ],
       nextSuggestedTools: ["get_navigation_tree", "find_models", "link_breakdown"],

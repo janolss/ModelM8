@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadMethodologyPack } from "../methodology/loader.js";
-import { chainAlternationIssues, proposeModelFromText } from "./proposals.js";
+import { chainAlternationIssues, normalizeProposal, proposeModelFromText } from "./proposals.js";
 
 describe("proposeModelFromText / chain alternation", () => {
   const pack = loadMethodologyPack();
@@ -192,12 +192,46 @@ Output: Stängd incident
     expect(proposal.chain?.some((n) => n.title === "Åtgärda på 1st line")).toBe(false);
     expect(proposal.chain?.some((n) => n.title === "Stängd incident")).toBe(false);
     expect(proposal.chain?.map((n) => n.title)).toContain("Återställd tjänst");
+    const nej = proposal.branches?.find((b) => b.label === "Nej");
+    expect(nej?.outputTitle).toBe("Stängd incident");
     const altFails = (proposal.namingChecks ?? []).filter(
       (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
     );
     expect(altFails).toEqual([]);
     const side = proposal.activities?.find((a) => a.title === "Åtgärda på 1st line");
     expect(side?.performers).toContain("Servicedesk");
+  });
+
+  it("Inera INC loop3 dialect: multi-output + Nej Output → secondaryOutputs / branch.outputTitle (no Consecutive)", () => {
+    // Mirrors the 2nd reject in loop3 TOOL-FRICTION (Stängd incident + Problembehov)
+    const text = `
+Process: Hantera incident
+Input: Incidentanmälan
+Activity: Registrera incident — Performer: Servicedesk
+Output: Incidentrecord
+Activity: Klassificera allvarlighetsgrad — Performer: Incident Manager
+Output: Klassificerad incident
+Vägval: Krävs eskalering?
+Ja: Eskalera till 2nd line — Performer: Incident Manager
+Output: Eskalerad incident
+Activity: Åtgärda och återställa — Performer: 2nd line
+Output: Återställd tjänst
+Output: Problembehov
+Nej: Åtgärda på 1st line — Performer: Servicedesk
+Output: Stängd incident
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(proposal.chain?.map((n) => n.title)).toContain("Återställd tjänst");
+    expect(proposal.chain?.some((n) => n.title === "Problembehov")).toBe(false);
+    expect(proposal.secondaryOutputs).toContain("Problembehov");
+    expect(proposal.chain?.some((n) => n.title === "Stängd incident")).toBe(false);
+    const nej = proposal.branches?.find((b) => b.label === "Nej");
+    expect(nej?.toTitle).toBe("Åtgärda på 1st line");
+    expect(nej?.outputTitle).toBe("Stängd incident");
+    const altFails = (proposal.namingChecks ?? []).filter(
+      (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
+    );
+    expect(altFails).toEqual([]);
   });
 
   it("RACI_RESPONSIBLE: standalone line becomes performer, not Activity", () => {
@@ -258,5 +292,87 @@ Output: Done
     expect(proposal.chain?.some((n) => n.kind === "activity" && /Output:/i.test(n.title))).toBe(
       false,
     );
+  });
+
+  it("prefers prefixed Activity:/Output: over narrative heuristics (mixed prose)", () => {
+    const text = `
+Först händer något i prosa. Därefter mer text. Sedan en sista mening.
+
+Process: Mixed route
+Activity: Registrera ärende
+Output: Ärende
+Activity: Beslutar
+Output: Beslut
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(proposal.chain?.map((n) => `${n.kind}:${n.title}`)).toEqual([
+      "activity:Registrera ärende",
+      "businessObject:Ärende",
+      "activity:Beslutar",
+      "businessObject:Beslut",
+    ]);
+    expect(proposal.chain?.some((n) => /prosa|mening/i.test(n.title))).toBe(false);
+  });
+
+  it("normalizeProposal with pack runs finalize / alternation namingChecks", () => {
+    const proposal = normalizeProposal(
+      {
+        modelType: "process",
+        title: "Broken hand apply",
+        steps: [
+          { title: "First step", objectType: "activity" },
+          { title: "Second step", objectType: "activity" },
+        ],
+      },
+      pack,
+    );
+    expect(
+      proposal.namingChecks.some((c) => !c.pass && /Consecutive activities/i.test(c.hint ?? "")),
+    ).toBe(true);
+    expect(proposal.repairHints?.length).toBeGreaterThan(0);
+  });
+
+  it("normalizeProposal weaves step I/O even when chain already has a BO", () => {
+    const proposal = normalizeProposal(
+      {
+        modelType: "process",
+        title: "Partial chain",
+        chain: [
+          { kind: "businessObject", title: "Lead", objectType: "businessObject" },
+          { kind: "activity", title: "Qualify", objectType: "activity" },
+          { kind: "activity", title: "Close", objectType: "activity" },
+        ],
+        activities: [
+          { title: "Qualify", performers: [], controlledBy: [], usedBy: [] },
+          { title: "Close", performers: [], controlledBy: [], usedBy: [] },
+        ],
+        steps: [
+          {
+            title: "Qualify",
+            objectType: "activity",
+            inputs: ["Lead"],
+            outputs: ["Qualified lead"],
+          },
+          {
+            title: "Close",
+            objectType: "activity",
+            inputs: ["Qualified lead"],
+            outputs: ["Closed deal"],
+          },
+        ],
+      },
+      pack,
+    );
+    expect(proposal.chain?.map((n) => `${n.kind}:${n.title}`)).toEqual([
+      "businessObject:Lead",
+      "activity:Qualify",
+      "businessObject:Qualified lead",
+      "activity:Close",
+      "businessObject:Closed deal",
+    ]);
+    const altFails = (proposal.namingChecks ?? []).filter(
+      (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
+    );
+    expect(altFails).toEqual([]);
   });
 });

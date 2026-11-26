@@ -10,6 +10,7 @@ modelM8 = MCP tool. 2c8 = Modeling Tool / target repo.
 STT happens in the client if speech is used; modelM8 creates models.
 
 1. Read the plan. Confirm all {{PLACEHOLDERS}} and section 0 before writes.
+1b. get_write_scope → lock_write_repository to the confirmed target repo (create_repository only when unlocked; auto-lock may apply).
 2. Follow phases in order (G0 → …). Do not skip handoff contracts or Q-gates.
 3. In phase 1: identify shared document bases and propose document roots (key/value) in CATALOG/STATE. Empty DOC_BASE_URL → use SOURCE_DIR as file root value. Phase 2: create_document_root → mass link_document(documentRootKey, relativePath, …) storing full absolute URLs → user matches paths to roots in 2c8 UI. Never bare relative paths; do not use API prefix as root binding.
 4. Reuse-first: search_symbols only in the target repo.

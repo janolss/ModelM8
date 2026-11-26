@@ -291,6 +291,77 @@ describe("reviewProcessCanvas", () => {
     const approved = wide.findings.find((f) => f.id === "process-missing-input-bo-approved");
     expect(approved?.severity).toBe("info");
     expect(wide.findings.some((f) => f.id === "process-missing-input-bo")).toBe(false);
+    expect(approved?.suggestion).toMatch(/coreProcessIds|ledning|stöd/i);
+  });
+
+  it("threeBand: core-band chevron without FLOW is approved (coreProcessIds)", () => {
+    const steps: FlowStep[] = [
+      {
+        vertexId: "v-in",
+        objectType: "businessObject",
+        title: "Incident",
+        x: 50,
+        y: 191,
+        width: 75,
+        height: 50,
+      },
+      {
+        vertexId: "v-p",
+        objectType: "process",
+        title: "Handle incident",
+        x: 250,
+        y: 175,
+        width: 75,
+        height: 50,
+        inputs: [{ vertexId: "v-in", objectType: "businessObject", title: "Incident" }],
+        outputs: [{ vertexId: "v-out", objectType: "businessObject", title: "Problem need" }],
+      },
+      {
+        vertexId: "v-out",
+        objectType: "businessObject",
+        title: "Problem need",
+        x: 450,
+        y: 191,
+        width: 75,
+        height: 50,
+      },
+      {
+        vertexId: "v-peer",
+        objectType: "process",
+        title: "Planera",
+        x: 600,
+        y: 175,
+        width: 75,
+        height: 50,
+        inputs: [],
+        outputs: [],
+      },
+    ];
+    const canvas: CanvasDto = {
+      vertices: [
+        vertex("v-in", "businessObject", 50, 191, "Incident"),
+        vertex("v-p", "process", 250, 175, "Handle incident"),
+        vertex("v-out", "businessObject", 450, 191, "Problem need"),
+        vertex("v-peer", "process", 600, 175, "Planera"),
+      ],
+      edges: [
+        { uuid: "e1", edgeType: "flow", fromVertex: "v-in", toVertex: "v-p" },
+        { uuid: "e2", edgeType: "flow", fromVertex: "v-p", toVertex: "v-out" },
+      ],
+    };
+    const reviewed = reviewProcessCanvas({
+      steps,
+      canvas,
+      modelKind: "process-map",
+      distance: { top: 40, left: 40, bottom: 40, right: 40 },
+      layoutMode: "threeBand",
+    });
+    expect(reviewed.findings.some((f) => f.id === "process-missing-input-bo")).toBe(false);
+    expect(
+      reviewed.findings.some(
+        (f) => f.id === "process-missing-input-bo-approved" && f.titles?.includes("Planera"),
+      ),
+    ).toBe(true);
   });
 
   it("does not flag coordinated X- och Y… performer titles as compound", () => {
