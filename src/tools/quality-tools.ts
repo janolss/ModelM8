@@ -9,13 +9,13 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
     "list_untranslated_symbols",
     {
       description:
-        "List symbols missing or not marked translated for a languageId. Reasons: missing, not-marked (translated!==true → GUI globe), or same as compareLanguageId with Swedish chars. Use confirm_translations to clear globes without rewriting text.",
+        "List symbols missing or not marked translated for a languageId. Reasons: missing, not-marked (globe), same-as-compare (identical to compareLanguageId — needs real update_titles, not confirm_translations alone), same-as-compare-with-swedish-chars. Pass compareLanguageId (=primary) for Q6 fidelity.",
       inputSchema: {
         repositoryId,
-        languageId: uuid.describe("Language to check (e.g. English)"),
+        languageId: uuid.describe("Language to check (e.g. secondary / Swedish)"),
         compareLanguageId: uuid
           .optional()
-          .describe("Usually primary/default language; flags titles identical to this with åäö"),
+          .describe("Primary language; flags identical titles (untranslated copies)"),
         objectType: z.string().optional(),
         maxResults: z.number().int().positive().optional(),
       },
@@ -50,7 +50,7 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
     "verify_handoffs",
     {
       description:
-        "Verify process handoffs: each BO (symbolId or title) must appear on producer and consumer. Provide handoffs[] and/or contract[] (producer/consumer aliases) and/or autoDiscover.modelIds (pairwise primary outputs ∩ inputs). Default also checks FLOW I/O via get_detail_process_scope.",
+        "Verify process handoffs: each BO (symbolId or title) must appear on producer and consumer. Provide handoffs[] and/or contract[] (producer/consumer aliases) and/or autoDiscover.modelIds (pairwise primary outputs ∩ inputs). Default checks FLOW I/O via get_detail_process_scope. Mid-spine shared BOs (not process terminals): set checkIo=false — UUID presence still verified.",
       inputSchema: {
         repositoryId,
         handoffs: z
@@ -63,7 +63,9 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
               checkIo: z
                 .boolean()
                 .optional()
-                .describe("Default true — require output on from and input on to"),
+                .describe(
+                  "Default true — require output on from and input on to. Use false for mid-spine handoffs (UUID on both models, not primary terminals).",
+                ),
             }),
           )
           .optional(),
@@ -74,7 +76,7 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
               consumerModelId: uuid,
               symbolId: uuid.optional(),
               title: z.string().optional(),
-              checkIo: z.boolean().optional(),
+              checkIo: z.boolean().optional().describe("false = mid-spine handoff (UUID only)"),
             }),
           )
           .optional()

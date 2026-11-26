@@ -20,6 +20,7 @@ modelingGuidance:
   - Name FLOW business objects as value created (artefact / capability / refined need), not as "activity was done" status tags
   - Use roles and positions to show who is responsible for each activity
   - Place the responsible role under each activity (reuse symbol UUID; never fan one icon to many activities)
+  - Dual "A och B" performer names in sources → usually two performers + two RACI edges; one combined title only for intentional joint functions (coordinated "X- och Y…" stays one title)
   - FLOW on activities: enter left, leave right (same as process chevrons)
   - Prefer reuse of existing symbols before creating duplicates
   - Overview/process map canvases use process chevrons (not activities) — see process-map methodology topic

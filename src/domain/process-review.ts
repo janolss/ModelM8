@@ -1,5 +1,5 @@
 import type { CanvasDto, EdgeView, FlowStep, VertexView } from "../api/types.js";
-import type { QuickdrawDistance } from "../methodology/rules-engine.js";
+import { isCompoundPerformerTitle, type QuickdrawDistance } from "../methodology/rules-engine.js";
 import { isForbiddenJoinType } from "../util/object-types.js";
 
 export type ReviewSeverity = "error" | "warning" | "info";
@@ -76,11 +76,25 @@ function isFlowEdge(et: string | undefined): boolean {
 }
 
 function isRaciEdge(et: string | undefined): boolean {
-  return RESPONSIBLE_EDGE_TYPES.has(normType(et));
+  const n = normType(et);
+  // Compare normalized forms so "raciresponsible" matches "raci_responsible"
+  for (const t of RESPONSIBLE_EDGE_TYPES) {
+    if (normType(t) === n) return true;
+  }
+  return false;
+}
+
+function isControlsEdge(et: string | undefined): boolean {
+  const n = normType(et);
+  return n === "controls" || n === "control" || n === "styr";
 }
 
 function isDocLinkEdge(et: string | undefined): boolean {
-  return DOC_LINK_EDGE_TYPES.has(normType(et));
+  const n = normType(et);
+  for (const t of DOC_LINK_EDGE_TYPES) {
+    if (normType(t) === n) return true;
+  }
+  return false;
 }
 
 function symbolIdOf(v: VertexView): string {
@@ -180,6 +194,38 @@ function edgePoints(
   ];
 }
 
+/** Count distinct horizontal bands among steps (midY clusters). */
+function yBandCount(items: Array<{ y?: number; height?: number }>, bandGap = 80): number {
+  if (items.length === 0) return 0;
+  const mids = items.map((s) => midY(s)).toSorted((a, b) => a - b);
+  let bands = 1;
+  for (let i = 1; i < mids.length; i++) {
+    if ((mids[i] ?? 0) - (mids[i - 1] ?? 0) > bandGap) bands += 1;
+  }
+  return bands;
+}
+
+/** Cluster steps into Y-bands for peer-row layout checks. */
+function clusterByYBand<T extends { y?: number; height?: number }>(
+  items: T[],
+  bandGap = 80,
+): T[][] {
+  if (items.length === 0) return [];
+  const sorted = [...items].toSorted((a, b) => midY(a) - midY(b));
+  const bands: T[][] = [[sorted[0]!]];
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i]!;
+    const band = bands[bands.length - 1]!;
+    const ref = band[0]!;
+    if (Math.abs(midY(cur) - midY(ref)) > bandGap) {
+      bands.push([cur]);
+    } else {
+      band.push(cur);
+    }
+  }
+  return bands;
+}
+
 function attachSide(
   box: { x?: number; y?: number; width?: number; height?: number },
   pt: { x: number; y: number },
@@ -206,11 +252,15 @@ function attachSide(
   return "bottom";
 }
 
+export type ReviewLayoutMode = "linear" | "parallelTracks" | "peerRows" | "threeBand" | "auto";
+
 export function reviewProcessCanvas(args: {
   steps: FlowStep[];
   canvas: CanvasDto;
   distance?: QuickdrawDistance | null;
   modelKind?: "process" | "process-map" | "unknown";
+  /** Layout hint — peerRows/parallelTracks use per-row midlines; threeBand softens band I/O. */
+  layoutMode?: ReviewLayoutMode;
 }): {
   findings: ReviewFinding[];
   summary: {
@@ -233,6 +283,26 @@ export function reviewProcessCanvas(args: {
   const bos = steps.filter((s) => BUSINESS_OBJECT_TYPES.has(normType(s.objectType)));
   const isMap =
     args.modelKind === "process-map" || (processes.length > 0 && activities.length === 0);
+  const layoutMode: ReviewLayoutMode = args.layoutMode ?? "auto";
+
+  const processHasFlowIo = (p: FlowStep): boolean => {
+    const inn = (p.inputs ?? []).some((i) => BUSINESS_OBJECT_TYPES.has(normType(i.objectType)));
+    const out = (p.outputs ?? []).some((o) => BUSINESS_OBJECT_TYPES.has(normType(o.objectType)));
+    return inn || out;
+  };
+  const withFlow = processes.filter(
+    (p) => processHasFlowIo(p) && !((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1),
+  );
+  const withoutFlow = processes.filter(
+    (p) => !processHasFlowIo(p) && !((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1),
+  );
+  const multiRowLayout =
+    layoutMode === "peerRows" ||
+    layoutMode === "parallelTracks" ||
+    (layoutMode === "auto" && isMap && withFlow.length >= 2 && yBandCount(withFlow) >= 2);
+  const threeBandLayout =
+    layoutMode === "threeBand" ||
+    (layoutMode === "auto" && isMap && withFlow.length >= 1 && withoutFlow.length >= 2);
 
   // --- Methodology ---
   if (!isMap) {
@@ -381,28 +451,38 @@ export function reviewProcessCanvas(args: {
         });
       }
       // Side loops sit under a state BO: FLOW in only — no spine output required
-      const isSideLoop = Math.abs(midY(p) - mapSpineMid) > 55;
+      const isSideLoop =
+        !multiRowLayout && !threeBandLayout && Math.abs(midY(p) - mapSpineMid) > 55;
+      // L0 three-band: management/support chevrons intentionally have no FLOW
+      const bandException = threeBandLayout && flowIn.length === 0 && flowOut.length === 0;
       if (flowIn.length === 0) {
         findings.push({
-          id: "process-missing-input-bo",
-          severity: "error",
+          id: bandException ? "process-missing-input-bo-approved" : "process-missing-input-bo",
+          severity: bandException ? "info" : "error",
           category: "methodology",
-          message: `Process "${p.title ?? "?"}" on the map has no FLOW business-object input.`,
-          suggestion: isSideLoop
-            ? "Side loop must FLOW from a state business object on the map (fromBoTitle)."
-            : "Overview I/O must match detail scope — use get_detail_process_scope / create_process_map(detailModelIds).",
+          message: bandException
+            ? `Process "${p.title ?? "?"}" has no FLOW input (approved three-band / L0 management-support exception).`
+            : `Process "${p.title ?? "?"}" on the map has no FLOW business-object input.`,
+          suggestion: bandException
+            ? "Expected for threeBand top/bottom bands — do not invent side-loop BOs."
+            : isSideLoop
+              ? "Side loop must FLOW from a state business object on the map (fromBoTitle)."
+              : multiRowLayout
+                ? "Peer row should have its own detail-scope input BO — use create_process_map(layout.mode=peerRows)."
+                : "Overview I/O must match detail scope — use get_detail_process_scope / create_process_map(detailModelIds).",
           titles: [p.title ?? ""],
           vertexIds: p.vertexId ? [p.vertexId] : [],
         });
       }
-      if (flowOut.length === 0 && !isSideLoop) {
+      if (flowOut.length === 0 && !isSideLoop && !bandException) {
         findings.push({
           id: "process-missing-output-bo",
           severity: "error",
           category: "methodology",
           message: `Process "${p.title ?? "?"}" on the map has no FLOW business-object output.`,
-          suggestion:
-            "Overview I/O must match detail scope — use get_detail_process_scope / create_process_map(detailModelIds).",
+          suggestion: multiRowLayout
+            ? "Peer row should have its own detail-scope output BO — use create_process_map(layout.mode=peerRows)."
+            : "Overview I/O must match detail scope — use get_detail_process_scope / create_process_map(detailModelIds).",
           titles: [p.title ?? ""],
           vertexIds: p.vertexId ? [p.vertexId] : [],
         });
@@ -474,6 +554,73 @@ export function reviewProcessCanvas(args: {
         vertexIds: [vid],
       });
     }
+  }
+
+  // Performer hygiene: compound titles, orphan placements, illegal role→CONTROLS
+  const raciVertexIds = new Set<string>();
+  for (const e of edges) {
+    if (!isRaciEdge(e.edgeType)) continue;
+    if (e.fromVertex) raciVertexIds.add(e.fromVertex);
+    if (e.toVertex) raciVertexIds.add(e.toVertex);
+  }
+  for (const v of vertices) {
+    if (!v.uuid) continue;
+    const ot = normType(objectTypeOf(v, steps));
+    if (!RESPONSIBILITY_TYPES.has(ot)) continue;
+    const title = steps.find((s) => s.vertexId === v.uuid)?.title ?? vertexTitle(v);
+
+    if (isCompoundPerformerTitle(title)) {
+      findings.push({
+        id: "compound-performer-title",
+        severity: "warning",
+        category: "methodology",
+        message: `Performer "${title}" joins two actors with "och" in one title.`,
+        suggestion:
+          "Prefer two symbols + two RACI_RESPONSIBLE edges (search_symbols per part). Keep one combined title only for an intentional joint function; coordinated 'X- och Y…' compounds are fine.",
+        titles: [title],
+        vertexIds: [v.uuid],
+      });
+    }
+
+    if (!raciVertexIds.has(v.uuid)) {
+      findings.push({
+        id: "orphan-performer-vertex",
+        severity: "warning",
+        category: "methodology",
+        message: `Performer "${title}" is on the canvas without a RACI_RESPONSIBLE edge.`,
+        suggestion:
+          "Link with set_activity_performer (one placement under the owned activity), or delete_canvas_vertex if the icon is leftover.",
+        titles: [title],
+        vertexIds: [v.uuid],
+      });
+    }
+  }
+
+  for (const e of edges) {
+    if (!isControlsEdge(e.edgeType)) continue;
+    const from = byId.get(e.fromVertex ?? "");
+    const to = byId.get(e.toVertex ?? "");
+    if (!from || !to) continue;
+    const fromOt = normType(objectTypeOf(from, steps));
+    const toOt = normType(objectTypeOf(to, steps));
+    const fromIsPerformer = RESPONSIBILITY_TYPES.has(fromOt);
+    const toIsPerformer = RESPONSIBILITY_TYPES.has(toOt);
+    if (!fromIsPerformer && !toIsPerformer) continue;
+    const performer = fromIsPerformer ? from : to;
+    const other = fromIsPerformer ? to : from;
+    const performerTitle =
+      steps.find((s) => s.vertexId === performer.uuid)?.title ?? vertexTitle(performer);
+    const otherTitle = steps.find((s) => s.vertexId === other.uuid)?.title ?? vertexTitle(other);
+    findings.push({
+      id: "role-controls-document",
+      severity: "error",
+      category: "methodology",
+      message: `CONTROLS edge involves performer "${performerTitle}" and "${otherTitle}" — checklists/policies govern activities, not roles.`,
+      suggestion:
+        "delete_canvas_edge the role CONTROLS link; attach step-specific CONTROLS on the activity (set_activity_controls) or process-wide docs on the process/model Documents panel.",
+      titles: [performerTitle, otherTitle],
+      vertexIds: [performer.uuid, other.uuid].filter(Boolean) as string[],
+    });
   }
 
   // Process-wide document fan-out: same CORE_DOCUMENT CONTROLS/IS_USED_BY on most activities
@@ -582,7 +729,7 @@ export function reviewProcessCanvas(args: {
   }
 
   // --- Layout: spine alignment ---
-  // Reference midline = median of ACTIVITY midY (not mixed with BO tops).
+  // Single-spine: median of activity/process midY. Multi-row peers: per Y-band.
   // Gold layout: activity y=119 h=50 and BO y=135 h=18 share midY≈144.
   const spineCandidates = steps.filter((s) => {
     const ot = normType(s.objectType);
@@ -591,60 +738,82 @@ export function reviewProcessCanvas(args: {
   const activityMids = activities
     .filter((a) => !((a.x ?? 0) < 80 && (a.y ?? 0) < 80))
     .map((a) => midY(a));
-  const processMidsOnMap = processes
+  // Prefer FLOW spine processes / BOs — ignore three-band management/support without I/O
+  const processMidsOnMap = (withFlow.length > 0 ? withFlow : processes)
     .filter((p) => !((p.x ?? 0) < 80 && (p.y ?? 0) < 80))
     .map((p) => midY(p));
-  const spineMidRef =
+  const boMidsForSpine = bos.map((b) => midY(b));
+  const globalSpineMid =
     activityMids.length > 0
       ? median(activityMids)
-      : processMidsOnMap.length > 0
-        ? median(processMidsOnMap)
-        : median(spineCandidates.map((s) => midY(s)));
-  const onSpine = spineCandidates.filter((s) => Math.abs(midY(s) - spineMidRef) < 55);
+      : boMidsForSpine.length > 0
+        ? median(boMidsForSpine)
+        : processMidsOnMap.length > 0
+          ? median(processMidsOnMap)
+          : median(spineCandidates.map((s) => midY(s)));
 
-  for (const s of spineCandidates) {
-    const ot = normType(s.objectType);
-    // Corner process icon
-    if (PROCESS_OBJECT_TYPES.has(ot) && (s.x ?? 0) < 80 && (s.y ?? 0) < 80) {
-      continue;
-    }
-    const dy = Math.abs(midY(s) - spineMidRef);
-    // Side-loop / parallel-track / stacked secondary I/O sit below the spine
-    if (dy > 55) {
-      continue;
-    }
-    // Activities/processes: coarser tolerance; BOs must sit on the same midline
-    // (top-aligning a small BO with an activity creates zigzag FLOW).
-    if (BUSINESS_OBJECT_TYPES.has(ot)) {
-      if (dy > 8) {
+  const alignmentBands: Array<{ mid: number; members: typeof spineCandidates }> = multiRowLayout
+    ? clusterByYBand(
+        spineCandidates.filter((s) => {
+          const ot = normType(s.objectType);
+          if (PROCESS_OBJECT_TYPES.has(ot) && (s.x ?? 0) < 80 && (s.y ?? 0) < 80) return false;
+          return true;
+        }),
+        70,
+      ).map((members) => {
+        const anchors = members.filter((m) => {
+          const ot = normType(m.objectType);
+          return ACTIVITY_TYPES.has(ot) || PROCESS_OBJECT_TYPES.has(ot);
+        });
+        const mid =
+          anchors.length > 0
+            ? median(anchors.map((a) => midY(a)))
+            : median(members.map((m) => midY(m)));
+        return { mid, members };
+      })
+    : [{ mid: globalSpineMid, members: spineCandidates }];
+
+  const onSpine: typeof spineCandidates = [];
+  for (const band of alignmentBands) {
+    for (const s of band.members) {
+      const ot = normType(s.objectType);
+      if (PROCESS_OBJECT_TYPES.has(ot) && (s.x ?? 0) < 80 && (s.y ?? 0) < 80) continue;
+      const dy = Math.abs(midY(s) - band.mid);
+      if (dy > 55) continue;
+      onSpine.push(s);
+      if (BUSINESS_OBJECT_TYPES.has(ot)) {
+        if (dy > 8) {
+          findings.push({
+            id: "bo-off-spine-midline",
+            severity: "error",
+            category: "layout",
+            message: `Business object "${s.title ?? "?"}" midY is ${Math.round(dy)}px off the FLOW midline (expected midY≈${Math.round(band.mid)}).`,
+            suggestion:
+              "Center primary BOs on the same horizontal midline as the activity/process on that row (e.g. activity y=119 h=50 → BO y=135 h=18).",
+            titles: [s.title ?? ""],
+            vertexIds: s.vertexId ? [s.vertexId] : [],
+          });
+        }
+        continue;
+      }
+      if (!ACTIVITY_TYPES.has(ot) && !PROCESS_OBJECT_TYPES.has(ot)) continue;
+      if (dy > 40) {
         findings.push({
-          id: "bo-off-spine-midline",
-          severity: "error",
+          id: "spine-misaligned",
+          severity: "warning",
           category: "layout",
-          message: `Business object "${s.title ?? "?"}" midY is ${Math.round(dy)}px off the activity FLOW midline (expected midY≈${Math.round(spineMidRef)}).`,
-          suggestion:
-            "Center primary BOs on the same horizontal midline as activities (e.g. activity y=119 h=50 → BO y=135 h=18). Do not top-align BO with activity.",
+          message: `"${s.title ?? "?"}" is ${Math.round(dy)}px off the FLOW midline.`,
+          suggestion: multiRowLayout
+            ? "Align symbols within each peer row; cross-row midY differences are expected."
+            : "Align activities/processes (and primary BOs) on one horizontal baseline.",
           titles: [s.title ?? ""],
           vertexIds: s.vertexId ? [s.vertexId] : [],
         });
       }
-      continue;
-    }
-    if (!ACTIVITY_TYPES.has(ot) && !PROCESS_OBJECT_TYPES.has(ot)) continue;
-    if (dy > 40) {
-      findings.push({
-        id: "spine-misaligned",
-        severity: "warning",
-        category: "layout",
-        message: `"${s.title ?? "?"}" is ${Math.round(dy)}px off the main FLOW midline.`,
-        suggestion: "Align activities/processes (and primary BOs) on one horizontal baseline.",
-        titles: [s.title ?? ""],
-        vertexIds: s.vertexId ? [s.vertexId] : [],
-      });
     }
   }
 
-  // Zigzag FLOW on the spine: vertical jogs between L→R neighbours that should share midY
+  // Zigzag FLOW: only within the same Y-band (skip cross-row peer edges)
   for (const e of edges) {
     if (!isFlowEdge(e.edgeType)) continue;
     const fromStep = steps.find((s) => s.vertexId === e.fromVertex);
@@ -655,10 +824,21 @@ export function reviewProcessCanvas(args: {
     const spineTypes = (ot: string) =>
       ACTIVITY_TYPES.has(ot) || BUSINESS_OBJECT_TYPES.has(ot) || PROCESS_OBJECT_TYPES.has(ot);
     if (!spineTypes(fromOt) || !spineTypes(toOt)) continue;
-    // Only consecutive forward spine edges
     if ((toStep.x ?? 0) <= (fromStep.x ?? 0)) continue;
     const dyMid = Math.abs(midY(fromStep) - midY(toStep));
     if (dyMid <= 8) continue;
+    if (multiRowLayout && dyMid > 70) continue; // different peer rows
+    // Side-branch / stacked secondary BO under vägval-Nej: intentional midY offset
+    const involvesBo = BUSINESS_OBJECT_TYPES.has(fromOt) || BUSINESS_OBJECT_TYPES.has(toOt);
+    if (involvesBo && dyMid > 40) continue;
+    const involvesGateway =
+      fromOt === "or" ||
+      fromOt === "and" ||
+      fromOt === "decision" ||
+      toOt === "or" ||
+      toOt === "and" ||
+      toOt === "decision";
+    if (involvesGateway && dyMid > 40) continue;
     findings.push({
       id: "flow-spine-zigzag",
       severity: "warning",
@@ -671,14 +851,16 @@ export function reviewProcessCanvas(args: {
   }
 
   // --- Layout: horizontal spacing between consecutive spine L→R objects ---
+  // Overview gold: ~32px gaps; flag wide gaps earlier (was gapX*4 ≈ 160, missed 130–140).
+  const wideGapThreshold = isMap ? gapX * 2 : gapX * 2.5;
   const spineOrdered = onSpine.toSorted((a, b) => (a.x ?? 0) - (b.x ?? 0));
   for (let i = 0; i < spineOrdered.length - 1; i++) {
     const a = spineOrdered[i]!;
     const b = spineOrdered[i + 1]!;
-    // Only measure between different columns (not stacked same-x)
     if (Math.abs((a.x ?? 0) - (b.x ?? 0)) < 10) continue;
+    // Same row only when multi-row
+    if (multiRowLayout && Math.abs(midY(a) - midY(b)) > 70) continue;
     const gap = (b.x ?? 0) - ((a.x ?? 0) + (a.width ?? 75));
-    // ~9px gaps are common when BO is jammed against the next activity — flag early
     const minGap = Math.max(16, Math.floor(gapX * 0.35));
     if (gap < minGap) {
       findings.push({
@@ -690,13 +872,13 @@ export function reviewProcessCanvas(args: {
         titles: [a.title ?? "", b.title ?? ""],
         vertexIds: [a.vertexId, b.vertexId].filter(Boolean) as string[],
       });
-    } else if (gap > gapX * 4) {
+    } else if (gap > wideGapThreshold) {
       findings.push({
         id: "spacing-too-wide",
-        severity: "info",
+        severity: isMap ? "warning" : "info",
         category: "layout",
         message: `Large horizontal gap (${Math.round(gap)}px) between "${a.title}" and "${b.title}".`,
-        suggestion: `Tighten toward ~${gapX}px for a readable chain.`,
+        suggestion: `Tighten toward ~${Math.round(gapX)}–${Math.round(gapX * 1.2)}px (overview gold ≈32px with tight quickdraw).`,
         titles: [a.title ?? "", b.title ?? ""],
         vertexIds: [a.vertexId, b.vertexId].filter(Boolean) as string[],
       });
@@ -704,7 +886,9 @@ export function reviewProcessCanvas(args: {
   }
 
   // --- Layout: multi-I/O BOs in horizontal sequence (should be stacked) ---
-  const boOnBand = bos.filter((b) => Math.abs(midY(b) - spineMidRef) < 55);
+  const boOnBand = bos.filter((b) =>
+    alignmentBands.some((band) => Math.abs(midY(b) - band.mid) < 55),
+  );
   const boSorted = boOnBand.toSorted((a, b) => (a.x ?? 0) - (b.x ?? 0));
   for (let i = 0; i < boSorted.length - 1; i++) {
     const a = boSorted[i]!;
@@ -816,6 +1000,84 @@ export function reviewProcessCanvas(args: {
       suggestion:
         "Simplify routing: keep spine left→right, stack side I/O below, avoid diagonal chords across the model.",
     });
+  }
+
+  // --- Layout: satellite overlap (role + application same column under activity) ---
+  if (!isMap) {
+    for (const a of activities) {
+      if (!a.vertexId) continue;
+      const act = byId.get(a.vertexId);
+      if (!act) continue;
+      const actBottom = (act.y ?? 0) + (act.height ?? 50);
+      const sats = vertices.filter((v) => {
+        if (!v.uuid || v.uuid === a.vertexId) return false;
+        const ot = normType(objectTypeOf(v, steps));
+        if (!RESPONSIBILITY_TYPES.has(ot) && !APPLICATION_OBJECT_TYPES.has(ot)) return false;
+        const cy = midY(v);
+        return cy > actBottom - 10 && cy < actBottom + 120;
+      });
+      for (let i = 0; i < sats.length; i++) {
+        for (let j = i + 1; j < sats.length; j++) {
+          const sa = sats[i]!;
+          const sb = sats[j]!;
+          const boxA = {
+            x: sa.x ?? 0,
+            y: sa.y ?? 0,
+            width: sa.width ?? 30,
+            height: sa.height ?? 18,
+          };
+          const boxB = {
+            x: sb.x ?? 0,
+            y: sb.y ?? 0,
+            width: sb.width ?? 30,
+            height: sb.height ?? 18,
+          };
+          const sameCol = Math.abs(midX(sa) - midX(sb)) < 20;
+          if (boxesOverlap(boxA, boxB) || sameCol) {
+            const ta = steps.find((s) => s.vertexId === sa.uuid)?.title ?? vertexTitle(sa);
+            const tb = steps.find((s) => s.vertexId === sb.uuid)?.title ?? vertexTitle(sb);
+            findings.push({
+              id: "satellite-column-overlap",
+              severity: "warning",
+              category: "layout",
+              message: `Satellites "${ta}" and "${tb}" overlap or share a column under "${a.title ?? "?"}".`,
+              suggestion:
+                "Place the primary role centered under the activity; put applications to the RIGHT of the role (not stacked on the label).",
+              titles: [a.title ?? "", ta, tb],
+              vertexIds: [a.vertexId, sa.uuid!, sb.uuid!],
+            });
+          }
+        }
+      }
+    }
+
+    // Vägval Nej/side branch left of or while Ja continues right
+    for (const d of steps) {
+      if (!DECISION_TYPES.has(normType(d.objectType))) continue;
+      if (!d.vertexId) continue;
+      const orX = d.x ?? 0;
+      const outActs = (d.outputs ?? [])
+        .filter((o) => ACTIVITY_TYPES.has(normType(o.objectType)))
+        .map((o) => steps.find((s) => s.vertexId === o.vertexId) ?? o)
+        .filter((s): s is FlowStep => Boolean(s.vertexId));
+      if (outActs.length < 2) continue;
+      const rightward = outActs.filter((o) => (o.x ?? 0) >= orX - 5);
+      const leftward = outActs.filter((o) => (o.x ?? 0) < orX - 5);
+      if (rightward.length >= 1 && leftward.length >= 1) {
+        for (const side of leftward) {
+          findings.push({
+            id: "vägval-side-branch-left-of-or",
+            severity: "warning",
+            category: "layout",
+            message: `Vägval side branch "${side.title ?? "?"}" sits left of or "${d.title ?? "?"}" (x=${Math.round(side.x ?? 0)} < or x=${Math.round(orX)}) — FLOW often routes back through the diamond.`,
+            suggestion:
+              "Place Nej/side activities BELOW and to the RIGHT of the or (or at least not left of it); route FLOW or-bottom → down → activity left.",
+            titles: [d.title ?? "", side.title ?? ""],
+            vertexIds: [d.vertexId, side.vertexId].filter(Boolean) as string[],
+          });
+        }
+      }
+    }
   }
 
   // Non-orthogonal FLOW segments

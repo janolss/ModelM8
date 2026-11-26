@@ -151,8 +151,11 @@ export class QualityService {
           reason = "not-marked";
         } else if (args.compareLanguageId) {
           const other = titleForLang(s.titles, args.compareLanguageId);
-          if (other && title === other && SWEDISH_CHARS.test(title)) {
-            reason = "same-as-compare-with-swedish-chars";
+          if (other && title === other) {
+            // Same string as primary → likely untranslated copy (EN left as EN on SV, etc.)
+            reason = SWEDISH_CHARS.test(title)
+              ? "same-as-compare-with-swedish-chars"
+              : "same-as-compare";
           }
         }
         if (reason) {
@@ -186,10 +189,11 @@ export class QualityService {
       },
       methodologyNotes: [
         "translated:true = confirmed (globe OFF); translated:false/omitted = not translated (globe ON).",
-        "missing = no title; not-marked = title exists but translated !== true; same-as-compare-with-swedish-chars = EN left as SV.",
-        "Fix text with update_titles; fix flag only with confirm_translations.",
+        "missing = no title; not-marked = title exists but translated !== true.",
+        "same-as-compare / same-as-compare-with-swedish-chars = secondary title identical to compareLanguageId — confirm_translations alone is NOT enough; use update_titles with real target-language text.",
+        "Q6 stickprov: spot-check that secondary titles look like the target language before closing an area.",
       ],
-      nextSuggestedTools: ["confirm_translations", "update_titles", "search_symbols"],
+      nextSuggestedTools: ["update_titles", "confirm_translations", "search_symbols"],
     };
   }
 

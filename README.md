@@ -36,6 +36,12 @@ npm run start:http     # http://127.0.0.1:3000/mcp
 | `TWO_C8_ALLOW_WRITES` | `false` | Write tools |
 | `TWO_C8_ALLOW_DELETES` | `false` | `delete_model`, `delete_symbol`, `delete_mt_document` |
 | `TWO_C8_WRITE_MODE` | `draft` | `draft` \| `direct` |
+| `TWO_C8_WRITE_REQUIRE_LOCK` | `true` | Require `lock_write_repository` (or auto-lock) before mutating repo calls |
+| `TWO_C8_WRITE_AUTO_LOCK_ON_CREATE` | `true` | Auto-lock scope after `create_repository` when unlocked |
+| `TWO_C8_WRITE_UNLOCK_MODE` | `confirm_phrase` | `confirm_phrase` \| `restart` \| `open` |
+| `TWO_C8_WRITE_UNLOCK_PHRASE` | *(empty)* | Operator phrase for unlock when mode is `confirm_phrase` |
+| `TWO_C8_WRITE_DENY_REPOSITORY_IDS` | *(empty)* | Comma-separated UUIDs that can never be written |
+| `TWO_C8_WRITE_DENY_REPOSITORY_NAMES` | *(empty)* | Comma-separated repo names that can never be locked/created |
 | `MCP_TRANSPORT` | `stdio` | `stdio` \| `http` |
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | HTTP |
 
@@ -74,6 +80,7 @@ docker pull ghcr.io/<owner>/modelm8:1.2.0
 - Domain tools (consume, propose/apply, quality gates) + analysis  
 - Resources `methodology://…`, prompts, server instructions  
 - Writes gated by `TWO_C8_ALLOW_WRITES`; deletes by `TWO_C8_ALLOW_DELETES`
+- Runtime **write scope** (`lock_write_repository` / `get_write_scope` / `unlock_write_repository`) — one target repo per process without rebuilding the container
 
 ## Development
 

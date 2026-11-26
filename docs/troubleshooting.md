@@ -48,7 +48,7 @@ Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`
 |---|---|
 | gateway / join | `resolve_branching_object_type` → `or`; never Join |
 | `businessObjectCount = 0` | Alternate BO ↔ activity in the chain |
-| 400 after moving symbols | `move_canvas_vertices` reorthogonalizes edges by default |
+| 400 after moving symbols (`Control point end must lie within the to-vertex bounds`) | Use `move_canvas_vertices` only — it patches **vertices + attached edges together**. Do not `update_canvas_edges` before/after a separate move; that chicken-and-egg fails validation. |
 
 ## Developer docs
 

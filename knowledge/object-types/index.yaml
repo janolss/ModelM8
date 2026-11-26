@@ -131,15 +131,32 @@ objectTypes:
   - id: position
     apiObjectTypeHints: [position, Position, befattning]
     title: { sv: Befattning, en: Position }
-    naming: Job title as used in the organisation
-    usage: Responsibility / performer for activities; swimlane owner.
+    naming: >
+      Single job title as used in the organisation. Do not combine two
+      distinct actors with "och" in one title (see compound-performer rule
+      under naming / process-flow). Hyphenated coordination before och
+      (e.g. 'Hälso- och sjukvårdschef') is one position.
+    usage: >
+      Responsibility / performer for activities; swimlane owner. Linked via
+      RACI_RESPONSIBLE. One canvas placement under each activity owned.
     phase1: true
 
   - id: role
     apiObjectTypeHints: [role, Role, roll]
     title: { sv: Roll, en: Role }
-    naming: Role name as used in the organisation
-    usage: Responsibility / performer for activities; swimlane owner.
+    naming: >
+      Single role name as used in the organisation. Prefer two symbols when
+      source text joins two actors with "och"
+      (e.g. 'Projektägare och Projektkontoret' → Projektägare + Projektkontoret;
+      'Dokumentägare och kvalitetsfunktion' → Dokumentägare + Kvalitetsfunktion).
+      One combined title only when the organisation intentionally models a
+      single joint function. Soft hyphens (¬) are layout only — ignore when
+      judging dual names.
+    usage: >
+      Responsibility / performer for activities; swimlane owner. Linked via
+      RACI_RESPONSIBLE (placement alone is not ownership). Same role on N
+      activities → N vertices (shared symbol UUID), never one icon fanning
+      to many activities.
     phase1: true
 
   # Regel (Eller) — exclusive vägval. API create type: or. NOT "gateway".

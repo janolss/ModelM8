@@ -1,9 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { buildAbsoluteDocumentBody } from "../domain/document-paths.js";
+import { extractCreatedRepositoryId, WriteScopeError } from "../domain/write-scope.js";
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { jsonBody, languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
+import { requireWritableRepo } from "./write-guard.js";
 
 export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   if (!ctx.writer) {
@@ -15,7 +17,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_repository",
     {
       description:
-        "Create a new 2c8 repository (POST /repositories). Use for sandboxes such as 'Utveckling MCP'.",
+        "Create a new 2c8 repository (POST /repositories). Use for sandboxes such as 'Utveckling MCP'. " +
+        "When write scope is unlocked and auto-lock is enabled, locks mutating tools to the new repositoryId.",
       inputSchema: {
         name: z.string().min(1),
         languages: z
@@ -36,8 +39,14 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
-        writer.createRepository({
+      runTool(async () => {
+        if (ctx.writeScope.isDeniedName(args.name)) {
+          throw new WriteScopeError(
+            "denied",
+            `Cannot create repository with denied name "${args.name}".`,
+          );
+        }
+        const result = await writer.createRepository({
           name: args.name,
           languages: args.languages,
           template: args.template,
@@ -45,8 +54,40 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           directory: args.directory,
           colorScheme: args.colorScheme,
           body: args.body,
-        }),
-      ),
+        });
+        const createdId = extractCreatedRepositoryId(result.data);
+        let writeScope = ctx.writeScope.snapshot();
+        const notes = [...(result.methodologyNotes ?? [])];
+        if (createdId) {
+          const locked = ctx.writeScope.tryAutoLockOnCreate({
+            repositoryId: createdId,
+            repositoryName: args.name,
+          });
+          writeScope = ctx.writeScope.snapshot();
+          if (locked) {
+            notes.push(
+              `Write scope auto-locked to ${createdId} (${args.name}). ` +
+                "Mutating tools reject other repositoryIds until unlock/restart.",
+            );
+          } else if (writeScope.locked && writeScope.repositoryId !== createdId) {
+            notes.push(
+              `Repository created but write scope remains locked to ${writeScope.repositoryId}. ` +
+                "Unlock before using the new repo for writes.",
+            );
+          }
+        } else {
+          notes.push(
+            "Repository created but id could not be parsed for auto-lock. " +
+              "Call lock_write_repository with the new repositoryId before writes.",
+          );
+        }
+        return {
+          ...result,
+          writeScope,
+          methodologyNotes: notes,
+          nextSuggestedTools: ["get_write_scope", ...(result.nextSuggestedTools ?? [])],
+        };
+      }),
   );
 
   server.registerTool(
@@ -102,7 +143,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "move_canvas_vertices",
     {
       description:
-        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. By default reorthogonalizes attached edges in the same call (set reorthogonalizeEdges:false to skip).",
+        "Move one or more canvas symbols (PATCH /canvas). Pass vertices[{ vertexId, x, y }]. Attached edges are re-routed in the **same** PATCH (required by 2c8 — moving then update_canvas_edges separately causes 'Control point end must lie within the to-vertex bounds').",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -245,19 +286,31 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_description_type",
     {
       description:
-        "Create a description type in the repository (syfte/scope/ägare fields). Body: { titles: { [languageId]: { title } } } (+ optional dataType/inputType). New repos may be empty until client open — create before update_*_description.",
+        'Create a description type (syfte/scope/ägare). Minimum that works: titles + dataType se.conciliate.rich.text + inputType rich-text-editor + connectedTo[{type:PROCESS|ACTIVITY|…,position,hidden:""}]. Shorthand title+languageId fills those defaults. Do NOT send entries (400). Missing connectedTo → 400 Entries cannot be null.',
       inputSchema: {
         repositoryId,
         languageId: languageId.optional(),
         title: z.string().min(1).optional().describe("Shorthand: builds titles for languageId"),
+        connectedTo: z
+          .array(
+            z.object({
+              type: z.string().describe("Object/model type id, e.g. PROCESS, ACTIVITY"),
+              position: z.number().int().optional(),
+              hidden: z.string().optional(),
+            }),
+          )
+          .optional()
+          .describe("Where the field appears; defaults to PROCESS+ACTIVITY+BUSINESS_OBJECT"),
         body: jsonBody
           .optional()
-          .describe("Full MtbDescriptionTypeDto — titles map required if title omitted"),
+          .describe(
+            "Full DTO — titles required if title omitted; server fills dataType/inputType/connectedTo",
+          ),
       },
     },
     async (args) =>
       runTool(async () => {
-        let body = args.body;
+        let body = args.body ? { ...args.body } : undefined;
         if (!body) {
           if (!args.title || !args.languageId) {
             throw new Error("create_description_type requires body or (title + languageId)");
@@ -267,6 +320,13 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
               [args.languageId]: { title: args.title },
             },
           };
+        }
+        if (args.connectedTo?.length) {
+          body.connectedTo = args.connectedTo.map((c) => ({
+            type: c.type,
+            position: c.position ?? 1,
+            hidden: c.hidden ?? "",
+          }));
         }
         return ctx.documents.createDescriptionType(args.repositoryId, body);
       }),
@@ -334,15 +394,16 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ repositoryId: id, modelId, permissionGroup, body }) =>
-      runTool(() =>
-        ctx.client.request({
+      runTool(() => {
+        requireWritableRepo(ctx, id);
+        return ctx.client.request({
           method: "POST",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions/accept",
           pathParams: { repositoryId: id, modelId },
           headers: { "2c8-Permission-Group": permissionGroup },
           body,
-        }),
-      ),
+        });
+      }),
   );
 
   server.registerTool(
@@ -539,7 +600,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "set_activity_performer",
     {
       description:
-        "Link a role/position/organisation as performer of one activity (RACI_RESPONSIBLE). Always places a vertex under that activity (reuses symbol UUID). Never attaches one canvas role to multiple activities — call once per activity.",
+        "Link a role/position/organisation as performer of one activity (RACI_RESPONSIBLE). Places under the activity (reuses symbol UUID). Omit x/y to auto-place: first satellite centered, further ones nest to the right (same on spine and side branches). Never one canvas role to multiple activities.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -559,7 +620,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "set_activity_used_by",
     {
       description:
-        "Link an application or step-specific mall/blankett to one activity (IS_USED_BY). Places a vertex under the activity (shared symbol UUID OK, never one vertex fan-out). Prefer this over create_canvas_edge. Process-wide docs → link_document on the process symbol.",
+        "Link an application or step-specific mall/blankett to one activity (IS_USED_BY). Omit x/y: nests to the RIGHT of an existing role/satellite under that activity (never on top of the role) — same packing on main path and vägval side branches. Prefer over create_canvas_edge. Process-wide docs → link_document on the process symbol.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -681,7 +742,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_process_map",
     {
       description:
-        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. layout.mode=threeBand places management (top) and support (bottom) chevrons without FLOW. Do NOT invent overview BOs.",
+        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. Peers without shared BO → layout.mode=peerRows (not parallelTracks/linear). threeBand L0: coreDetailModelIds = linear shared-BO spine only; managementProcessIds/supportProcessIds = chevrons without FLOW (no handoff chain). Append bands to existing L0: modelId + supportProcessIds/managementProcessIds, omit detailModelIds/chain. Do NOT invent overview BOs.",
       inputSchema: {
         repositoryId,
         languageId,
@@ -754,21 +815,29 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         layout: z
           .object({
             mode: z
-              .enum(["linear", "parallelTracks", "threeBand"])
+              .enum(["linear", "parallelTracks", "threeBand", "peerRows"])
               .optional()
-              .describe("Default linear. threeBand = L0 ledning/kärna/stöd"),
+              .describe(
+                "Default linear. peerRows = one row per detailModelId without shared BO. threeBand = L0 ledning/kärna/stöd. parallelTracks = fan-out from shared BO.",
+              ),
             managementProcessIds: z
               .array(uuid)
               .optional()
-              .describe("Detail model UUIDs for top band (no FLOW)"),
+              .describe(
+                "Detail (or L1) model UUIDs for top band — chevrons, no FLOW, no shared BO required between them",
+              ),
             coreDetailModelIds: z
               .array(uuid)
               .optional()
-              .describe("Middle FLOW spine — used as detailModelIds when that is omitted"),
+              .describe(
+                "Middle FLOW spine only — must share handoff BOs. Used as detailModelIds when that is omitted",
+              ),
             supportProcessIds: z
               .array(uuid)
               .optional()
-              .describe("Detail model UUIDs for bottom band (no FLOW)"),
+              .describe(
+                "Detail (or L1) model UUIDs for bottom band — chevrons, no FLOW. Band-append: pass with modelId alone (omit chain)",
+              ),
           })
           .optional(),
         permissionGroup: permissionGroupHeader,
@@ -784,7 +853,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "link_document",
     {
       description:
-        "Create/update an MT document and/or attach to a symbol. PRIMARY: documentRootKey + relativePath + title + languageId (+ optional titles map for other languages) — stores a FULL absolute file:/// or https URL. content/URL is per language like titles: set every active language or secondary GUI languages get empty non-clickable links. Prefer titles:{ [langId]: title } so the same absolute URL is written to all languages in one call. API prefix is NOT a document-root binding; after mass create the user matches paths to roots in the 2c8 UI. createDocumentBody must use absolute languages.*.content. Symbol PATCH: [{ id, source: 'mt.documents' }]. showInPanel defaults to false.",
+        "Create/update an MT document and/or attach to a symbol. PRIMARY: documentRootKey + relativePath + title + languageId (+ optional titles map for other languages) — stores a FULL absolute file:/// or https URL. Same absolute URL reuses the existing mt.documents id (no duplicate UUIDs for one file). content/URL is per language like titles: set every active language or secondary GUI languages get empty non-clickable links. Prefer titles:{ [langId]: title } so the same absolute URL is written to all languages in one call. API prefix is NOT a document-root binding; after mass create the user matches paths to roots in the 2c8 UI. createDocumentBody must use absolute languages.*.content. Symbol PATCH: [{ id, source: 'mt.documents' }]. showInPanel defaults to false. Parallel link_document to the same symbolId are queued in MCP (per-symbol mutex) so document-panel merges do not race.",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
@@ -903,12 +972,18 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         }
 
         if (createBody) {
-          results.created = await ctx.documents.createMtDocument(args.repositoryId, createBody);
-          const created = results.created as {
-            uuid?: string;
-            id?: string;
-          };
-          const createdId = created?.uuid ?? created?.id;
+          const upsert = await ctx.documents.createOrReuseMtDocument(args.repositoryId, createBody);
+          results.created = upsert.document;
+          results.reused = upsert.reused;
+          results.documentId = upsert.documentId;
+          if (upsert.matchedUrl) {
+            results.matchedUrl = upsert.matchedUrl;
+          }
+          if (upsert.reused) {
+            results.dedupeNote =
+              "Existing MT document with the same absolute content URL was reused — no new UUID minted.";
+          }
+          const createdId = upsert.documentId;
           if (createdId && args.symbolId) {
             results.linked = await ctx.documents.linkDocumentsToSymbol({
               repositoryId: args.repositoryId,
@@ -935,9 +1010,11 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           data: results,
           methodologyNotes: [
             "Workflow: (1) create_document_root (2) link_document with full absolute URLs for every language (shorthand titles map joins root.value + relativePath into each languages.*.content) (3) user runs 2c8 UI match to bind paths to the root.",
+            "Same absolute URL → reuse existing mt.documents id (response.reused=true + documentId). Prefer storing that UUID in CATALOG/STATE; later attaches may use documentIds:[id] only.",
             "content/URL is language-specific like titles — one languageId alone leaves other languages with empty GUI links.",
             "API prefix is not a document-root foreign key — do not set prefix to the root key for binding.",
             "Document symbol links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is success.",
+            "Same-symbol link/unlink is serialized in MCP (parallel calls to different symbols still run concurrently).",
             "After create/update: verify_document_links without languageId (checks all repo languages).",
           ],
           nextSuggestedTools: [
@@ -974,7 +1051,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "confirm_translations",
     {
       description:
-        "Mark existing titles as translated (translated:true) without changing text — symbols, models, and canvas edge labels (Ja/Nej etc.). Clears GUI Translation status globes. Pass languageId (e.g. English).",
+        "Mark existing titles as translated (translated:true) without changing text — symbols, models, and canvas edge labels (Ja/Nej etc.). Clears GUI globes ONLY. Does NOT translate: if secondary text is still English, use update_titles with real target-language strings first. Pass languageId (e.g. Swedish).",
       inputSchema: {
         repositoryId,
         languageId,
@@ -989,7 +1066,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "update_titles",
     {
       description:
-        "Update model/symbol titles (translations). Writes title + rawTitle and sets translated:true (marks language as translated — clears GUI globe). Prefer items[] to batch many symbols in ONE call.",
+        "Update model/symbol/edge-label titles (translations). Writes title + rawTitle and sets translated:true (clears GUI globe). Prefer items[] to batch in ONE call. Canvas Ja/Nej labels: items[{ modelId, edgeId, title }] (edgeId from describe_process outgoing[].edgeId).",
       inputSchema: {
         repositoryId,
         languageId: languageId
@@ -998,6 +1075,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         title: z.string().min(1).optional().describe("Title for single-target update"),
         modelId: uuid.optional(),
         symbolId: uuid.optional(),
+        edgeId: uuid.optional().describe("Canvas edge UUID; requires modelId"),
         titles: z
           .record(z.string(), z.string())
           .optional()
@@ -1007,6 +1085,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             z.object({
               modelId: uuid.optional(),
               symbolId: uuid.optional(),
+              edgeId: uuid.optional().describe("Canvas edge; requires modelId"),
               title: z.string().min(1),
               languageId: languageId.optional(),
               titles: z.record(z.string(), z.string()).optional(),
@@ -1014,7 +1093,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           )
           .optional()
           .describe(
-            "Batch: [{ symbolId, title }] or [{ modelId, title }] — one tool call for all translations",
+            "Batch: [{ symbolId, title }] | [{ modelId, title }] | [{ modelId, edgeId, title }] — one call for all translations",
           ),
       },
     },

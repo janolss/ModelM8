@@ -20,7 +20,7 @@
 | Text → model | [workflows/text-to-model.md](workflows/text-to-model.md) |
 | Speech → model | [workflows/speech-to-model.md](workflows/speech-to-model.md) |
 | Document → model | [workflows/document-to-model.md](workflows/document-to-model.md) |
-| Full IMS via plan | [workflows/ims-from-plan.md](workflows/ims-from-plan.md) |
+| Full IMS via plan | [workflows/ims-from-plan.md](workflows/ims-from-plan.md) · [processkort](workflows/cards/IMS-FROM-PLAN.md) |
 
 ## Other
 

@@ -1,5 +1,7 @@
 # Full IMS / management system via plan
 
+**Process card (meta-workflow, roles & deliverables):** [cards/IMS-FROM-PLAN.md](cards/IMS-FROM-PLAN.md)
+
 ## When
 
 You have a document folder (policies, directives, practices, process register) and want a **navigable** visual management system in 2c8: L0 → area maps → details.

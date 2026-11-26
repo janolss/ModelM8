@@ -11,6 +11,8 @@ export interface ProposedChainNode {
   kind: "businessObject" | "activity" | "gateway" | "and";
   title: string;
   objectType: string;
+  /** Optional existing symbol UUID (handoff / CATALOG reuse). Prefer over create. */
+  symbolId?: string;
 }
 
 /** Per-activity relations outside the FLOW spine. */
@@ -65,6 +67,11 @@ export interface ModelProposal {
   branches?: ProposedBranch[];
   /** Derived/legacy linear steps (compat). */
   steps: ProposedStep[];
+  /**
+   * Title → existing symbol UUID (from CATALOG / search_symbols).
+   * apply_model_proposal seeds its cache from this before create.
+   */
+  reuseHints?: Record<string, string>;
   methodologyNotes: string[];
   namingChecks: Array<{
     title: string;
@@ -72,11 +79,17 @@ export interface ModelProposal {
     pass: boolean;
     hint?: string;
   }>;
+  /** When alternation fails: short repair tips for the agent. */
+  repairHints?: string[];
+  /** When alternation fails: suggested prefixed text to re-propose. */
+  suggestedPrefixedText?: string;
   nextSuggestedTools: string[];
 }
 
 const ACTIVITY_HINTS = /^(aktivitet(?:er)?|activit(?:y|ies)|steg|step)\s*[:\-–]\s*/i;
-const ROLE_HINTS = /^(roll(?:er)?|role(?:s)?|ansvarig|befattning|utförare)\s*[:\-–]\s*/i;
+/** Standalone performer lines (incl. RACI_RESPONSIBLE:) — never invent Activity from these. */
+const ROLE_HINTS =
+  /^(?:raci[_\s-]?responsible|raci|performer|performers|roll(?:er)?|role(?:s)?|ansvarig|befattning|utförare)\s*[:\-–]\s*/i;
 const DOC_HINTS = /^(dokument|document|länk|link|styrdokument|checklista)\s*[:\-–]\s*/i;
 /** Explicit BO prefix used heavily by agents (English + Swedish). */
 const BO_HINTS =
@@ -120,7 +133,7 @@ function capitalizeFirst(s: string): string {
 }
 
 function cleanTitle(line: string): string {
-  return line
+  let t = line
     .replace(/^[-*•\d.)\s]+/, "")
     .replace(ACTIVITY_HINTS, "")
     .replace(ROLE_HINTS, "")
@@ -135,6 +148,15 @@ function cleanTitle(line: string): string {
     .replace(BRANCH_HINTS, "")
     .replace(NOTES_HINTS, "")
     .trim();
+  // Strip trailing RACI / used-by / controls fragments that pollute step titles
+  t = t
+    .replace(
+      /\s+[—–-]\s+(?:performer|performers|ansvarig|role|roles|used by|används(?:\s+av)?|controlled by|controls?|styrdokument)\s*:.*$/i,
+      "",
+    )
+    .replace(/\s+\((?:RACI|performer|used by|används)[^)]*\)\s*$/i, "")
+    .trim();
+  return t;
 }
 
 /**
@@ -327,6 +349,69 @@ function buildNamingChecks(
   return checks;
 }
 
+/**
+ * FLOW spine should alternate BO ↔ activity (gateway/or/and may sit between).
+ * Flags consecutive same-kind spine nodes and bogus "Output: …" activity titles.
+ */
+export function chainAlternationIssues(chain: ProposedChainNode[]): string[] {
+  const issues: string[] = [];
+  const spine = chain.filter(
+    (n) =>
+      n.kind === "businessObject" ||
+      n.kind === "activity" ||
+      n.kind === "gateway" ||
+      n.kind === "and",
+  );
+  for (let i = 1; i < spine.length; i++) {
+    const prev = spine[i - 1]!;
+    const cur = spine[i]!;
+    if (prev.kind === "activity" && cur.kind === "activity") {
+      issues.push(
+        `Consecutive activities without BO: "${prev.title}" → "${cur.title}". Insert a value/artefact BO between them.`,
+      );
+    }
+    if (prev.kind === "businessObject" && cur.kind === "businessObject") {
+      issues.push(
+        `Consecutive business objects without activity: "${prev.title}" → "${cur.title}". Insert an activity between them.`,
+      );
+    }
+  }
+  for (const n of spine) {
+    if (n.kind === "activity" && /^(output|input|resultat)\s*[:\-–]/i.test(n.title.trim())) {
+      issues.push(
+        `Activity title looks like a BO label ("${n.title}"). Use Business object:/Output: for artefacts; keep activities as infinitive verb + noun.`,
+      );
+    }
+  }
+  return issues;
+}
+
+/** Build a re-propose template from a broken chain (document order preserved). */
+function suggestedPrefixedFromChain(
+  title: string,
+  chain: ProposedChainNode[],
+  branches: ProposedBranch[],
+): string {
+  const lines: string[] = [`Process: ${title}`];
+  for (const n of chain) {
+    if (n.kind === "activity") lines.push(`Activity: ${n.title}`);
+    else if (n.kind === "businessObject") lines.push(`Output: ${n.title}`);
+    else if (n.kind === "gateway" || n.kind === "and") {
+      lines.push(`Vägval: ${n.title}`);
+    }
+  }
+  for (const b of branches) {
+    const label = b.label ?? "Ja";
+    lines.push(`${label}: ${b.toTitle}`);
+  }
+  lines.push(
+    "",
+    "# Fix: keep Activity: then Output:/Business object: in document order (never buffer Outputs past the next Activity).",
+    "# Vägval Nej must name a real activity (not Output: …); put the BO on its own Output: line after that activity.",
+  );
+  return lines.join("\n");
+}
+
 function finalizeProposal(
   pack: MethodologyPack,
   modelType: string,
@@ -339,6 +424,57 @@ function finalizeProposal(
   const steps = stepsFromChain(chain, activities);
   const hasGateway =
     chain.some((n) => n.kind === "gateway" || n.kind === "and") || branches.length > 0;
+  const alternation = chainAlternationIssues(chain);
+  const namingChecks = buildNamingChecks(pack, chain, activities, branches);
+  for (const msg of alternation) {
+    namingChecks.push({
+      title,
+      objectType: "process",
+      pass: false,
+      hint: msg,
+    });
+  }
+  // Vägval branches must target activities (not BO / "Output: …")
+  for (const b of branches) {
+    if (b.toKind === "businessObject" || /^(output|input)\s*[:\-–]/i.test(b.toTitle.trim())) {
+      namingChecks.push({
+        title: b.toTitle,
+        objectType: "or",
+        pass: false,
+        hint: `Vägval branch "${b.label ?? "?"}" → "${b.toTitle}" must be a real activity (never BO / Output:…). Pattern: activity → BO → or → next activity.`,
+      });
+    }
+  }
+  const gatewayTitles = new Set(
+    chain.filter((n) => n.kind === "gateway").map((n) => n.title.toLowerCase()),
+  );
+  const incompleteVagval: string[] = [];
+  for (const gw of gatewayTitles) {
+    const answers = branches.filter((b) => b.fromTitle.toLowerCase() === gw);
+    const labels = new Set(answers.map((b) => (b.label ?? "").toLowerCase()));
+    if (answers.length === 1 || (answers.length > 0 && !labels.has("nej") && !labels.has("no"))) {
+      incompleteVagval.push(
+        `Vägval "${answers[0]?.fromTitle ?? gw}" has ${answers.length} branch(es) — add Nej: <activity> (side branch, not on main chain after later BOs).`,
+      );
+    }
+  }
+  const repairHints =
+    alternation.length > 0 || incompleteVagval.length > 0
+      ? [
+          ...(alternation.length
+            ? [
+                "Re-propose with strict prefixes only (Activity:/Output:/Business object:/Vägval:/Ja:/Nej:).",
+                "Each Output: belongs to the Activity: immediately above it — do not reorder.",
+                "Nej: must be an activity title (Close… / Handle…), never Output:…",
+                "Omit free prose / chain notes — they become false activities.",
+                ...alternation.slice(0, 5),
+              ]
+            : []),
+          ...incompleteVagval,
+        ]
+      : undefined;
+  const suggestedPrefixedText =
+    alternation.length > 0 ? suggestedPrefixedFromChain(title, chain, branches) : undefined;
   return {
     modelType,
     title,
@@ -347,22 +483,31 @@ function finalizeProposal(
     activities,
     branches: branches.length ? branches : undefined,
     steps,
+    ...(repairHints ? { repairHints } : {}),
+    ...(suggestedPrefixedText ? { suggestedPrefixedText } : {}),
     methodologyNotes: [
       ...methodologyNotesForObject(pack, "process"),
       ...methodologyNotesForObject(pack, "businessObject"),
       "Proposal includes FLOW chain (business objects + activities), RACI performers, CONTROLS and IS_USED_BY.",
       "FLOW business objects name value created (artefact/capability/outcome), not status echoes of the activity.",
+      "Chain must alternate BO ↔ activity (vägval/or may sit between). Fix failing namingChecks — do not hand-build JSON as first response; re-propose corrected text (MCP_DEBUG → TOOL-FRICTION if you still bypass).",
       ...(hasGateway
         ? [
             ...methodologyNotesForObject(pack, "gateway"),
             "Vägval = Regel (Eller) = objectType or (NOT gateway). Call resolve_branching_object_type. Ja/Nej on branches[].label. NEVER join.",
           ]
         : []),
+      ...(alternation.length
+        ? [
+            "ERROR: chain alternation failed — fix prefixed text and propose again before apply.",
+            "See repairHints + suggestedPrefixedText; do not bypass propose for the whole area after two fails on one model.",
+          ]
+        : []),
       "Review failing namingChecks for business objects before apply_model_proposal.",
-      "Search for reusable symbols before apply_model_proposal.",
+      "Pass reuseHints { title → symbolId } from CATALOG / search_symbols into apply_model_proposal to avoid ZZ_ orphans.",
       ...extraNotes,
     ],
-    namingChecks: buildNamingChecks(pack, chain, activities, branches),
+    namingChecks,
     nextSuggestedTools: [
       "resolve_branching_object_type",
       "validate_against_methodology",
@@ -697,6 +842,35 @@ function proposeFromNarrative(
 /**
  * Prefix-line heuristic (Aktivitet:, Roll:, Input:, …).
  */
+/** True when the text uses Aktivitet:/Output: style prefixes (strict mode). */
+function hasPrefixedStructure(lines: string[]): boolean {
+  let n = 0;
+  for (const l of lines) {
+    if (
+      ACTIVITY_HINTS.test(l) ||
+      BO_HINTS.test(l) ||
+      OUTPUT_HINTS.test(l) ||
+      INPUT_HINTS.test(l) ||
+      GATEWAY_HINTS.test(l) ||
+      BRANCH_HINTS.test(l)
+    ) {
+      n += 1;
+    }
+  }
+  return n >= 2;
+}
+
+/** Unprefixed free prose that must not become activities in strict prefix mode. */
+function isFreeProseInPrefixedMode(line: string): boolean {
+  if (line.includes(":")) return false;
+  if (BRANCH_HINTS.test(line) || GATEWAY_HINTS.test(line)) return false;
+  if (/^\(?\s*(chain|notes?|then|next|finally|also)\b/i.test(line)) return true;
+  if (/\b(chain notes?|then →|→ then)\b/i.test(line)) return true;
+  // Long unprefixed sentences → almost always narrative notes, not steps
+  if (line.length > 90 && /\s/.test(line)) return true;
+  return false;
+}
+
 function proposeFromPrefixedLines(
   pack: MethodologyPack,
   text: string,
@@ -713,12 +887,23 @@ function proposeFromPrefixedLines(
   const branches: ProposedBranch[] = [];
   let pendingPerformers: string[] = [];
   let pendingGatewayTitle: string | undefined;
+  /** Last exclusive vägval — accepts Ja:/Nej: even after spine Output/Activity cleared pending. */
+  let lastExclusiveGatewayTitle: string | undefined;
   let gatewayBranchCount = 0;
   const docs: string[] = [];
   const usedBy: string[] = [];
   const usedByTypes: Record<string, string> = {};
+  /** Inputs buffer until the next activity (then flush before it). */
   const inputs: string[] = [];
-  const outputs: string[] = [];
+  const skippedProse: string[] = [];
+  /** Activity titles already claimed by Ja:/Nej: — skip duplicate Activity: on spine. */
+  const branchTargetTitles = new Set<string>();
+  /**
+   * After a side branch (2nd+ Ja/Nej answer), suppress Output:/BO on the spine
+   * so Nej-side artefacts do not flatten as consecutive BOs after the Ja terminal.
+   */
+  let suppressSpineOutputs = false;
+  const strictPrefixed = hasPrefixedStructure(lines);
 
   const flushBo = (t: string) => {
     chain.push({
@@ -753,6 +938,14 @@ function proposeFromPrefixedLines(
     const t = raw.trim();
     if (/\?\s*$/.test(t)) {
       return { title: t, kind: "gateway", objectType: "or" };
+    }
+    // Explicit BO / Output: on a branch → treat as BO (will fail naming check; prefer activity)
+    if (BO_HINTS.test(t) || OUTPUT_HINTS.test(t) || INPUT_HINTS.test(t)) {
+      return {
+        title: cleanTitle(t) || t,
+        kind: "businessObject",
+        objectType: "businessObject",
+      };
     }
     if (/^(process|processmodell)\s*[:\-–]/i.test(t)) {
       return {
@@ -811,7 +1004,9 @@ function proposeFromPrefixedLines(
           !ACTIVITY_HINTS.test(line) &&
           !GATEWAY_HINTS.test(line) &&
           !BRANCH_HINTS.test(line) &&
-          !BO_HINTS.test(line)
+          !BO_HINTS.test(line) &&
+          !OUTPUT_HINTS.test(line) &&
+          !INPUT_HINTS.test(line)
         ) {
           title = cleaned || title;
           continue;
@@ -824,6 +1019,19 @@ function proposeFromPrefixedLines(
         .split(/\s*,\s*/)
         .map((r) => normalizeRole(r))
         .filter(Boolean);
+      // Attach to the latest spine activity when RACI follows Activity: (Inera dialect)
+      const lastAct = [...chain].reverse().find((n) => n.kind === "activity");
+      if (lastAct) {
+        const detail = activities.find(
+          (a) => a.title.toLowerCase() === lastAct.title.toLowerCase(),
+        );
+        if (detail) {
+          for (const r of roles) {
+            if (r && !detail.performers.includes(r)) detail.performers.push(r);
+          }
+          continue;
+        }
+      }
       pendingPerformers.push(...roles);
       continue;
     }
@@ -837,20 +1045,24 @@ function proposeFromPrefixedLines(
       usedByTypes[t] = APP_HINTS.test(line) ? "application" : "core_document";
       continue;
     }
-    // Explicit "Business object:" → spine BO immediately (not an activity)
+    // Explicit "Business object:" → spine BO immediately (document order)
     if (BO_HINTS.test(line)) {
+      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
       if (t) flushBo(t);
       continue;
     }
     if (INPUT_HINTS.test(line)) {
+      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
       if (t) inputs.push(t);
       continue;
     }
+    // Output: flush immediately after the preceding activity — never buffer past the next one
     if (OUTPUT_HINTS.test(line)) {
+      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
-      if (t) outputs.push(t);
+      if (t) flushBo(t);
       continue;
     }
 
@@ -864,12 +1076,21 @@ function proposeFromPrefixedLines(
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
       pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
+      if (kind === "gateway") {
+        lastExclusiveGatewayTitle = stepTitle;
+      }
       gatewayBranchCount = 0;
+      suppressSpineOutputs = false;
       continue;
     }
 
-    // Ja: / Nej: / Ja → … after a gateway
-    if (BRANCH_HINTS.test(line) && pendingGatewayTitle) {
+    // Ja: / Nej: after a vägval (prefer pending; fall back to last exclusive gateway)
+    if (BRANCH_HINTS.test(line)) {
+      const gatewayForBranch = pendingGatewayTitle ?? lastExclusiveGatewayTitle;
+      if (!gatewayForBranch) {
+        // No open vägval — ignore rather than inventing an activity
+        continue;
+      }
       const labelMatch = line.match(BRANCH_HINTS);
       const labelRaw = labelMatch?.[1] ?? "";
       const label = /^(ja|yes)$/i.test(labelRaw)
@@ -879,31 +1100,79 @@ function proposeFromPrefixedLines(
           : capitalizeFirst(labelRaw);
       const targetRaw = line.replace(BRANCH_HINTS, "").trim();
       if (!targetRaw) continue;
+      const annotated = parseInlineActivityAnnotations(targetRaw);
       const target = resolveBranchTarget(targetRaw);
+      const activityTitle =
+        target.kind === "activity" ? annotated.title || target.title : target.title;
       gatewayBranchCount += 1;
       branches.push({
-        fromTitle: pendingGatewayTitle,
+        fromTitle: gatewayForBranch,
         label,
-        toTitle: target.title,
+        toTitle: activityTitle,
         toKind: target.kind,
         objectType: target.objectType,
       });
-      // First answer continues on the main spine; further answers are side branches
+      branchTargetTitles.add(activityTitle.toLowerCase());
+      // First answer continues on the main spine; further answers are side branches only
       if (gatewayBranchCount === 1) {
+        suppressSpineOutputs = false;
         if (target.kind === "gateway" || target.kind === "and") {
           chain.push({
             kind: target.kind,
-            title: target.title,
+            title: activityTitle,
             objectType: target.objectType === "gateway" ? "or" : target.objectType,
           });
-          pendingGatewayTitle = target.title;
+          pendingGatewayTitle = activityTitle;
+          lastExclusiveGatewayTitle = activityTitle;
           gatewayBranchCount = 0;
         } else if (target.kind === "businessObject") {
-          flushBo(target.title);
+          flushBo(activityTitle);
         } else {
-          pushActivityAnnotated(target.title);
+          pushActivityAnnotated(activityTitle, annotated);
+        }
+      } else {
+        // Side branch: never on main chain; suppress following Output:/BO until next spine Activity
+        suppressSpineOutputs = true;
+        if (target.kind === "activity") {
+          const already = activities.some(
+            (a) => a.title.toLowerCase() === activityTitle.toLowerCase(),
+          );
+          if (!already) {
+            activities.push({
+              title: activityTitle,
+              performers: [...(annotated.performers ?? []), ...pendingPerformers],
+              controlledBy: [...(annotated.controlledBy ?? []), ...docs],
+              usedBy: [...(annotated.usedBy ?? []), ...usedBy],
+              usedByTypes: { ...usedByTypes },
+            });
+            pendingPerformers = [];
+            docs.length = 0;
+            usedBy.length = 0;
+            for (const k of Object.keys(usedByTypes)) delete usedByTypes[k];
+          }
         }
       }
+      continue;
+    }
+
+    // Strict prefix mode: skip free prose rather than inventing activities
+    if (strictPrefixed && isFreeProseInPrefixedMode(line) && !ACTIVITY_HINTS.test(line)) {
+      skippedProse.push(line.slice(0, 80));
+      continue;
+    }
+    if (
+      strictPrefixed &&
+      !ACTIVITY_HINTS.test(line) &&
+      !GATEWAY_HINTS.test(line) &&
+      !BRANCH_HINTS.test(line) &&
+      !ROLE_HINTS.test(line) &&
+      !DOC_HINTS.test(line) &&
+      !APP_HINTS.test(line) &&
+      !USED_BY_HINTS.test(line) &&
+      !line.includes(":") &&
+      guessObjectType(line) === "activity"
+    ) {
+      skippedProse.push(line.slice(0, 80));
       continue;
     }
 
@@ -919,23 +1188,50 @@ function proposeFromPrefixedLines(
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
       pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
+      if (kind === "gateway") {
+        lastExclusiveGatewayTitle = stepTitle;
+      }
       gatewayBranchCount = 0;
+      suppressSpineOutputs = false;
       continue;
     }
 
     if (objectType === "activity") {
-      for (const inp of inputs) flushBo(inp);
+      for (const inp of inputs) {
+        if (!suppressSpineOutputs) flushBo(inp);
+      }
       inputs.length = 0;
 
       const annotated = parseInlineActivityAnnotations(line);
+      const actKey = annotated.title.toLowerCase();
+      // Already placed via Ja:/Nej: — do not re-append on the spine (esp. Nej after Handover)
+      if (branchTargetTitles.has(actKey)) {
+        const onChain = chain.some(
+          (n) => n.kind === "activity" && n.title.toLowerCase() === actKey,
+        );
+        if (onChain) {
+          // Merge any extra performers onto existing activity detail
+          const detail = activities.find((a) => a.title.toLowerCase() === actKey);
+          if (detail) {
+            for (const p of annotated.performers) {
+              if (p && !detail.performers.includes(p)) detail.performers.push(p);
+            }
+          }
+          suppressSpineOutputs = false;
+        }
+        // Side-branch target: keep suppressSpineOutputs so following Output: stays off spine
+        pendingGatewayTitle = undefined;
+        continue;
+      }
+      suppressSpineOutputs = false;
       pushActivityAnnotated(annotated.title, annotated);
-
-      for (const out of outputs) flushBo(out);
-      outputs.length = 0;
+      // Keep lastExclusiveGatewayTitle so a late Nej: still attaches
       pendingGatewayTitle = undefined;
     } else if (objectType === "businessObject") {
+      if (suppressSpineOutputs) continue;
       const stepTitle = cleanTitle(line);
       if (stepTitle) flushBo(stepTitle);
+      // Do not clear lastExclusiveGatewayTitle — Nej: may follow Outputs on the Ja path
       pendingGatewayTitle = undefined;
     } else if (objectType === "role") {
       const roles = cleanTitle(line)
@@ -955,8 +1251,6 @@ function proposeFromPrefixedLines(
     }
   }
 
-  for (const out of outputs) flushBo(out);
-  outputs.length = 0;
   for (const inp of inputs) flushBo(inp);
   inputs.length = 0;
 
@@ -986,9 +1280,14 @@ function proposeFromPrefixedLines(
     chain,
     activities,
     [
-      "Extracted from prefixed / structured lines.",
+      "Extracted from prefixed / structured lines (Output:/Business object: flushed in document order).",
       ...(branches.length
         ? ["Parsed vägval/gateway branches — review branches[].label (Ja/Nej) before apply."]
+        : []),
+      ...(skippedProse.length
+        ? [
+            `Skipped ${skippedProse.length} unprefixed prose line(s) in strict prefix mode (use Activity:/Output: or omit).`,
+          ]
         : []),
     ],
     branches,
@@ -1075,6 +1374,15 @@ function enrichChainFromStepIo(
 export function normalizeProposal(proposal: ModelProposal): ModelProposal {
   if (proposal.chain?.length && proposal.activities) {
     const chain = enrichChainFromStepIo(proposal.chain, proposal.steps ?? []);
+    // Apply reuseHints onto chain nodes missing symbolId
+    if (proposal.reuseHints) {
+      for (const node of chain) {
+        if (node.symbolId) continue;
+        const hit =
+          proposal.reuseHints[node.title] ?? proposal.reuseHints[node.title.toLowerCase()];
+        if (hit) node.symbolId = hit;
+      }
+    }
     return {
       ...proposal,
       processTitle: proposal.processTitle ?? proposal.title,

@@ -746,6 +746,7 @@ export class ProcessReader {
     repositoryId: string;
     modelId: string;
     detailModelIds?: string[];
+    layoutMode?: "linear" | "parallelTracks" | "peerRows" | "threeBand" | "auto";
   }): Promise<Record<string, unknown>> {
     const [flow, canvas, repoConfig] = await Promise.all([
       this.getFlow({ ...args, includeDocuments: true }),
@@ -768,11 +769,13 @@ export class ProcessReader {
           ? "process"
           : "unknown";
 
+    const layoutMode = args.layoutMode ?? "auto";
     const base = reviewProcessCanvas({
       steps: flow.steps,
       canvas,
       distance: extractQuickdrawDistance(repoConfig),
       modelKind,
+      layoutMode,
     });
 
     let scopeFindings: Array<Record<string, unknown>> = [];
@@ -781,6 +784,8 @@ export class ProcessReader {
         repositoryId: args.repositoryId,
         modelId: args.modelId,
         detailModelIds: args.detailModelIds,
+        peerRows:
+          layoutMode === "peerRows" || layoutMode === "parallelTracks" || layoutMode === "auto",
       });
       const violations = (map.scopeViolations as string[]) ?? [];
       scopeFindings = violations.map((message) => ({
@@ -788,7 +793,10 @@ export class ProcessReader {
         severity: "error",
         category: "methodology",
         message,
-        suggestion: "Fix detail I/O handoffs or rebuild with create_process_map(detailModelIds).",
+        suggestion:
+          layoutMode === "peerRows"
+            ? "Each chevron must match its own detail scope — use create_process_map({ layout: { mode: 'peerRows' }, detailModelIds })."
+            : "Fix detail I/O handoffs or rebuild with create_process_map(detailModelIds).",
       }));
     }
 
@@ -816,7 +824,7 @@ export class ProcessReader {
       findings,
       summaryText: summaryLines.join("\n"),
       methodologyNotes: [
-        "review_process_model checks methodology (BO in/out, performers, no join/gateway, no role fan-out) and layout (overlap, spine alignment, spacing, FLOW sides, crossings, multi-I/O stacking).",
+        "review_process_model checks methodology (BO in/out, performers, no join/gateway, no role fan-out, compound performer titles, orphan performers, role→CONTROLS) and layout (overlap, spine alignment, spacing, FLOW sides, crossings, multi-I/O stacking).",
         "Text-to-model / create flows should end with this review; fix errors before considering the model done.",
         "Visual goal: readable for end users — straight baselines, orthogonal FLOW, no spaghetti.",
       ],
@@ -839,6 +847,8 @@ export class ProcessReader {
   async describeProcessMap(args: {
     repositoryId: string;
     modelId: string;
+    /** When true, treat multi-row processes with own I/O as peer tracks (not sideLoops). */
+    peerRows?: boolean;
     /**
      * Optional detail model UUIDs (same order as main-chain processes left→right)
      * to verify overview I/O against detail scopes.
@@ -867,17 +877,41 @@ export class ProcessReader {
           ? Math.min(...processes.map((p) => (p.y ?? 0) + (p.height ?? 50) / 2))
           : 178;
 
-    const mainProcesses = processes.filter((p) => {
-      // Corner title icon
-      if ((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1) {
-        return false;
-      }
-      return Math.abs((p.y ?? 0) + (p.height ?? 50) / 2 - spineMidY) < 55;
-    });
+    const isCornerIcon = (p: (typeof processes)[number]) =>
+      (p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1;
+
+    const processHasIo = (p: (typeof processes)[number]) => {
+      const inn = (p.inputs ?? []).some((i) => BUSINESS_OBJECT_TYPES.has(normType(i.objectType)));
+      const out = (p.outputs ?? []).some((o) => BUSINESS_OBJECT_TYPES.has(normType(o.objectType)));
+      return inn && out;
+    };
+
+    // Peer rows: multiple Y-bands where each process has its own I/O — not sideLoops
+    const nonCorner = processes.filter((p) => !isCornerIcon(p));
+    const yBands = new Map<number, typeof processes>();
+    for (const p of nonCorner) {
+      const band = Math.round(((p.y ?? 0) + (p.height ?? 50) / 2) / 80);
+      const list = yBands.get(band) ?? [];
+      list.push(p);
+      yBands.set(band, list);
+    }
+    const inferPeerRows =
+      args.peerRows === true ||
+      (yBands.size >= 2 &&
+        [...yBands.values()].filter((band) => band.some(processHasIo)).length >= 2);
+
+    const mainProcesses = inferPeerRows
+      ? nonCorner.filter(processHasIo)
+      : processes.filter((p) => {
+          if (isCornerIcon(p)) return false;
+          return Math.abs((p.y ?? 0) + (p.height ?? 50) / 2 - spineMidY) < 55;
+        });
     const sideLoops = processes.filter(
       (p) =>
         !mainProcesses.some((m) => m.vertexId === p.vertexId) &&
-        !((p.x ?? 0) < 80 && (p.y ?? 0) < 80 && processes.length > 1),
+        !isCornerIcon(p) &&
+        // Peer-row processes without full I/O stay as weak main, not sideLoop noise
+        !(inferPeerRows && processHasIo(p)),
     );
 
     // Spine BOs: one primary per X-column (closest to midY). Stacked extras
@@ -982,44 +1016,97 @@ export class ProcessReader {
     let scopeViolations: string[] = [];
     let scopeChecks: Array<Record<string, unknown>> = [];
     if (args.detailModelIds?.length) {
-      const orderedProcesses = mainProcesses.toSorted((a, b) => (a.x ?? 0) - (b.x ?? 0));
-      const chainForValidation: Array<{
-        kind: "businessObject" | "process";
-        title: string;
-        symbolId?: string;
-        detailModelId?: string;
-      }> = [];
-      // Rebuild approximate spine with detail ids by process index
-      for (const s of spine) {
-        if (PROCESS_OBJECT_TYPES.has(normType(s.objectType))) {
-          const idx = orderedProcesses.findIndex((p) => p.vertexId === s.vertexId);
-          chainForValidation.push({
-            kind: "process",
-            title: s.title ?? "",
-            symbolId: s.symbolId,
-            detailModelId: idx >= 0 ? args.detailModelIds[idx] : undefined,
+      if (inferPeerRows) {
+        // Match each chevron to its own detail (Y then X order) — not linear handoff chain
+        const orderedPeers = mainProcesses.toSorted(
+          (a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0),
+        );
+        for (let i = 0; i < orderedPeers.length; i++) {
+          const p = orderedPeers[i]!;
+          const detailId = args.detailModelIds[i];
+          if (!detailId) {
+            scopeViolations.push(
+              `Peer process "${p.title}" has no detailModelIds[${i}] — pass one detail id per row.`,
+            );
+            continue;
+          }
+          const scope = await this.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId: detailId,
           });
-        } else {
-          chainForValidation.push({
-            kind: "businessObject",
-            title: s.title ?? "",
-            symbolId: s.symbolId,
+          const inTitles = new Set(
+            (p.inputs ?? [])
+              .filter((x) => BUSINESS_OBJECT_TYPES.has(normType(x.objectType)))
+              .map((x) => this.normTitle(x.title ?? "")),
+          );
+          const outTitles = new Set(
+            (p.outputs ?? [])
+              .filter((x) => BUSINESS_OBJECT_TYPES.has(normType(x.objectType)))
+              .map((x) => this.normTitle(x.title ?? "")),
+          );
+          for (const inp of scope.inputs) {
+            if (!inTitles.has(this.normTitle(inp.title))) {
+              scopeViolations.push(
+                `Peer "${p.title}" missing detail input "${inp.title}" (detail ${detailId}).`,
+              );
+            }
+          }
+          for (const out of scope.outputs) {
+            if (!outTitles.has(this.normTitle(out.title))) {
+              scopeViolations.push(
+                `Peer "${p.title}" missing detail output "${out.title}" (detail ${detailId}).`,
+              );
+            }
+          }
+          scopeChecks.push({
+            process: p.title,
+            detailModelId: detailId,
+            mode: "peerRows",
           });
         }
+      } else {
+        const orderedProcesses = mainProcesses.toSorted((a, b) => (a.x ?? 0) - (b.x ?? 0));
+        const chainForValidation: Array<{
+          kind: "businessObject" | "process";
+          title: string;
+          symbolId?: string;
+          detailModelId?: string;
+        }> = [];
+        for (const s of spine) {
+          if (PROCESS_OBJECT_TYPES.has(normType(s.objectType))) {
+            const idx = orderedProcesses.findIndex((p) => p.vertexId === s.vertexId);
+            chainForValidation.push({
+              kind: "process",
+              title: s.title ?? "",
+              symbolId: s.symbolId,
+              detailModelId: idx >= 0 ? args.detailModelIds[idx] : undefined,
+            });
+          } else {
+            chainForValidation.push({
+              kind: "businessObject",
+              title: s.title ?? "",
+              symbolId: s.symbolId,
+            });
+          }
+        }
+        const validation = await this.validateProcessMapBoBridges({
+          repositoryId: args.repositoryId,
+          chain: chainForValidation,
+        });
+        scopeChecks = validation.checks;
+        scopeViolations = validation.errors;
       }
-      const validation = await this.validateProcessMapBoBridges({
-        repositoryId: args.repositoryId,
-        chain: chainForValidation,
-      });
-      scopeChecks = validation.checks;
-      scopeViolations = validation.errors;
       if (scopeViolations.length) {
         summaryLines.push("SCOPE-AVVIKELSER:");
         for (const e of scopeViolations) {
           summaryLines.push(`- ${e}`);
         }
       } else {
-        summaryLines.push("Scope OK: overview I/O matches provided detail models.");
+        summaryLines.push(
+          inferPeerRows
+            ? "Scope OK: each peer row matches its detail model I/O."
+            : "Scope OK: overview I/O matches provided detail models.",
+        );
       }
     }
 
@@ -1056,6 +1143,7 @@ export class ProcessReader {
         "Process map: process chevrons + business objects on FLOW (not activities).",
         "SCOPE: each process on the map must have the same input/output BOs as its detail model.",
         "Pass detailModelIds (left→right) to verify scope; or use create_process_map(detailModelIds) to build correctly.",
+        "Peer streams without shared BO: create_process_map({ layout: { mode: 'peerRows' }, detailModelIds }) — not sideLoops.",
         "Prefer describe_process_map for overviews; describe_process for activity-level models.",
       ],
       nextSuggestedTools: [
