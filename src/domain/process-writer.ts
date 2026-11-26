@@ -177,6 +177,17 @@ export class ProcessWriter {
     return id ?? undefined;
   }
 
+  /** All language UUIDs in the repository (for edge-label mirrors). */
+  private async languageIds(repositoryId: string): Promise<string[]> {
+    const page = (await this.client.request({
+      path: "/api/v1/repositories/{repositoryId}/languages",
+      pathParams: { repositoryId },
+    })) as {
+      data?: Array<{ uuid?: string }>;
+    };
+    return (page.data ?? []).map((l) => l.uuid).filter((id): id is string => Boolean(id));
+  }
+
   /**
    * Both title and rawTitle must be set for GUI language switching.
    * GUI renders rawTitle; API/MCP often surface title — mismatch = SV on canvas, EN in API.
@@ -540,15 +551,18 @@ export class ProcessWriter {
     title?: string;
     modelId?: string;
     symbolId?: string;
+    /** Canvas edge UUID — requires modelId; updates FLOW label text + translated:true. */
+    edgeId?: string;
     /** Optional extra language slots in the same call. */
     titles?: Record<string, string>;
     /**
-     * Batch: update many models/symbols in one call.
+     * Batch: update many models/symbols/edges in one call.
      * Each item may override languageId/titles; falls back to top-level.
      */
     items?: Array<{
       modelId?: string;
       symbolId?: string;
+      edgeId?: string;
       title: string;
       languageId?: string;
       titles?: Record<string, string>;
@@ -561,6 +575,7 @@ export class ProcessWriter {
             {
               modelId: args.modelId,
               symbolId: args.symbolId,
+              edgeId: args.edgeId,
               title: args.title ?? "",
               languageId: args.languageId,
               titles: args.titles,
@@ -570,15 +585,24 @@ export class ProcessWriter {
     const updated: Array<{
       modelId?: string;
       symbolId?: string;
+      edgeId?: string;
       ok: boolean;
       error?: string;
     }> = [];
 
     for (const item of batch) {
-      if (!item.modelId && !item.symbolId) {
+      if (!item.modelId && !item.symbolId && !item.edgeId) {
         updated.push({
           ok: false,
-          error: "item requires modelId and/or symbolId",
+          error: "item requires modelId, symbolId, and/or edgeId",
+        });
+        continue;
+      }
+      if (item.edgeId && !item.modelId) {
+        updated.push({
+          edgeId: item.edgeId,
+          ok: false,
+          error: "edgeId requires modelId (canvas edge lives on a model)",
         });
         continue;
       }
@@ -587,6 +611,7 @@ export class ProcessWriter {
         updated.push({
           modelId: item.modelId,
           symbolId: item.symbolId,
+          edgeId: item.edgeId,
           ok: false,
           error: "languageId required (top-level or per item)",
         });
@@ -596,14 +621,24 @@ export class ProcessWriter {
         updated.push({
           modelId: item.modelId,
           symbolId: item.symbolId,
+          edgeId: item.edgeId,
           ok: false,
           error: "title required",
         });
         continue;
       }
       try {
-        if (item.modelId) {
-          // Models reject rawTitle — title + translated:false only.
+        if (item.edgeId && item.modelId) {
+          await this.patchCanvasEdgeLabel({
+            repositoryId: args.repositoryId,
+            modelId: item.modelId,
+            edgeId: item.edgeId,
+            languageId,
+            title: item.title,
+            titles: item.titles,
+          });
+        } else if (item.modelId) {
+          // Models reject rawTitle — title + translated:true only.
           const modelTitles: Record<string, { title: string; translated: true }> = {
             [languageId]: this.modelTitleEntryConfirmed(item.title),
           };
@@ -644,12 +679,14 @@ export class ProcessWriter {
         updated.push({
           modelId: item.modelId,
           symbolId: item.symbolId,
+          edgeId: item.edgeId,
           ok: true,
         });
       } catch (err) {
         updated.push({
           modelId: item.modelId,
           symbolId: item.symbolId,
+          edgeId: item.edgeId,
           ok: false,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -661,13 +698,89 @@ export class ProcessWriter {
       data: { updated, okCount, total: updated.length },
       methodologyNotes: [
         "Writes title + rawTitle and sets translated:true (marks language as translated — clears GUI globe).",
-        "Batch via items[{ modelId|symbolId, title, languageId? }] — one call for all translations.",
+        "Batch via items[{ modelId|symbolId|edgeId+modelId, title, languageId? }] — one call for all translations.",
+        "Canvas edge labels (Ja/Nej): items[{ modelId, edgeId, title }] — edgeId from describe_process outgoing[].edgeId.",
         "Pass Swedish languageId to add Swedish without changing English.",
         "Symbol title is shared across models; model title is per-model.",
-        "To only flip the flag on existing titles without rewriting text: confirm_translations.",
+        "To only flip the flag on existing titles without rewriting text: confirm_translations (includes edges).",
       ],
       nextSuggestedTools: ["confirm_translations", "list_untranslated_symbols", "search_symbols"],
     };
+  }
+
+  /** PATCH one canvas edge label (title/rawTitle + translated:true) via /canvas. */
+  private async patchCanvasEdgeLabel(args: {
+    repositoryId: string;
+    modelId: string;
+    edgeId: string;
+    languageId: string;
+    title: string;
+    titles?: Record<string, string>;
+  }) {
+    const canvas = (await this.client.request({
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+      },
+    })) as {
+      edges?: Array<{
+        uuid?: string;
+        points?: Array<{ x?: number; y?: number }>;
+        breakdowns?: unknown[];
+        labels?: Record<string, Record<string, unknown>>;
+      }>;
+    };
+    const edge = (canvas.edges ?? []).find((e) => e.uuid === args.edgeId);
+    if (!edge?.uuid) {
+      throw new Error(`edgeId ${args.edgeId} not found on model canvas`);
+    }
+    const defLang = await this.defaultLanguageId(args.repositoryId);
+    const existing = edge.labels ?? {};
+    const sample = Object.values(existing)[0] as
+      | { x?: number; y?: number; width?: number; height?: number }
+      | undefined;
+    const nextLabels: Record<string, Record<string, unknown>> = { ...existing };
+
+    const writeLang = (langId: string, text: string) => {
+      const plain = text.trim();
+      const prev = (nextLabels[langId] ?? sample ?? {}) as Record<string, unknown>;
+      const width = Math.max(40, Math.min(120, Math.ceil(plain.length * 6) + 12));
+      nextLabels[langId] = {
+        ...prev,
+        title: plain,
+        rawTitle: plain,
+        width: typeof prev.width === "number" ? prev.width : width,
+        height: typeof prev.height === "number" ? prev.height : 20,
+        x: typeof prev.x === "number" ? prev.x : sample?.x ?? 0,
+        y: typeof prev.y === "number" ? prev.y : sample?.y ?? 0,
+        ...(defLang && langId === defLang ? {} : { translated: true }),
+      };
+    };
+
+    writeLang(args.languageId, args.title);
+    for (const [lang, t] of Object.entries(args.titles ?? {})) {
+      if (t?.trim()) writeLang(lang, t);
+    }
+
+    await this.client.request({
+      method: "PATCH",
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+      },
+      body: {
+        edges: [
+          {
+            uuid: edge.uuid,
+            points: edge.points ?? [],
+            labels: nextLabels,
+            breakdowns: edge.breakdowns ?? [],
+          },
+        ],
+      },
+    });
   }
 
   /**
@@ -1330,6 +1443,49 @@ export class ProcessWriter {
       lockNotes.push("threeBand: coreDetailModelIds used as detailModelIds for FLOW spine.");
     }
 
+    const managementProcessIds = args.layout?.managementProcessIds ?? [];
+    const supportProcessIds = args.layout?.supportProcessIds ?? [];
+    const bandOnlyIds = [...managementProcessIds, ...supportProcessIds];
+    /**
+     * L0 band append: place management/support chevrons without FLOW and without
+     * requiring a linear handoff chain between peers (Inera G-014 friction).
+     * Trigger: threeBand + existing modelId + band ids + no new core detailModelIds.
+     * Accidental process-only `chain` is ignored (agents often pass support as chain).
+     */
+    if (
+      layoutMode === "threeBand" &&
+      args.modelId &&
+      bandOnlyIds.length > 0 &&
+      !detailModelIds?.length
+    ) {
+      const processOnlyChain =
+        chain.length > 0 && chain.every((n) => n.kind === "process" || n.kind === "businessObject")
+          ? chain.every((n) => n.kind === "process")
+          : chain.length === 0;
+      if (chain.length > 0 && !processOnlyChain) {
+        throw new Error(
+          "create_process_map threeBand band-append: omit chain (or pass only process stubs). " +
+            "Place ledning/stöd via layout.managementProcessIds / supportProcessIds — no FLOW, no shared BO required. " +
+            "Core spine uses coreDetailModelIds / detailModelIds on create (not on band-only append).",
+        );
+      }
+      if (chain.length > 0 && processOnlyChain) {
+        lockNotes.push(
+          "threeBand band-append: ignored process-only chain; using managementProcessIds/supportProcessIds only (no FLOW).",
+        );
+      }
+      return this.appendThreeBandBands({
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        languageId: args.languageId,
+        owner: args.owner,
+        group: args.group,
+        managementProcessIds,
+        supportProcessIds,
+        lockNotes,
+      });
+    }
+
     // peerRows: independent rows from each detail scope — no shared BO between peers
     if (layoutMode === "peerRows") {
       if (!detailModelIds?.length) {
@@ -1394,7 +1550,10 @@ export class ProcessWriter {
         throw new Error(
           `create_process_map blocked — cannot derive overview from detail scopes:\n` +
             built.uncertainLinks.join("\n") +
-            `\nIf peers have distinct inputs (no shared BO), use layout: { mode: "peerRows" } with the same detailModelIds.`,
+            `\nIf peers have distinct inputs (no shared BO), use layout: { mode: "peerRows" } with the same detailModelIds.` +
+            (layoutMode === "threeBand"
+              ? `\nL0 tip: put only a linear core on coreDetailModelIds (shared BO handoffs); place peer L1/areas as sideLoops or leave L1 without L0-upward; append ledning/stöd later via managementProcessIds/supportProcessIds (band-only, no FLOW).`
+              : ""),
         );
       }
       chain = built.chain.map((n) => ({
@@ -2427,6 +2586,103 @@ export class ProcessWriter {
   }
 
   /**
+   * Append management/support chevrons to an existing L0 without touching the FLOW spine.
+   * No shared BO / linear handoff required between band peers.
+   */
+  private async appendThreeBandBands(args: {
+    repositoryId: string;
+    modelId: string;
+    languageId: string;
+    owner?: string;
+    group?: string;
+    managementProcessIds: string[];
+    supportProcessIds: string[];
+    lockNotes: string[];
+  }) {
+    const canvas = (await this.client.request({
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+      pathParams: {
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+      },
+    })) as {
+      vertices?: Array<{
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
+        objectType?: string;
+      }>;
+    };
+    const reserved: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const boCenters: number[] = [];
+    for (const v of canvas.vertices ?? []) {
+      reserved.push({
+        x: v.x ?? 0,
+        y: v.y ?? 0,
+        width: v.width ?? 0,
+        height: v.height ?? 0,
+      });
+      const ot = (v.objectType ?? "").toLowerCase();
+      if (ot === "businessobject" || ot === "business_object") {
+        boCenters.push((v.y ?? 0) + (v.height ?? 0) / 2);
+      }
+    }
+    let spineMidY = SPINE_MID_Y;
+    if (boCenters.length) {
+      const sorted = [...boCenters].sort((a, b) => a - b);
+      spineMidY = Math.round(sorted[Math.floor(sorted.length / 2)]!);
+    } else if (reserved.length) {
+      const centers = reserved.map((r) => r.y + r.height / 2).sort((a, b) => a - b);
+      spineMidY = Math.round(centers[Math.floor(centers.length / 2)]!);
+    }
+    const repoConfig = await this.getRepoConfig(args.repositoryId);
+    const { distance } = this.layoutGaps(repoConfig);
+    const gapX = Math.max(distance.right, distance.left, 40);
+    const symbolCache = new Map<string, string>();
+    const band = await this.placeThreeBandProcesses({
+      repositoryId: args.repositoryId,
+      modelId: args.modelId,
+      languageId: args.languageId,
+      owner: args.owner,
+      group: args.group,
+      spineMidY,
+      managementProcessIds: args.managementProcessIds,
+      supportProcessIds: args.supportProcessIds,
+      symbolCache,
+      reserved,
+      gapX,
+    });
+    const notes = [...args.lockNotes, ...band.notes];
+    return {
+      data: {
+        modelId: args.modelId,
+        placed: band.placed,
+        breakdowns: band.breakdowns,
+        bridgeChecks: [],
+        chainUsed: [],
+        chainLength: 0,
+        sideLoopCount: 0,
+        parallelTrackCount: 0,
+        threeBandCount: band.placed.length,
+        layoutMode: "threeBand",
+        bandAppend: true,
+      },
+      methodologyNotes: [
+        "threeBand band-append: management/support chevrons placed without FLOW and without inventing bridge BOs.",
+        "Peers without shared handoff BO belong in peerRows L1 (or sideLoops from a state BO) — not on the L0 FLOW spine.",
+        "L1 without L0-upward is an approved exception when core uses shared-BO L2 only (document in STATE).",
+        ...notes,
+      ],
+      nextSuggestedTools: [
+        "review_process_model",
+        "get_navigation_tree",
+        "describe_process_map",
+      ],
+    };
+  }
+
+  /**
    * L0 side bands: place process chevrons above/below the core spine without FLOW.
    * managementProcessIds / supportProcessIds are detail model UUIDs (scope → title/symbol).
    */
@@ -3194,16 +3450,20 @@ export class ProcessWriter {
       width: labelWidth,
       height: 20,
     };
-    // Default language omits translated; other languages get translated:true when we write them.
+    // Mirror label to every repo language. Default omits `translated`; all others get
+    // translated:true so Ja/Nej (and other edge texts) do not leave GUI globes ON.
     const defLang = await this.defaultLanguageId(args.repositoryId);
-    const labels: Record<string, Record<string, unknown>> = {
-      [args.languageId]:
-        defLang && defLang === args.languageId
+    const langIds = await this.languageIds(args.repositoryId);
+    const labels: Record<string, Record<string, unknown>> = {};
+    const ids =
+      langIds.length > 0
+        ? langIds
+        : [args.languageId, defLang].filter((id): id is string => Boolean(id));
+    for (const langId of new Set(ids)) {
+      labels[langId] =
+        defLang && langId === defLang
           ? { ...edgeLabelBase }
-          : { ...edgeLabelBase, translated: true },
-    };
-    if (defLang && defLang !== args.languageId) {
-      labels[defLang] = { ...edgeLabelBase };
+          : { ...edgeLabelBase, translated: true };
     }
 
     const edge = await this.client.request({
@@ -4794,12 +5054,18 @@ export class ProcessWriter {
       results.push({ branchFlow: edge });
     }
 
-    // RACI / CONTROLS / IS_USED_BY — pack per side so icons do not stack
-    for (const node of chain) {
-      if (node.kind !== "activity") continue;
-      const activityPlacement = activityVertices.get(node.title.toLowerCase());
+    // RACI / CONTROLS / IS_USED_BY — pack per side so icons do not stack.
+    // Include side-branch activities (Nej path): they are in activityVertices but not on chain.
+    const satelliteActivityKeys = new Set<string>([
+      ...chain.filter((n) => n.kind === "activity").map((n) => n.title.toLowerCase()),
+      ...branches
+        .filter((b) => (b.toKind ?? "activity") === "activity")
+        .map((b) => b.toTitle.toLowerCase()),
+    ]);
+    for (const activityKey of satelliteActivityKeys) {
+      const activityPlacement = activityVertices.get(activityKey);
       if (!activityPlacement) continue;
-      const detail = detailByTitle.get(node.title.toLowerCase());
+      const detail = detailByTitle.get(activityKey);
       if (!detail) continue;
 
       const activityBox = {
@@ -4934,7 +5200,7 @@ export class ProcessWriter {
         }
       }
 
-      // Bottom: primary role centered; apps/extra roles alternate left/right
+      // Bottom: primary role centered; apps/extra nest to the RIGHT (never stacked)
       const withPack = (s: Sat) => ({
         title: s.title,
         width: s.width,
@@ -5260,12 +5526,61 @@ export class ProcessWriter {
       (await this.resolveSymbolTitle(args.repositoryId, args.satelliteSymbolId, args.languageId)) ??
       args.kind;
 
-    const x = args.x ?? Math.round(actX + Math.floor(actW / 2) - Math.floor(size.width / 2));
-    const y =
-      args.y ??
-      (args.side === "bottom"
-        ? Math.round(actY + actH + gap)
-        : Math.round(actY - gap - size.height));
+    // Same rule as apply layoutBottomSatellites: first sat centered under/above
+    // activity; further sats nest to the RIGHT — never stacked on the role.
+    const nestGap = 16;
+    const staggerY = 14;
+    const isSatelliteEdge = (edgeType: string | undefined) => {
+      const et = (edgeType ?? "").toLowerCase().replace(/[_\s-]/g, "");
+      return /raci|usedby|controls|responsible/.test(et);
+    };
+    const linkedSiblings = (below: boolean) =>
+      (canvas.vertices ?? []).filter((v) => {
+        if (!v.uuid || v.uuid === args.activityVertexId) return false;
+        const linked = (canvas.edges ?? []).some(
+          (e) =>
+            isSatelliteEdge(e.edgeType) &&
+            vertexId(e.toVertex) === args.activityVertexId &&
+            vertexId(e.fromVertex) === v.uuid,
+        );
+        if (!linked) return false;
+        if (below) return (v.y ?? 0) >= actY + actH - 4;
+        return (v.y ?? 0) + (v.height ?? 0) <= actY + 4;
+      });
+
+    let x = args.x;
+    let y = args.y;
+    if (x === undefined || y === undefined) {
+      if (args.side === "bottom") {
+        const baseY = Math.round(actY + actH + gap);
+        const siblings = linkedSiblings(true);
+        if (siblings.length === 0) {
+          x = Math.round(actX + Math.floor(actW / 2) - Math.floor(size.width / 2));
+          y = baseY;
+        } else {
+          let rightEdge = actX;
+          for (const s of siblings) {
+            rightEdge = Math.max(rightEdge, (s.x ?? 0) + (s.width ?? size.width));
+          }
+          x = Math.round(rightEdge + nestGap);
+          y = Math.round(baseY + staggerY);
+        }
+      } else {
+        const baseY = Math.round(actY - gap - size.height);
+        const siblings = linkedSiblings(false);
+        if (siblings.length === 0) {
+          x = Math.round(actX + Math.floor(actW / 2) - Math.floor(size.width / 2));
+          y = baseY;
+        } else {
+          let rightEdge = actX;
+          for (const s of siblings) {
+            rightEdge = Math.max(rightEdge, (s.x ?? 0) + (s.width ?? size.width));
+          }
+          x = Math.round(rightEdge + nestGap);
+          y = baseY;
+        }
+      }
+    }
 
     // Satellite above → edge attaches on bottom; below → attach on top.
     const edgeAttachSide: "top" | "bottom" = args.side === "top" ? "bottom" : "top";
@@ -5277,8 +5592,8 @@ export class ProcessWriter {
       languageId: args.languageId,
       title,
       objectType: args.objectType,
-      x,
-      y,
+      x: x!,
+      y: y!,
       width: size.width,
       height: size.height,
       edgeAttachSide,

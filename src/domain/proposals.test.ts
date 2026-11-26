@@ -29,13 +29,11 @@ Business object: Customer lead
 Activity: Qualify opportunity
 Business object: Go/No-Go Decision Record
 Vägval: Go decision?
-Ja: Prepare proposal
+Ja: Prepare proposal — Performer: Case Manager
+Output: Proposal pack
 Nej: Close declined opportunity
-Business object: Proposal pack
-Activity: Prepare proposal
-Business object: Handover Package
-Activity: Close declined opportunity
-Business object: Declined opportunity record
+Activity: Package handover
+Output: Handover Package
 `.trim();
     const proposal = proposeModelFromText(pack, text, "process");
     const altFails = (proposal.namingChecks ?? []).filter(
@@ -45,6 +43,10 @@ Business object: Declined opportunity record
     const kinds = (proposal.chain ?? []).map((n) => n.kind);
     expect(kinds.includes("businessObject")).toBe(true);
     expect(kinds.includes("activity")).toBe(true);
+    expect(proposal.branches?.map((b) => b.label).sort()).toEqual(["Ja", "Nej"]);
+    expect(proposal.chain?.some((n) => /Close declined/i.test(n.title))).toBe(false);
+    const prepare = proposal.activities?.find((a) => /Prepare proposal/i.test(a.title));
+    expect(prepare?.performers).toContain("Case Manager");
   });
 
   it("scrambled activity-only lines fail alternation namingChecks", () => {
@@ -120,6 +122,103 @@ Output: Declined opportunity record
     const nej = proposal.branches?.find((b) => b.label === "Nej");
     expect(nej?.toTitle).toBe("Close declined opportunity");
     expect(nej?.toKind).not.toBe("businessObject");
+    // Side-branch target must not re-enter the spine after Ja path BOs
+    expect(proposal.chain?.some((n) => n.title === "Close declined opportunity")).toBe(false);
+    expect(proposal.chain?.filter((n) => n.title === "Prepare proposal")).toHaveLength(1);
+  });
+
+  it("Nej: after Ja-path Output still attaches to last vägval (SAL-MSP dialect)", () => {
+    const text = `
+Process: Sell managed service
+Activity: Qualify opportunity
+Output: Go/No-Go Decision Record
+Vägval: Go decision?
+Ja: Prepare proposal — Performer: Case Manager
+Output: Proposal pack
+Activity: Prepare for handover
+Output: Handover Package
+Nej: Close declined opportunity — Performer: Sales Manager
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(proposal.branches?.map((b) => `${b.label}:${b.toTitle}`).sort()).toEqual([
+      "Ja:Prepare proposal",
+      "Nej:Close declined opportunity",
+    ]);
+    expect(proposal.chain?.some((n) => n.title === "Close declined opportunity")).toBe(false);
+    const close = proposal.activities?.find((a) => a.title === "Close declined opportunity");
+    expect(close?.performers).toContain("Sales Manager");
+    const prepare = proposal.activities?.find((a) => a.title === "Prepare proposal");
+    expect(prepare?.performers).toContain("Case Manager");
+    const altFails = (proposal.namingChecks ?? []).filter(
+      (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
+    );
+    expect(altFails).toEqual([]);
+  });
+
+  it("repairHints when vägval has Ja but missing Nej", () => {
+    const text = `
+Process: Gate
+Activity: Decide
+Output: Decision Record
+Vägval: Approved?
+Ja: Continue work
+Output: Done
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(proposal.repairHints?.some((h) => /Nej:/i.test(h))).toBe(true);
+  });
+
+  it("Inera incident dialect: Nej side Output does not flatten onto spine after Ja terminal", () => {
+    const text = `
+Process: Hantera incident
+Input: Incidentanmälan
+Activity: Registrera incident — Performer: Servicedesk
+Output: Incidentrecord
+Activity: Klassificera allvarlighetsgrad — Performer: Incident Manager
+Output: Klassificerad incident
+Vägval: Krävs eskalering?
+Ja: Eskalera till 2nd line — Performer: Incident Manager
+Output: Eskalerad incident
+Activity: Åtgärda och återställa — Performer: 2nd line
+Output: Återställd tjänst
+Nej: Åtgärda på 1st line — Performer: Servicedesk
+Output: Stängd incident
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(proposal.branches?.map((b) => `${b.label}:${b.toTitle}`).sort()).toEqual([
+      "Ja:Eskalera till 2nd line",
+      "Nej:Åtgärda på 1st line",
+    ]);
+    expect(proposal.chain?.some((n) => n.title === "Åtgärda på 1st line")).toBe(false);
+    expect(proposal.chain?.some((n) => n.title === "Stängd incident")).toBe(false);
+    expect(proposal.chain?.map((n) => n.title)).toContain("Återställd tjänst");
+    const altFails = (proposal.namingChecks ?? []).filter(
+      (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
+    );
+    expect(altFails).toEqual([]);
+    const side = proposal.activities?.find((a) => a.title === "Åtgärda på 1st line");
+    expect(side?.performers).toContain("Servicedesk");
+  });
+
+  it("RACI_RESPONSIBLE: standalone line becomes performer, not Activity", () => {
+    const text = `
+Process: Hantera test
+Activity: Planera test
+RACI_RESPONSIBLE: Avdelning Test och utveckling
+Output: Testplan
+Activity: Utföra test
+Output: Testrapport
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(
+      proposal.chain?.some((n) => n.kind === "activity" && /RACI|Avdelning Test/i.test(n.title)),
+    ).toBe(false);
+    const plan = proposal.activities?.find((a) => a.title === "Planera test");
+    expect(plan?.performers.some((p) => /Test och utveckling/i.test(p))).toBe(true);
+    const altFails = (proposal.namingChecks ?? []).filter(
+      (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
+    );
+    expect(altFails).toEqual([]);
   });
 
   it("skips free prose chain notes in strict prefix mode", () => {

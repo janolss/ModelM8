@@ -87,7 +87,9 @@ export interface ModelProposal {
 }
 
 const ACTIVITY_HINTS = /^(aktivitet(?:er)?|activit(?:y|ies)|steg|step)\s*[:\-–]\s*/i;
-const ROLE_HINTS = /^(roll(?:er)?|role(?:s)?|ansvarig|befattning|utförare)\s*[:\-–]\s*/i;
+/** Standalone performer lines (incl. RACI_RESPONSIBLE:) — never invent Activity from these. */
+const ROLE_HINTS =
+  /^(?:raci[_\s-]?responsible|raci|performer|performers|roll(?:er)?|role(?:s)?|ansvarig|befattning|utförare)\s*[:\-–]\s*/i;
 const DOC_HINTS = /^(dokument|document|länk|link|styrdokument|checklista)\s*[:\-–]\s*/i;
 /** Explicit BO prefix used heavily by agents (English + Swedish). */
 const BO_HINTS =
@@ -443,14 +445,32 @@ function finalizeProposal(
       });
     }
   }
+  const gatewayTitles = new Set(
+    chain.filter((n) => n.kind === "gateway").map((n) => n.title.toLowerCase()),
+  );
+  const incompleteVagval: string[] = [];
+  for (const gw of gatewayTitles) {
+    const answers = branches.filter((b) => b.fromTitle.toLowerCase() === gw);
+    const labels = new Set(answers.map((b) => (b.label ?? "").toLowerCase()));
+    if (answers.length === 1 || (answers.length > 0 && !labels.has("nej") && !labels.has("no"))) {
+      incompleteVagval.push(
+        `Vägval "${answers[0]?.fromTitle ?? gw}" has ${answers.length} branch(es) — add Nej: <activity> (side branch, not on main chain after later BOs).`,
+      );
+    }
+  }
   const repairHints =
-    alternation.length > 0
+    alternation.length > 0 || incompleteVagval.length > 0
       ? [
-          "Re-propose with strict prefixes only (Activity:/Output:/Business object:/Vägval:/Ja:/Nej:).",
-          "Each Output: belongs to the Activity: immediately above it — do not reorder.",
-          "Nej: must be an activity title (Close… / Handle…), never Output:…",
-          "Omit free prose / chain notes — they become false activities.",
-          ...alternation.slice(0, 5),
+          ...(alternation.length
+            ? [
+                "Re-propose with strict prefixes only (Activity:/Output:/Business object:/Vägval:/Ja:/Nej:).",
+                "Each Output: belongs to the Activity: immediately above it — do not reorder.",
+                "Nej: must be an activity title (Close… / Handle…), never Output:…",
+                "Omit free prose / chain notes — they become false activities.",
+                ...alternation.slice(0, 5),
+              ]
+            : []),
+          ...incompleteVagval,
         ]
       : undefined;
   const suggestedPrefixedText =
@@ -867,6 +887,8 @@ function proposeFromPrefixedLines(
   const branches: ProposedBranch[] = [];
   let pendingPerformers: string[] = [];
   let pendingGatewayTitle: string | undefined;
+  /** Last exclusive vägval — accepts Ja:/Nej: even after spine Output/Activity cleared pending. */
+  let lastExclusiveGatewayTitle: string | undefined;
   let gatewayBranchCount = 0;
   const docs: string[] = [];
   const usedBy: string[] = [];
@@ -874,6 +896,13 @@ function proposeFromPrefixedLines(
   /** Inputs buffer until the next activity (then flush before it). */
   const inputs: string[] = [];
   const skippedProse: string[] = [];
+  /** Activity titles already claimed by Ja:/Nej: — skip duplicate Activity: on spine. */
+  const branchTargetTitles = new Set<string>();
+  /**
+   * After a side branch (2nd+ Ja/Nej answer), suppress Output:/BO on the spine
+   * so Nej-side artefacts do not flatten as consecutive BOs after the Ja terminal.
+   */
+  let suppressSpineOutputs = false;
   const strictPrefixed = hasPrefixedStructure(lines);
 
   const flushBo = (t: string) => {
@@ -990,6 +1019,19 @@ function proposeFromPrefixedLines(
         .split(/\s*,\s*/)
         .map((r) => normalizeRole(r))
         .filter(Boolean);
+      // Attach to the latest spine activity when RACI follows Activity: (Inera dialect)
+      const lastAct = [...chain].reverse().find((n) => n.kind === "activity");
+      if (lastAct) {
+        const detail = activities.find(
+          (a) => a.title.toLowerCase() === lastAct.title.toLowerCase(),
+        );
+        if (detail) {
+          for (const r of roles) {
+            if (r && !detail.performers.includes(r)) detail.performers.push(r);
+          }
+          continue;
+        }
+      }
       pendingPerformers.push(...roles);
       continue;
     }
@@ -1005,17 +1047,20 @@ function proposeFromPrefixedLines(
     }
     // Explicit "Business object:" → spine BO immediately (document order)
     if (BO_HINTS.test(line)) {
+      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
       if (t) flushBo(t);
       continue;
     }
     if (INPUT_HINTS.test(line)) {
+      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
       if (t) inputs.push(t);
       continue;
     }
     // Output: flush immediately after the preceding activity — never buffer past the next one
     if (OUTPUT_HINTS.test(line)) {
+      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
       if (t) flushBo(t);
       continue;
@@ -1031,12 +1076,21 @@ function proposeFromPrefixedLines(
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
       pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
+      if (kind === "gateway") {
+        lastExclusiveGatewayTitle = stepTitle;
+      }
       gatewayBranchCount = 0;
+      suppressSpineOutputs = false;
       continue;
     }
 
-    // Ja: / Nej: / Ja → … after a gateway
-    if (BRANCH_HINTS.test(line) && pendingGatewayTitle) {
+    // Ja: / Nej: after a vägval (prefer pending; fall back to last exclusive gateway)
+    if (BRANCH_HINTS.test(line)) {
+      const gatewayForBranch = pendingGatewayTitle ?? lastExclusiveGatewayTitle;
+      if (!gatewayForBranch) {
+        // No open vägval — ignore rather than inventing an activity
+        continue;
+      }
       const labelMatch = line.match(BRANCH_HINTS);
       const labelRaw = labelMatch?.[1] ?? "";
       const label = /^(ja|yes)$/i.test(labelRaw)
@@ -1046,29 +1100,56 @@ function proposeFromPrefixedLines(
           : capitalizeFirst(labelRaw);
       const targetRaw = line.replace(BRANCH_HINTS, "").trim();
       if (!targetRaw) continue;
+      const annotated = parseInlineActivityAnnotations(targetRaw);
       const target = resolveBranchTarget(targetRaw);
+      const activityTitle =
+        target.kind === "activity" ? annotated.title || target.title : target.title;
       gatewayBranchCount += 1;
       branches.push({
-        fromTitle: pendingGatewayTitle,
+        fromTitle: gatewayForBranch,
         label,
-        toTitle: target.title,
+        toTitle: activityTitle,
         toKind: target.kind,
         objectType: target.objectType,
       });
-      // First answer continues on the main spine; further answers are side branches
+      branchTargetTitles.add(activityTitle.toLowerCase());
+      // First answer continues on the main spine; further answers are side branches only
       if (gatewayBranchCount === 1) {
+        suppressSpineOutputs = false;
         if (target.kind === "gateway" || target.kind === "and") {
           chain.push({
             kind: target.kind,
-            title: target.title,
+            title: activityTitle,
             objectType: target.objectType === "gateway" ? "or" : target.objectType,
           });
-          pendingGatewayTitle = target.title;
+          pendingGatewayTitle = activityTitle;
+          lastExclusiveGatewayTitle = activityTitle;
           gatewayBranchCount = 0;
         } else if (target.kind === "businessObject") {
-          flushBo(target.title);
+          flushBo(activityTitle);
         } else {
-          pushActivityAnnotated(target.title);
+          pushActivityAnnotated(activityTitle, annotated);
+        }
+      } else {
+        // Side branch: never on main chain; suppress following Output:/BO until next spine Activity
+        suppressSpineOutputs = true;
+        if (target.kind === "activity") {
+          const already = activities.some(
+            (a) => a.title.toLowerCase() === activityTitle.toLowerCase(),
+          );
+          if (!already) {
+            activities.push({
+              title: activityTitle,
+              performers: [...(annotated.performers ?? []), ...pendingPerformers],
+              controlledBy: [...(annotated.controlledBy ?? []), ...docs],
+              usedBy: [...(annotated.usedBy ?? []), ...usedBy],
+              usedByTypes: { ...usedByTypes },
+            });
+            pendingPerformers = [];
+            docs.length = 0;
+            usedBy.length = 0;
+            for (const k of Object.keys(usedByTypes)) delete usedByTypes[k];
+          }
         }
       }
       continue;
@@ -1107,20 +1188,50 @@ function proposeFromPrefixedLines(
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
       pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
+      if (kind === "gateway") {
+        lastExclusiveGatewayTitle = stepTitle;
+      }
       gatewayBranchCount = 0;
+      suppressSpineOutputs = false;
       continue;
     }
 
     if (objectType === "activity") {
-      for (const inp of inputs) flushBo(inp);
+      for (const inp of inputs) {
+        if (!suppressSpineOutputs) flushBo(inp);
+      }
       inputs.length = 0;
 
       const annotated = parseInlineActivityAnnotations(line);
+      const actKey = annotated.title.toLowerCase();
+      // Already placed via Ja:/Nej: — do not re-append on the spine (esp. Nej after Handover)
+      if (branchTargetTitles.has(actKey)) {
+        const onChain = chain.some(
+          (n) => n.kind === "activity" && n.title.toLowerCase() === actKey,
+        );
+        if (onChain) {
+          // Merge any extra performers onto existing activity detail
+          const detail = activities.find((a) => a.title.toLowerCase() === actKey);
+          if (detail) {
+            for (const p of annotated.performers) {
+              if (p && !detail.performers.includes(p)) detail.performers.push(p);
+            }
+          }
+          suppressSpineOutputs = false;
+        }
+        // Side-branch target: keep suppressSpineOutputs so following Output: stays off spine
+        pendingGatewayTitle = undefined;
+        continue;
+      }
+      suppressSpineOutputs = false;
       pushActivityAnnotated(annotated.title, annotated);
+      // Keep lastExclusiveGatewayTitle so a late Nej: still attaches
       pendingGatewayTitle = undefined;
     } else if (objectType === "businessObject") {
+      if (suppressSpineOutputs) continue;
       const stepTitle = cleanTitle(line);
       if (stepTitle) flushBo(stepTitle);
+      // Do not clear lastExclusiveGatewayTitle — Nej: may follow Outputs on the Ja path
       pendingGatewayTitle = undefined;
     } else if (objectType === "role") {
       const roles = cleanTitle(line)

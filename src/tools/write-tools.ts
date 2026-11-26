@@ -600,7 +600,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "set_activity_performer",
     {
       description:
-        "Link a role/position/organisation as performer of one activity (RACI_RESPONSIBLE). Always places a vertex under that activity (reuses symbol UUID). Never attaches one canvas role to multiple activities — call once per activity.",
+        "Link a role/position/organisation as performer of one activity (RACI_RESPONSIBLE). Places under the activity (reuses symbol UUID). Omit x/y to auto-place: first satellite centered, further ones nest to the right (same on spine and side branches). Never one canvas role to multiple activities.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -620,7 +620,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "set_activity_used_by",
     {
       description:
-        "Link an application or step-specific mall/blankett to one activity (IS_USED_BY). Places a vertex under the activity (shared symbol UUID OK, never one vertex fan-out). Prefer this over create_canvas_edge. Process-wide docs → link_document on the process symbol.",
+        "Link an application or step-specific mall/blankett to one activity (IS_USED_BY). Omit x/y: nests to the RIGHT of an existing role/satellite under that activity (never on top of the role) — same packing on main path and vägval side branches. Prefer over create_canvas_edge. Process-wide docs → link_document on the process symbol.",
       inputSchema: {
         repositoryId,
         modelId: uuid,
@@ -742,7 +742,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_process_map",
     {
       description:
-        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. layout.mode=peerRows = independent FLOW row per detail (no shared BO required — use for Sales/Finance peer streams). layout.mode=threeBand places management (top) and support (bottom) chevrons without FLOW. Do NOT invent overview BOs.",
+        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. Peers without shared BO → layout.mode=peerRows (not parallelTracks/linear). threeBand L0: coreDetailModelIds = linear shared-BO spine only; managementProcessIds/supportProcessIds = chevrons without FLOW (no handoff chain). Append bands to existing L0: modelId + supportProcessIds/managementProcessIds, omit detailModelIds/chain. Do NOT invent overview BOs.",
       inputSchema: {
         repositoryId,
         languageId,
@@ -823,15 +823,21 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             managementProcessIds: z
               .array(uuid)
               .optional()
-              .describe("Detail model UUIDs for top band (no FLOW)"),
+              .describe(
+                "Detail (or L1) model UUIDs for top band — chevrons, no FLOW, no shared BO required between them",
+              ),
             coreDetailModelIds: z
               .array(uuid)
               .optional()
-              .describe("Middle FLOW spine — used as detailModelIds when that is omitted"),
+              .describe(
+                "Middle FLOW spine only — must share handoff BOs. Used as detailModelIds when that is omitted",
+              ),
             supportProcessIds: z
               .array(uuid)
               .optional()
-              .describe("Detail model UUIDs for bottom band (no FLOW)"),
+              .describe(
+                "Detail (or L1) model UUIDs for bottom band — chevrons, no FLOW. Band-append: pass with modelId alone (omit chain)",
+              ),
           })
           .optional(),
         permissionGroup: permissionGroupHeader,
@@ -1060,7 +1066,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "update_titles",
     {
       description:
-        "Update model/symbol titles (translations). Writes title + rawTitle and sets translated:true (marks language as translated — clears GUI globe). Prefer items[] to batch many symbols in ONE call.",
+        "Update model/symbol/edge-label titles (translations). Writes title + rawTitle and sets translated:true (clears GUI globe). Prefer items[] to batch in ONE call. Canvas Ja/Nej labels: items[{ modelId, edgeId, title }] (edgeId from describe_process outgoing[].edgeId).",
       inputSchema: {
         repositoryId,
         languageId: languageId
@@ -1069,6 +1075,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         title: z.string().min(1).optional().describe("Title for single-target update"),
         modelId: uuid.optional(),
         symbolId: uuid.optional(),
+        edgeId: uuid.optional().describe("Canvas edge UUID; requires modelId"),
         titles: z
           .record(z.string(), z.string())
           .optional()
@@ -1078,6 +1085,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
             z.object({
               modelId: uuid.optional(),
               symbolId: uuid.optional(),
+              edgeId: uuid.optional().describe("Canvas edge; requires modelId"),
               title: z.string().min(1),
               languageId: languageId.optional(),
               titles: z.record(z.string(), z.string()).optional(),
@@ -1085,7 +1093,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           )
           .optional()
           .describe(
-            "Batch: [{ symbolId, title }] or [{ modelId, title }] — one tool call for all translations",
+            "Batch: [{ symbolId, title }] | [{ modelId, title }] | [{ modelId, edgeId, title }] — one call for all translations",
           ),
       },
     },
