@@ -1303,7 +1303,7 @@ export class ProcessWriter {
      * core spine (middle) / support (bottom, no FLOW).
      */
     layout?: {
-      mode?: "linear" | "parallelTracks" | "threeBand";
+      mode?: "linear" | "parallelTracks" | "threeBand" | "peerRows";
       managementProcessIds?: string[];
       coreDetailModelIds?: string[];
       supportProcessIds?: string[];
@@ -1327,6 +1327,60 @@ export class ProcessWriter {
       lockNotes.push("threeBand: coreDetailModelIds used as detailModelIds for FLOW spine.");
     }
 
+    // peerRows: independent rows from each detail scope — no shared BO between peers
+    if (layoutMode === "peerRows") {
+      if (!detailModelIds?.length) {
+        throw new Error(
+          "create_process_map layout.mode=peerRows requires detailModelIds (one detail per row).",
+        );
+      }
+      let modelId = args.modelId;
+      const appending = Boolean(args.modelId);
+      let createdThisCall = false;
+      if (!modelId) {
+        const created = await this.createProcessModel({
+          repositoryId: args.repositoryId,
+          title: args.title,
+          languageId: args.languageId,
+          modelType: "process",
+          permissionGroup: args.permissionGroup,
+          owner: args.owner,
+          group: args.group,
+        });
+        modelId =
+          (created.data as { uuid?: string })?.uuid ??
+          (created.data as { model?: { uuid?: string } })?.model?.uuid;
+        if (!modelId) {
+          throw new Error(
+            "create_process_map: could not resolve modelId; pass modelId explicitly.",
+          );
+        }
+        createdThisCall = true;
+      }
+      try {
+        return await this.populatePeerRowsProcessMap({
+          repositoryId: args.repositoryId,
+          languageId: args.languageId,
+          modelId,
+          title: args.title,
+          detailModelIds,
+          appending,
+          owner: args.owner,
+          group: args.group,
+        });
+      } catch (err) {
+        if (createdThisCall) {
+          const note = await this.rollbackCreatedModel({
+            repositoryId: args.repositoryId,
+            modelId,
+          });
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(`${msg}${note ? ` (${note})` : ""}`);
+        }
+        throw err;
+      }
+    }
+
     if (detailModelIds?.length) {
       const built = await this.reader.buildProcessMapChainFromDetails({
         repositoryId: args.repositoryId,
@@ -1336,7 +1390,8 @@ export class ProcessWriter {
       if (!built.readyForCreate) {
         throw new Error(
           `create_process_map blocked — cannot derive overview from detail scopes:\n` +
-            built.uncertainLinks.join("\n"),
+            built.uncertainLinks.join("\n") +
+            `\nIf peers have distinct inputs (no shared BO), use layout: { mode: "peerRows" } with the same detailModelIds.`,
         );
       }
       chain = built.chain.map((n) => ({
@@ -1438,6 +1493,309 @@ export class ProcessWriter {
     }
   }
 
+  /**
+   * Peer multi-row overview: one independent FLOW row per detail (own I/O).
+   * No shared BO required between rows — solves MISSING_SHARED_BO for SAL/FIN/PEO/IT peers.
+   * Gold spacing: BO x≈50 / process x≈100 / out ≈220 when gapX≈32 (TechSeed Sales template).
+   */
+  private async populatePeerRowsProcessMap(args: {
+    repositoryId: string;
+    languageId: string;
+    modelId: string;
+    title: string;
+    detailModelIds: string[];
+    appending: boolean;
+    owner?: string;
+    group?: string;
+  }) {
+    const repoConfig = await this.getRepoConfig(args.repositoryId);
+    const { distance } = this.layoutGaps(repoConfig);
+    const gapX = Math.max(distance.right, distance.left, 32);
+    const rowGap = 140;
+    const symbolCache = new Map<string, string>();
+    const reserved: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const placed: Array<Record<string, unknown>> = [];
+    const breakdowns: unknown[] = [];
+
+    let spineMidY = SPINE_MID_Y;
+    if (args.appending) {
+      const canvas = (await this.client.request({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+        pathParams: { repositoryId: args.repositoryId, modelId: args.modelId },
+      })) as { vertices?: Array<{ y?: number; height?: number }> };
+      let maxBottom = 0;
+      for (const v of canvas.vertices ?? []) {
+        maxBottom = Math.max(maxBottom, (v.y ?? 0) + (v.height ?? 0));
+      }
+      if ((canvas.vertices?.length ?? 0) > 0) {
+        spineMidY = Math.round(maxBottom + rowGap);
+      }
+    }
+
+    const boSize = this.sizeFor(repoConfig, "businessObject");
+    const procSize = this.sizeFor(repoConfig, "process");
+
+    for (let ri = 0; ri < args.detailModelIds.length; ri++) {
+      const detailModelId = args.detailModelIds[ri]!;
+      const scope = await this.reader.getDetailProcessScope({
+        repositoryId: args.repositoryId,
+        modelId: detailModelId,
+      });
+      const rowMidY = spineMidY + ri * rowGap;
+      let cursorX = SPINE_START_X;
+      let prevVertexId: string | null = null;
+
+      const placeBo = async (title: string, symbolId?: string) => {
+        const sid =
+          symbolId ??
+          (await this.resolveOrCreateSymbol({
+            repositoryId: args.repositoryId,
+            languageId: args.languageId,
+            title,
+            objectType: "businessObject",
+            owner: args.owner,
+            group: args.group,
+            cache: symbolCache,
+          }));
+        const y = Math.round(rowMidY - boSize.height / 2);
+        const vertex = await this.placeVertex({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          symbolId: sid,
+          languageId: args.languageId,
+          title,
+          objectType: "businessObject",
+          x: cursorX,
+          y,
+          width: boSize.width,
+          height: boSize.height,
+          reserved,
+          spineAlign: true,
+        });
+        const vid = String(vertex.uuid);
+        if (prevVertexId) {
+          await this.createCanvasEdge({
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+            fromVertexId: prevVertexId,
+            toVertexId: vid,
+            edgeType: "flow",
+            languageId: args.languageId,
+          });
+        }
+        placed.push({
+          title,
+          kind: "businessObject",
+          symbolId: sid,
+          vertexId: vid,
+          x: vertex.x ?? cursorX,
+          y: vertex.y ?? y,
+          detailModelId,
+          row: ri,
+        });
+        cursorX = Math.round((vertex.x ?? cursorX) + boSize.width + gapX);
+        prevVertexId = vid;
+        return vid;
+      };
+
+      if (!scope.inputs.length || !scope.outputs.length) {
+        throw new Error(
+          `peerRows: detail ${detailModelId} ("${scope.processTitle}") missing primary input or output — fix the detail model first.`,
+        );
+      }
+      const inputs = scope.inputs;
+      // Primary input on spine; extras stacked below same X after primary placed
+      const primaryIn = inputs[0]!;
+      await placeBo(primaryIn.title, primaryIn.symbolId);
+      const primaryInX = cursorX - gapX - boSize.width;
+      for (let ii = 1; ii < inputs.length; ii++) {
+        const extra = inputs[ii]!;
+        const sid =
+          extra.symbolId ??
+          (await this.resolveOrCreateSymbol({
+            repositoryId: args.repositoryId,
+            languageId: args.languageId,
+            title: extra.title,
+            objectType: "businessObject",
+            owner: args.owner,
+            group: args.group,
+            cache: symbolCache,
+          }));
+        const y = Math.round(
+          rowMidY + boSize.height / 2 + distance.bottom + (ii - 1) * (boSize.height + 12),
+        );
+        const vertex = await this.placeVertex({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          symbolId: sid,
+          languageId: args.languageId,
+          title: extra.title,
+          objectType: "businessObject",
+          x: primaryInX,
+          y,
+          width: boSize.width,
+          height: boSize.height,
+          reserved,
+        });
+        const vid = String(vertex.uuid);
+        // Extra inputs FLOW into process left — edge added after process placed
+        placed.push({
+          title: extra.title,
+          kind: "businessObject",
+          symbolId: sid,
+          vertexId: vid,
+          stackedInput: true,
+          row: ri,
+        });
+        (placed as Array<{ _pendingInputEdge?: string }>).at(-1)!._pendingInputEdge = vid;
+      }
+
+      const procSymbol =
+        scope.processSymbolId ??
+        (await this.resolveOrCreateSymbol({
+          repositoryId: args.repositoryId,
+          languageId: args.languageId,
+          title: scope.processTitle,
+          objectType: "process",
+          owner: args.owner,
+          group: args.group,
+          cache: symbolCache,
+        }));
+      const procY = Math.round(rowMidY - procSize.height / 2);
+      const procVertex = await this.placeVertex({
+        repositoryId: args.repositoryId,
+        modelId: args.modelId,
+        symbolId: procSymbol,
+        languageId: args.languageId,
+        title: scope.processTitle,
+        objectType: "process",
+        x: cursorX,
+        y: procY,
+        width: procSize.width,
+        height: procSize.height,
+        reserved,
+        spineAlign: true,
+      });
+      const procVid = String(procVertex.uuid);
+      if (prevVertexId) {
+        await this.createCanvasEdge({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          fromVertexId: prevVertexId,
+          toVertexId: procVid,
+          edgeType: "flow",
+          languageId: args.languageId,
+        });
+      }
+      for (const p of placed) {
+        const pending = (p as { _pendingInputEdge?: string })._pendingInputEdge;
+        if (pending && (p as { row?: number }).row === ri) {
+          await this.createCanvasEdge({
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+            fromVertexId: pending,
+            toVertexId: procVid,
+            edgeType: "flow",
+            languageId: args.languageId,
+          });
+          delete (p as { _pendingInputEdge?: string })._pendingInputEdge;
+        }
+      }
+      placed.push({
+        title: scope.processTitle,
+        kind: "process",
+        symbolId: procSymbol,
+        vertexId: procVid,
+        detailModelId,
+        row: ri,
+      });
+      const bd = await this.linkBreakdown({
+        repositoryId: args.repositoryId,
+        detailModelId,
+        overviewSymbolId: procSymbol,
+      });
+      breakdowns.push({ detailModelId, overviewSymbolId: procSymbol, result: bd.data });
+      cursorX = Math.round((procVertex.x ?? cursorX) + procSize.width + gapX);
+      prevVertexId = procVid;
+
+      const outputs = scope.outputs;
+      const primaryOut = outputs[0]!;
+      await placeBo(primaryOut.title, primaryOut.symbolId);
+      for (let oi = 1; oi < outputs.length; oi++) {
+        const extra = outputs[oi]!;
+        const sid =
+          extra.symbolId ??
+          (await this.resolveOrCreateSymbol({
+            repositoryId: args.repositoryId,
+            languageId: args.languageId,
+            title: extra.title,
+            objectType: "businessObject",
+            owner: args.owner,
+            group: args.group,
+            cache: symbolCache,
+          }));
+        const outX = cursorX - gapX - boSize.width;
+        const y = Math.round(
+          rowMidY + boSize.height / 2 + distance.bottom + (oi - 1) * (boSize.height + 12),
+        );
+        const vertex = await this.placeVertex({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          symbolId: sid,
+          languageId: args.languageId,
+          title: extra.title,
+          objectType: "businessObject",
+          x: outX,
+          y,
+          width: boSize.width,
+          height: boSize.height,
+          reserved,
+        });
+        const vid = String(vertex.uuid);
+        await this.createCanvasEdge({
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+          fromVertexId: procVid,
+          toVertexId: vid,
+          edgeType: "flow",
+          languageId: args.languageId,
+        });
+        placed.push({
+          title: extra.title,
+          kind: "businessObject",
+          symbolId: sid,
+          vertexId: vid,
+          stackedOutput: true,
+          row: ri,
+        });
+      }
+    }
+
+    return {
+      data: {
+        modelId: args.modelId,
+        title: args.title,
+        layoutMode: "peerRows",
+        rowCount: args.detailModelIds.length,
+        placedCount: placed.length,
+        breakdownCount: breakdowns.length,
+        placed,
+        breakdowns,
+      },
+      methodologyNotes: [
+        "peerRows: each detail gets its own FLOW row (input BO → process → output BO) without requiring a shared handoff BO between peers.",
+        "Prefer this over inventing overview-only bridge BOs when peers have distinct inputs (Sales MSP/CV, Finance streams, …).",
+        "Call review_process_model with layoutMode=peerRows and detailModelIds.",
+      ],
+      nextSuggestedTools: [
+        "describe_process_map",
+        "review_process_model",
+        "get_navigation_tree",
+        "verify_handoffs",
+      ],
+    };
+  }
+
   private async populateProcessMapCanvas(args: {
     repositoryId: string;
     title: string;
@@ -1478,7 +1836,7 @@ export class ProcessWriter {
       }>;
     }>;
     layout?: {
-      mode?: "linear" | "parallelTracks" | "threeBand";
+      mode?: "linear" | "parallelTracks" | "threeBand" | "peerRows";
       managementProcessIds?: string[];
       coreDetailModelIds?: string[];
       supportProcessIds?: string[];
@@ -2701,32 +3059,40 @@ export class ProcessWriter {
     const placeSideCluster = (
       center: { title: string; width: number; height: number },
       sideItems: Array<{ title: string; width: number; height: number }>,
+      /** Applications/docs always nest to the RIGHT of the primary role (TechSeed QA). */
+      preferRight = true,
     ): void => {
       const centerX = actCx - Math.floor(center.width / 2);
       result.set(center.title, { x: centerX, y });
       let leftEdge = centerX;
       let rightEdge = centerX + center.width;
-      let placeRight = true;
+      let placeRight = preferRight;
       let ring = 0;
       for (const item of sideItems) {
         const itemY = y + staggerY + ring * Math.floor(staggerY / 2);
-        if (placeRight) {
+        if (placeRight || preferRight) {
           const x = rightEdge + nestGap;
           result.set(item.title, { x, y: itemY });
           rightEdge = x + item.width;
+          if (!preferRight) placeRight = false;
         } else {
           const x = leftEdge - nestGap - item.width;
           result.set(item.title, { x, y: itemY });
           leftEdge = x;
+          placeRight = true;
         }
-        placeRight = !placeRight;
-        if (placeRight) ring += 1;
+        if (!preferRight) {
+          placeRight = !placeRight;
+        }
+        ring += 1;
       }
     };
 
     const primary = roles[0];
     if (primary) {
-      placeSideCluster(primary, [...roles.slice(1), ...others]);
+      // Extra roles may alternate; applications/others always to the right of primary
+      const extraRoles = roles.slice(1);
+      placeSideCluster(primary, [...extraRoles, ...others], true);
       return result;
     }
 
@@ -3514,6 +3880,7 @@ export class ProcessWriter {
 
   /**
    * Resolve or create a symbol by title (reuse-first), return symbolId.
+   * preferredSymbolId / cache (reuseHints) win over search+create.
    */
   private async resolveOrCreateSymbol(args: {
     repositoryId: string;
@@ -3523,13 +3890,20 @@ export class ProcessWriter {
     owner?: string;
     group?: string;
     cache: Map<string, string>;
+    preferredSymbolId?: string;
   }): Promise<string> {
     const apiType = toApiObjectType(args.objectType);
     const plainTitle = stripSoftBreaks(args.title).trim();
     const rawTitle = applySoftBreaks(args.title);
     const cacheKey = `${apiType}::${plainTitle.toLowerCase()}`;
-    const cached = args.cache.get(cacheKey);
-    if (cached) return cached;
+    const preferred =
+      args.preferredSymbolId ??
+      args.cache.get(cacheKey) ??
+      args.cache.get(plainTitle.toLowerCase());
+    if (preferred) {
+      args.cache.set(cacheKey, preferred);
+      return preferred;
+    }
 
     const search = await this.reader.searchSymbols({
       repositoryId: args.repositoryId,
@@ -3904,6 +4278,22 @@ export class ProcessWriter {
     const chain = proposal.chain ?? [];
     const activityDetails = proposal.activities ?? [];
     const branches = proposal.branches ?? [];
+    // Seed cache from reuseHints + chain[].symbolId so handoff BOs are not re-created
+    const seedReuse = (title: string, symbolId: string | undefined, objectType?: string) => {
+      if (!symbolId) return;
+      const plain = stripSoftBreaks(title).trim().toLowerCase();
+      symbolCache.set(plain, symbolId);
+      if (objectType) {
+        const apiType = toApiObjectType(objectType);
+        symbolCache.set(`${apiType}::${plain}`, symbolId);
+      }
+    };
+    for (const [title, sid] of Object.entries(proposal.reuseHints ?? {})) {
+      seedReuse(title, sid);
+    }
+    for (const node of chain) {
+      seedReuse(node.title, node.symbolId, node.objectType);
+    }
     const detailByTitle = new Map(activityDetails.map((a) => [a.title.toLowerCase(), a]));
     const branchLabel = (fromTitle: string, toTitle: string): string | undefined => {
       const hit = branches.find(
@@ -3927,6 +4317,7 @@ export class ProcessWriter {
       owner: args.owner,
       group: args.group,
       cache: symbolCache,
+      preferredSymbolId: proposal.reuseHints?.[processTitle],
     });
     const processVertex = await this.placeVertex({
       repositoryId: args.repositoryId,
@@ -3995,6 +4386,7 @@ export class ProcessWriter {
         owner: args.owner,
         group: args.group,
         cache: symbolCache,
+        preferredSymbolId: node.symbolId,
       });
       const vertex = await this.placeVertex({
         repositoryId: args.repositoryId,
@@ -4103,6 +4495,7 @@ export class ProcessWriter {
         owner: args.owner,
         group: args.group,
         cache: symbolCache,
+        preferredSymbolId: node.symbolId,
       });
       const vertex = await this.placeVertex({
         repositoryId: args.repositoryId,

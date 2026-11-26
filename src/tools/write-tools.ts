@@ -286,19 +286,31 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_description_type",
     {
       description:
-        "Create a description type in the repository (syfte/scope/ägare fields). Body: { titles: { [languageId]: { title } } } (+ optional dataType/inputType). New repos may be empty until client open — create before update_*_description.",
+        'Create a description type (syfte/scope/ägare). Minimum that works: titles + dataType se.conciliate.rich.text + inputType rich-text-editor + connectedTo[{type:PROCESS|ACTIVITY|…,position,hidden:""}]. Shorthand title+languageId fills those defaults. Do NOT send entries (400). Missing connectedTo → 400 Entries cannot be null.',
       inputSchema: {
         repositoryId,
         languageId: languageId.optional(),
         title: z.string().min(1).optional().describe("Shorthand: builds titles for languageId"),
+        connectedTo: z
+          .array(
+            z.object({
+              type: z.string().describe("Object/model type id, e.g. PROCESS, ACTIVITY"),
+              position: z.number().int().optional(),
+              hidden: z.string().optional(),
+            }),
+          )
+          .optional()
+          .describe("Where the field appears; defaults to PROCESS+ACTIVITY+BUSINESS_OBJECT"),
         body: jsonBody
           .optional()
-          .describe("Full MtbDescriptionTypeDto — titles map required if title omitted"),
+          .describe(
+            "Full DTO — titles required if title omitted; server fills dataType/inputType/connectedTo",
+          ),
       },
     },
     async (args) =>
       runTool(async () => {
-        let body = args.body;
+        let body = args.body ? { ...args.body } : undefined;
         if (!body) {
           if (!args.title || !args.languageId) {
             throw new Error("create_description_type requires body or (title + languageId)");
@@ -308,6 +320,13 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
               [args.languageId]: { title: args.title },
             },
           };
+        }
+        if (args.connectedTo?.length) {
+          body.connectedTo = args.connectedTo.map((c) => ({
+            type: c.type,
+            position: c.position ?? 1,
+            hidden: c.hidden ?? "",
+          }));
         }
         return ctx.documents.createDescriptionType(args.repositoryId, body);
       }),
@@ -723,7 +742,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_process_map",
     {
       description:
-        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. layout.mode=threeBand places management (top) and support (bottom) chevrons without FLOW. Do NOT invent overview BOs.",
+        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. layout.mode=peerRows = independent FLOW row per detail (no shared BO required — use for Sales/Finance peer streams). layout.mode=threeBand places management (top) and support (bottom) chevrons without FLOW. Do NOT invent overview BOs.",
       inputSchema: {
         repositoryId,
         languageId,
@@ -796,9 +815,11 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         layout: z
           .object({
             mode: z
-              .enum(["linear", "parallelTracks", "threeBand"])
+              .enum(["linear", "parallelTracks", "threeBand", "peerRows"])
               .optional()
-              .describe("Default linear. threeBand = L0 ledning/kärna/stöd"),
+              .describe(
+                "Default linear. peerRows = one row per detailModelId without shared BO. threeBand = L0 ledning/kärna/stöd. parallelTracks = fan-out from shared BO.",
+              ),
             managementProcessIds: z
               .array(uuid)
               .optional()
@@ -826,7 +847,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "link_document",
     {
       description:
-        "Create/update an MT document and/or attach to a symbol. PRIMARY: documentRootKey + relativePath + title + languageId (+ optional titles map for other languages) — stores a FULL absolute file:/// or https URL. content/URL is per language like titles: set every active language or secondary GUI languages get empty non-clickable links. Prefer titles:{ [langId]: title } so the same absolute URL is written to all languages in one call. API prefix is NOT a document-root binding; after mass create the user matches paths to roots in the 2c8 UI. createDocumentBody must use absolute languages.*.content. Symbol PATCH: [{ id, source: 'mt.documents' }]. showInPanel defaults to false. Parallel link_document to the same symbolId are queued in MCP (per-symbol mutex) so document-panel merges do not race.",
+        "Create/update an MT document and/or attach to a symbol. PRIMARY: documentRootKey + relativePath + title + languageId (+ optional titles map for other languages) — stores a FULL absolute file:/// or https URL. Same absolute URL reuses the existing mt.documents id (no duplicate UUIDs for one file). content/URL is per language like titles: set every active language or secondary GUI languages get empty non-clickable links. Prefer titles:{ [langId]: title } so the same absolute URL is written to all languages in one call. API prefix is NOT a document-root binding; after mass create the user matches paths to roots in the 2c8 UI. createDocumentBody must use absolute languages.*.content. Symbol PATCH: [{ id, source: 'mt.documents' }]. showInPanel defaults to false. Parallel link_document to the same symbolId are queued in MCP (per-symbol mutex) so document-panel merges do not race.",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
@@ -945,12 +966,18 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         }
 
         if (createBody) {
-          results.created = await ctx.documents.createMtDocument(args.repositoryId, createBody);
-          const created = results.created as {
-            uuid?: string;
-            id?: string;
-          };
-          const createdId = created?.uuid ?? created?.id;
+          const upsert = await ctx.documents.createOrReuseMtDocument(args.repositoryId, createBody);
+          results.created = upsert.document;
+          results.reused = upsert.reused;
+          results.documentId = upsert.documentId;
+          if (upsert.matchedUrl) {
+            results.matchedUrl = upsert.matchedUrl;
+          }
+          if (upsert.reused) {
+            results.dedupeNote =
+              "Existing MT document with the same absolute content URL was reused — no new UUID minted.";
+          }
+          const createdId = upsert.documentId;
           if (createdId && args.symbolId) {
             results.linked = await ctx.documents.linkDocumentsToSymbol({
               repositoryId: args.repositoryId,
@@ -977,6 +1004,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           data: results,
           methodologyNotes: [
             "Workflow: (1) create_document_root (2) link_document with full absolute URLs for every language (shorthand titles map joins root.value + relativePath into each languages.*.content) (3) user runs 2c8 UI match to bind paths to the root.",
+            "Same absolute URL → reuse existing mt.documents id (response.reused=true + documentId). Prefer storing that UUID in CATALOG/STATE; later attaches may use documentIds:[id] only.",
             "content/URL is language-specific like titles — one languageId alone leaves other languages with empty GUI links.",
             "API prefix is not a document-root foreign key — do not set prefix to the root key for binding.",
             "Document symbol links use { id, source: 'mt.documents' }. Empty HTTP 200 from PATCH is success.",
@@ -1017,7 +1045,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "confirm_translations",
     {
       description:
-        "Mark existing titles as translated (translated:true) without changing text — symbols, models, and canvas edge labels (Ja/Nej etc.). Clears GUI Translation status globes. Pass languageId (e.g. English).",
+        "Mark existing titles as translated (translated:true) without changing text — symbols, models, and canvas edge labels (Ja/Nej etc.). Clears GUI globes ONLY. Does NOT translate: if secondary text is still English, use update_titles with real target-language strings first. Pass languageId (e.g. Swedish).",
       inputSchema: {
         repositoryId,
         languageId,

@@ -61,7 +61,8 @@ Top-down navigation:
 | `DOC_BASE_URL` | `{{DOC_BASE_URL}}` or `{{SOURCE_DIR}}` | Shared base → **always** `create_document_root` before folder/practice links. Empty does **not** mean “skip root”: use `SOURCE_DIR` (filesystem → `file:///…/`). `link_document(documentRootKey, relativePath, titles for all languages)` stores **full absolute URLs per language** (API `prefix` is not a root FK). After mass create: **human** matches paths to the root in the 2c8 UI. Never bare relative paths. Content/URL is language-specific like titles. |
 | `PILOT_AREA` | `{{PILOT_AREA}}` | First vertical slice. |
 | `STOP_AFTER_PILOT` | Yes | Stop after G3 / client OK. |
-| `WORK_DIR` | `{{WORK_DIR}}` | STATE, GAPS, cards, extract, … |
+| `MCP_DEBUG` | No | When **Yes**: append tool friction to `WORK_DIR/TOOL-FRICTION.md` on triggers (reject propose, bypass preferred tools, ×3 stop, etc.). Copy template from `templates/TOOL-FRICTION.md` in phase 0. Keep separate from `MCP-FEEDBACK.md` (API errors) and `GAPS.md` (source). |
+| `WORK_DIR` | `{{WORK_DIR}}` | STATE, GAPS, TOOL-FRICTION, cards, extract, … |
 
 If confirmation is missing: **one** consolidated question. Languages must be settled before `create_repository`.
 
@@ -85,7 +86,8 @@ If confirmation is missing: **one** consolidated question. Languages must be set
     - Write-scope / deny errors → stop; do not unlock or switch repos.
     - Also stop and ask on: unconfirmed parameters, completed pilot, structure-affecting contradiction, destructive action.
 12. **STATE is binding.** Copy `templates/STATE.md` → `WORK_DIR/STATE.md` in phase 0. Update after **every lasting write**. A phase may be marked `complete` only when its **Gate evidence** block is filled. Do not start phase *n+1* without gate *n* evidence.
-13. **Write scope:** after repo create / before writes, `get_write_scope` must show locked to the target `repositoryId`. Never write to other repos.
+13. **`MCP_DEBUG` friction log:** When `MCP_DEBUG=Yes`, if a trigger in `TOOL-FRICTION.md` fires (especially rejecting `propose_model_from_text` / skipping `apply_model_proposal` / manual redraw, or stop-rule ×3), **append an entry before the workaround**. Silent strategy switches are forbidden while debug is on. When `No`, do not write the file.
+14. **Write scope:** after repo create / before writes, `get_write_scope` must show locked to the target `repositoryId`. Never write to other repos.
 
 ---
 
@@ -114,7 +116,7 @@ Confirm that modelM8 is connected. Run `list_repositories`, `get_api_versions`; 
 | # | Limitation | Handling |
 |---|---|---|
 | 1 | `review_process_model` assumes a horizontal spine | L0 three bands / parallelTracks → approved exceptions (10.3) |
-| 2 | `create_process_map` builds linear/parallel chains, not a free multi-row map | First area overview **manual template**; auto-map only when scopes share UUIDs |
+| 2 | `create_process_map` linear/parallelTracks need shared BO between peers | Use `layout: { mode: "peerRows" }` + `detailModelIds` for independent rows; review with `layoutMode: "peerRows"` |
 | 3 | Breakdowns live on the **detail** (`broken-down-from`); overview often returns empty/404 | Use `get_navigation_tree`, not `get_breakdowns(L0)` |
 | 4 | New repo may lack description/document types until the client has been opened | Smoke test in phase 2; `create_document_type` as needed |
 | 5 | MT documents require `type: URL\|file` + link via `{id, source:"mt.documents"}` | See `link_document`; test on a dummy before mass linking |
@@ -122,7 +124,8 @@ Confirm that modelM8 is connected. Run `list_repositories`, `get_api_versions`; 
 | 7 | Join is sometimes mentioned in older methodology text | Follow `resolve_branching_object_type` / policy: never Join |
 | 8 | EMF/Visio images in source are hard to Q2 | Require PNG/SVG in extract or convert in phase 0 |
 
-Log modelM8/API deviations in `WORK_DIR/MCP-FEEDBACK.md`.
+Log modelM8/API deviations in `WORK_DIR/MCP-FEEDBACK.md`.  
+When `MCP_DEBUG=Yes`, log tool bypass/reject/thrash in `WORK_DIR/TOOL-FRICTION.md` (see that file’s triggers).
 
 ---
 
@@ -206,7 +209,7 @@ Create/reuse UUID before detail cards are locked. Verify later with `verify_hand
 1. Read modelM8 instructions + tool schemas; verify environment.
 2. `get_methodology` (process, process-map, **activity**, naming, business-objects, documents-on-process, document-roots, breakdowns, gateways) — especially read `activity.descriptionGuidance`; `resolve_branching_object_type("vägval")`.
 3. Extract sources → `WORK_DIR/extract/` (incl. image conversion if EMF).
-4. Create work files (section 11); seed `GAPS.md`.
+4. Create work files (section 11); seed `GAPS.md`. If `MCP_DEBUG=Yes`, copy `templates/TOOL-FRICTION.md` → `WORK_DIR/TOOL-FRICTION.md` and set Status `MCP_DEBUG` to Yes.
 5. Confirm parameters.
 
 **G0 (binding evidence in STATE):** parameters confirmed by user; extract exists; methodology read; `list_repositories` checked. Do not start phase 1 writes planning as “done” without this block filled.
@@ -282,16 +285,16 @@ Q4–Q5 + final report (section 12).
 |---|---|---|
 | 1 | `find_models` | No duplicate |
 | 2 | `search_symbols` (roles, systems, BO, documents) | Note UUID; handoff BO from 6.4 |
-| 3 | Prefixed text → `propose_model_from_text` | |
-| 4 | Review proposal | BO↔activity; namingChecks; `or`; performers; usedByTypes |
-| 5 | `apply_model_proposal` | `businessObjectCount > 0` |
+| 3 | Prefixed text → `propose_model_from_text` | Activity:/Output: in document order; Nej: = real activity |
+| 4 | Review proposal | BO↔activity; namingChecks; `or`; performers; usedByTypes. On fail: use `repairHints` / `suggestedPrefixedText` + propose again. **Same model:** after 2× `proposal-rejected`, log TOOL-FRICTION then **one** hand-JSON apply allowed. **Forbidden:** blanket bypass of propose for a whole area/Fas 4 without a new propose per model |
+| 5 | `apply_model_proposal` (+ `reuseHints` from CATALOG) | `businessObjectCount > 0`. Reuse handoff UUIDs. If 0 or major rebuild → `proposal-useless` when debug on |
 | 6 | `describe_process` vs card | |
-| 7 | `review_process_model` → fix → again | 0 errors / logged exception |
+| 7 | `review_process_model` → fix → again | 0 errors / logged exception. Same finding ×2+ or green-then-redraw → `fix-loop` when debug on |
 | 8 | `get_detail_process_scope` → STATE | |
 | 9 | `link_breakdown` to parent **now** | |
 | 10 | Activity descriptions: `update_symbol_description` **only** where source material provides purpose/why/considerations — complement the canvas, do not repeat RACI/documents/BO (`get_methodology` → `activity.descriptionGuidance`). Empty > guesswork. | |
 | 11 | Model description (`update_model_description`) + `link_document` where source material exists | |
-| 12 | `update_titles` (primary + secondary) | |
+| 12 | `update_titles` with **real** secondary-language text (primary + secondary). `confirm_translations` only flips flags — never as a substitute for translation | Spot-check titles look like target language; `list_untranslated_symbols(…, compareLanguageId=primary)` must not leave same-as-compare |
 | 13 | STATE status | |
 
 Layout fix: `move_canvas_vertices` (reortho default); symbol swap: `retarget_vertex_symbol`.
@@ -304,8 +307,8 @@ Layout fix: `move_canvas_vertices` (reortho default); symbol swap: `retarget_ver
 2. All details done + scope fetched and stored in STATE.
 3. Choose form: chain / `parallelTracks` / `sideLoops` / manual rows (peer variants → `parallelTracks`, not a false linear chain).
 4. Fix handoffs in details first — no overview-only BOs.
-5. Prefer `create_process_map({ detailModelIds })` when scopes share UUIDs; otherwise manual template.
-6. `describe_process_map(detailModelIds)` → `scopeOk`; `review_process_model` **with** `detailModelIds` (review without details is insufficient); `get_navigation_tree` / breakdowns on details.
+5. Prefer `create_process_map({ detailModelIds })` when scopes share UUIDs. Peers with **distinct** inputs → `create_process_map({ layout: { mode: "peerRows" }, detailModelIds })`. Manual rows only if peerRows fails — log TOOL-FRICTION when `MCP_DEBUG=Yes`.
+6. `describe_process_map(detailModelIds)` → `scopeOk`; `review_process_model` **with** `detailModelIds` and `layoutMode: "peerRows"` when applicable (review without details is insufficient); `get_navigation_tree` / breakdowns on details.
 
 ---
 
@@ -350,6 +353,7 @@ Before closing pilot/area: open model in 2c8 MT — document panel, secondary la
 | `SOURCE-MAP.md` | Document section → model / status |
 | `CATALOG.md` | Roles, systems, documents, handoff BO (+ UUID), proposed document roots (`key`/`value`) |
 | `MCP-FEEDBACK.md` | modelM8/API errors with request/response |
+| `TOOL-FRICTION.md` | When `MCP_DEBUG=Yes`: tool reject/bypass/thrash (copy `templates/TOOL-FRICTION.md`) |
 | `cards/<ID>.md` | Process card |
 | `extract/` | Extracted text/images |
 | `SLUTRAPPORT.md` | Phase 7 |
@@ -364,7 +368,7 @@ Before closing pilot/area: open model in 2c8 MT — document panel, secondary la
 - Repo + `repositoryId`, number of models/level, symbols per type.
 - Navigation tree (from `get_navigation_tree`).
 - Coverage (`verify_process_coverage`), handoffs, translation status.
-- Review + exceptions; GAPS and MCP-FEEDBACK summary.
+- Review + exceptions; GAPS, MCP-FEEDBACK, and (if `MCP_DEBUG`) top themes from TOOL-FRICTION.
 - What is not done — say it straight.
 
 ---

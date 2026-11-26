@@ -34,6 +34,13 @@ export class KeyedAsyncMutex {
 /** Shared across HTTP request-scoped DocumentsService instances. */
 export const symbolDocumentLinkMutex = new KeyedAsyncMutex();
 
+/** Serialize MT document create-or-reuse by absolute content URL. */
+export const mtDocumentUrlCreateMutex = new KeyedAsyncMutex();
+
 export function symbolDocumentLockKey(repositoryId: string, symbolId: string): string {
   return `${repositoryId}:${symbolId}`;
+}
+
+export function mtDocumentUrlLockKey(repositoryId: string, absoluteUrl: string): string {
+  return `${repositoryId}:url:${absoluteUrl}`;
 }

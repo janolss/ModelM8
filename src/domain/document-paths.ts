@@ -257,6 +257,40 @@ export function normalizeMtDocumentBody(body: Record<string, unknown>): Record<s
  * Build createDocumentBody with a FULL absolute URL (root value + relative path).
  * Does not set API `prefix` to the root key — roots are bound in the 2c8 UI.
  */
+/**
+ * Absolute content URLs from an MT document create/update body (after normalize).
+ * Used to dedupe create when the same file:/// or https URL already exists.
+ */
+export function absoluteUrlsFromMtDocumentBody(body: Record<string, unknown>): string[] {
+  const normalized = normalizeMtDocumentBody(body);
+  const languages = normalized.languages;
+  if (!languages || typeof languages !== "object" || Array.isArray(languages)) {
+    return [];
+  }
+  const urls = new Set<string>();
+  for (const raw of Object.values(languages as Record<string, unknown>)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const content = (raw as { content?: string }).content;
+    if (typeof content === "string" && content.trim()) {
+      try {
+        urls.add(normalizeAbsoluteDocumentLink(content));
+      } catch {
+        /* skip invalid */
+      }
+    }
+  }
+  return [...urls];
+}
+
+/** Compare document links for dedupe (normalize encoding / trailing noise). */
+export function linksMatchForDedupe(a: string, b: string): boolean {
+  try {
+    return normalizeAbsoluteDocumentLink(a) === normalizeAbsoluteDocumentLink(b);
+  } catch {
+    return a.trim() === b.trim();
+  }
+}
+
 export function buildAbsoluteDocumentBody(args: {
   documentRootValue: string;
   relativePath: string;

@@ -222,6 +222,77 @@ describe("reviewProcessCanvas", () => {
     expect(ids).toContain("role-controls-document");
   });
 
+  it("flags wide overview gaps and three-band approved exceptions", () => {
+    const steps: FlowStep[] = [
+      {
+        vertexId: "v-in",
+        objectType: "businessObject",
+        title: "Lead",
+        x: 50,
+        y: 191,
+        width: 75,
+        height: 18,
+        outputs: [{ vertexId: "v-p", objectType: "process", title: "Sell" }],
+      },
+      {
+        vertexId: "v-p",
+        objectType: "process",
+        title: "Sell",
+        x: 250,
+        y: 175,
+        width: 75,
+        height: 50,
+        inputs: [{ vertexId: "v-in", objectType: "businessObject", title: "Lead" }],
+        outputs: [{ vertexId: "v-out", objectType: "businessObject", title: "Package" }],
+      },
+      {
+        vertexId: "v-out",
+        objectType: "businessObject",
+        title: "Package",
+        x: 450,
+        y: 191,
+        width: 75,
+        height: 18,
+        inputs: [{ vertexId: "v-p", objectType: "process", title: "Sell" }],
+      },
+      {
+        vertexId: "v-mgmt",
+        objectType: "process",
+        title: "Audit",
+        x: 100,
+        y: 40,
+        width: 75,
+        height: 50,
+        inputs: [],
+        outputs: [],
+      },
+    ];
+    const canvas: CanvasDto = {
+      vertices: [
+        vertex("v-in", "businessObject", 50, 191, "Lead"),
+        vertex("v-p", "process", 250, 175, "Sell"),
+        vertex("v-out", "businessObject", 450, 191, "Package"),
+        vertex("v-mgmt", "process", 100, 40, "Audit"),
+      ],
+      edges: [
+        { uuid: "e1", edgeType: "flow", fromVertex: "v-in", toVertex: "v-p" },
+        { uuid: "e2", edgeType: "flow", fromVertex: "v-p", toVertex: "v-out" },
+      ],
+    };
+    // gap in→p = 250-(50+75)=125; with gapX=40 map threshold=80 → spacing-too-wide
+    const wide = reviewProcessCanvas({
+      steps,
+      canvas,
+      modelKind: "process-map",
+      distance: { top: 40, left: 40, bottom: 40, right: 40 },
+      layoutMode: "threeBand",
+    });
+    expect(wide.findings.some((f) => f.id === "spacing-too-wide")).toBe(true);
+    const approved = wide.findings.find((f) => f.id === "process-missing-input-bo-approved");
+    expect(approved?.severity).toBe("info");
+    expect(wide.findings.some((f) => f.id === "process-missing-input-bo")).toBe(false);
+  });
+
   it("does not flag coordinated X- och Y… performer titles as compound", () => {
     const steps: FlowStep[] = [
       {

@@ -26,6 +26,7 @@ const chainNodeSchema = z.object({
   kind: z.enum(["businessObject", "activity", "gateway", "and"]),
   title: z.string(),
   objectType: z.string(),
+  symbolId: uuid.optional().describe("Reuse existing symbol UUID (handoff / CATALOG)"),
 });
 
 const activityDetailSchema = z.object({
@@ -55,6 +56,12 @@ const proposalSchema = z.object({
     .optional()
     .describe("Gateway branches with optional Ja/Nej edge labels"),
   steps: z.array(proposedStepSchema),
+  reuseHints: z
+    .record(z.string(), uuid)
+    .optional()
+    .describe(
+      "title → symbolId from CATALOG / search_symbols — apply reuses these before create (avoids ZZ_ orphans)",
+    ),
   methodologyNotes: z.array(z.string()).optional(),
   namingChecks: z
     .array(
@@ -66,6 +73,8 @@ const proposalSchema = z.object({
       }),
     )
     .optional(),
+  repairHints: z.array(z.string()).optional(),
+  suggestedPrefixedText: z.string().optional(),
   nextSuggestedTools: z.array(z.string()).optional(),
 });
 
@@ -74,7 +83,7 @@ export function registerProposeTools(server: McpServer, ctx: ToolContext): void 
     "propose_model_from_text",
     {
       description:
-        "Text-to-model → FLOW + RACI/CONTROLS/IS_USED_BY + vägval branches. Prefixed: 'Vägval: Finns X?' / 'Ja: …' / 'Nej: …'. Exclusive choice objectType is \"or\" (Regel Eller) — call resolve_branching_object_type first. NEVER gateway or join.",
+        'Text-to-model → FLOW + RACI/CONTROLS/IS_USED_BY + vägval branches. Prefixed lines in document order: Activity: then Output:/Business object: (flushed immediately — never reordered). Vägval:/Ja:/Nej: (Nej = real activity, not Output:). Free prose skipped in prefix mode. On alternation fail: repairHints + suggestedPrefixedText. Exclusive choice objectType is "or" — resolve_branching_object_type first. NEVER gateway or join.',
       inputSchema: {
         text: z.string().min(1),
         modelType: z.string().optional().describe("Defaults to process"),
@@ -142,11 +151,15 @@ export function registerProposeTools(server: McpServer, ctx: ToolContext): void 
       "apply_model_proposal",
       {
         description:
-          "Apply proposal: FLOW (BO↔activity↔or/vägval), branches with Ja/Nej, RACI/CONTROLS/IS_USED_BY. Exclusive choice creates as objectType or (Regel Eller). NEVER gateway/join.",
+          "Apply proposal: FLOW (BO↔activity↔or/vägval), branches with Ja/Nej, RACI/CONTROLS/IS_USED_BY. Exclusive choice creates as objectType or (Regel Eller). NEVER gateway/join. Pass proposal.reuseHints { title→symbolId } or chain[].symbolId from CATALOG to reuse handoff BOs (avoids ZZ_ orphans).",
         inputSchema: {
           repositoryId,
           languageId,
           proposal: proposalSchema,
+          reuseHints: z
+            .record(z.string(), uuid)
+            .optional()
+            .describe("Optional top-level title→symbolId map merged into proposal.reuseHints"),
           modelId: uuid.optional().describe("Existing model to append to; otherwise creates new"),
           permissionGroup: permissionGroupHeader,
           owner: uuid.optional(),
@@ -155,7 +168,13 @@ export function registerProposeTools(server: McpServer, ctx: ToolContext): void 
       },
       async (args) =>
         runTool(() => {
-          const proposal = normalizeProposal(args.proposal as ModelProposal);
+          const proposal = normalizeProposal({
+            ...(args.proposal as ModelProposal),
+            reuseHints: {
+              ...((args.proposal as ModelProposal).reuseHints ?? {}),
+              ...(args.reuseHints ?? {}),
+            },
+          });
           return ctx.writer!.applyProposal({
             repositoryId: args.repositoryId,
             languageId: args.languageId,

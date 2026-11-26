@@ -123,6 +123,78 @@ describe("DocumentsService", () => {
     ).rejects.toThrow(/absolute/);
   });
 
+  it("createOrReuseMtDocument reuses existing document with same absolute URL", async () => {
+    let postCount = 0;
+    const url = "file:///Users/jan/TechSeed-IMS/Processes/Practices/Sales%20Practice.docx";
+    const client = mockClient((opts) => {
+      const path = String(opts.path ?? "");
+      if (path.includes("/languages")) {
+        return { data: [{ uuid: "lang-1", defaultLanguage: true }] };
+      }
+      if (path.includes("/documents/sources/") && path.endsWith("/documents") && !opts.method) {
+        return ["existing-sales"];
+      }
+      if (opts.method === "POST" && path.includes("/documents/resolve")) {
+        return [
+          {
+            documentId: { id: "95871a2f-27b6-486d-9bd3-62221fc3bc1a", source: "mt.documents" },
+            title: "Sales Practice",
+            link: url,
+          },
+        ];
+      }
+      if (opts.method === "POST" && path.includes("mt-documents")) {
+        postCount += 1;
+        return { uuid: "should-not-create" };
+      }
+      return { data: [] };
+    });
+    const docs = new DocumentsService(client);
+    const result = await docs.createOrReuseMtDocument("repo-1", {
+      type: "file",
+      languages: {
+        lang: { title: "Sales Practice", content: url },
+      },
+    });
+    expect(result.reused).toBe(true);
+    expect(result.documentId).toBe("95871a2f-27b6-486d-9bd3-62221fc3bc1a");
+    expect(postCount).toBe(0);
+  });
+
+  it("createOrReuseMtDocument creates when URL is new", async () => {
+    let postCount = 0;
+    const client = mockClient((opts) => {
+      const path = String(opts.path ?? "");
+      if (path.includes("/languages")) {
+        return { data: [{ uuid: "lang-1", defaultLanguage: true }] };
+      }
+      if (path.includes("/documents/sources/") && path.endsWith("/documents") && !opts.method) {
+        return [];
+      }
+      if (opts.method === "POST" && path.includes("/documents/resolve")) {
+        return [];
+      }
+      if (opts.method === "POST" && path.includes("mt-documents")) {
+        postCount += 1;
+        return { uuid: "new-doc-1" };
+      }
+      return { data: [] };
+    });
+    const docs = new DocumentsService(client);
+    const result = await docs.createOrReuseMtDocument("repo-1", {
+      type: "file",
+      languages: {
+        lang: {
+          title: "Sales Practice",
+          content: "file:///Users/jan/TechSeed-IMS/Processes/Practices/Sales%20Practice.docx",
+        },
+      },
+    });
+    expect(result.reused).toBe(false);
+    expect(result.documentId).toBe("new-doc-1");
+    expect(postCount).toBe(1);
+  });
+
   it("linkDocumentsToSymbol merges existing refs as MtbDocumentIdDto", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const client = mockClient((opts) => {

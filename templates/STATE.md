@@ -14,6 +14,7 @@
 | Secondary language (+ id) | | |
 | Pilot area | | |
 | `STOP_AFTER_PILOT` | | |
+| `MCP_DEBUG` | No / Yes | |
 | Write scope | only target repo; `get_write_scope` locked | |
 | Document root key / value / UUID | | |
 | 2c8 UI root matching | pending / done | |

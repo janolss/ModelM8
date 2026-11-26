@@ -1,9 +1,19 @@
 import { readFile } from "node:fs/promises";
 import type { TwoC8Client } from "../api/twoc8-client.js";
 import type { DocumentRootView, DocumentTypeView, Page } from "../api/types.js";
-import { symbolDocumentLinkMutex, symbolDocumentLockKey } from "../util/keyed-async-mutex.js";
+import {
+  mtDocumentUrlCreateMutex,
+  mtDocumentUrlLockKey,
+  symbolDocumentLinkMutex,
+  symbolDocumentLockKey,
+} from "../util/keyed-async-mutex.js";
 import { pickTitle } from "../util/titles.js";
-import { normalizeDocumentRootValue, normalizeMtDocumentBody } from "./document-paths.js";
+import {
+  absoluteUrlsFromMtDocumentBody,
+  linksMatchForDedupe,
+  normalizeDocumentRootValue,
+  normalizeMtDocumentBody,
+} from "./document-paths.js";
 
 export interface ResolvedDocView {
   source?: string;
@@ -34,6 +44,17 @@ function metaValue(metadata: unknown[] | undefined, id: string): string | undefi
     }
   }
   return undefined;
+}
+
+function extractDocumentId(doc: unknown): string | null {
+  if (!doc || typeof doc !== "object") return null;
+  if ("uuid" in doc && typeof (doc as { uuid: unknown }).uuid === "string") {
+    return (doc as { uuid: string }).uuid;
+  }
+  if ("id" in doc && typeof (doc as { id: unknown }).id === "string") {
+    return (doc as { id: string }).id;
+  }
+  return null;
 }
 
 export class DocumentsService {
@@ -411,6 +432,97 @@ export class DocumentsService {
     });
   }
 
+  /**
+   * Find an existing MT document whose resolved link matches absoluteUrl.
+   * Scans document keys in chunks (same approach as search_documents).
+   */
+  async findMtDocumentByAbsoluteUrl(
+    repositoryId: string,
+    absoluteUrl: string,
+    languageId?: string,
+  ): Promise<ResolvedDocView | null> {
+    const sourceId = "mt.documents";
+    const { keys } = await this.listDocumentKeys({
+      repositoryId,
+      sourceId,
+      languageId,
+    });
+    const chunkSize = 40;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const { documents } = await this.resolveDocuments({
+        repositoryId,
+        sourceId,
+        documentKeys: chunk,
+        languageId,
+      });
+      for (const d of documents) {
+        if (d.link && linksMatchForDedupe(d.link, absoluteUrl)) {
+          return d;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Create MT document, or reuse an existing one with the same absolute content URL.
+   * Parallel creates for the same URL are serialized so smoke + SAL-MSP + SAL-CV
+   * do not mint three UUIDs for one Sales Practice file.
+   */
+  async createOrReuseMtDocument(
+    repositoryId: string,
+    body: unknown,
+  ): Promise<{
+    document: unknown;
+    reused: boolean;
+    matchedUrl?: string;
+    documentId?: string;
+  }> {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      const document = await this.createMtDocument(repositoryId, body);
+      const id = extractDocumentId(document);
+      return { document, reused: false, documentId: id ?? undefined };
+    }
+
+    const urls = absoluteUrlsFromMtDocumentBody(body as Record<string, unknown>);
+    const primaryUrl = urls[0];
+    if (!primaryUrl) {
+      const document = await this.createMtDocument(repositoryId, body);
+      const id = extractDocumentId(document);
+      return { document, reused: false, documentId: id ?? undefined };
+    }
+
+    return mtDocumentUrlCreateMutex.runExclusive(
+      mtDocumentUrlLockKey(repositoryId, primaryUrl),
+      async () => {
+        const existing = await this.findMtDocumentByAbsoluteUrl(repositoryId, primaryUrl);
+        if (existing?.id) {
+          return {
+            document: {
+              uuid: existing.id,
+              id: existing.id,
+              title: existing.title,
+              link: existing.link,
+              reusedFromResolve: true,
+            },
+            reused: true,
+            matchedUrl: primaryUrl,
+            documentId: existing.id,
+          };
+        }
+        const document = await this.createMtDocument(repositoryId, body);
+        const id = extractDocumentId(document);
+        return {
+          document,
+          reused: false,
+          matchedUrl: primaryUrl,
+          documentId: id ?? undefined,
+        };
+      },
+    );
+  }
+
   async updateMtDocument(repositoryId: string, documentId: string, body: unknown) {
     let payload = body;
     if (body && typeof body === "object" && !Array.isArray(body)) {
@@ -606,25 +718,35 @@ export class DocumentsService {
 
   /**
    * Create a description type (syfte/scope/ägare fields etc.).
-   * Body: MtbDescriptionTypeDto — typically { titles: { [languageId]: { title } } }
+   * API requires dataType + inputType + non-empty connectedTo (type links).
+   * "Entries cannot be null" = missing connectedTo; "field 'entries' not allowed" = do not send entries.
    */
   async createDescriptionType(repositoryId: string, body: Record<string, unknown>) {
+    const normalized = normalizeDescriptionTypeBody(body);
     const created = await this.client.request<{
       uuid?: string;
       titles?: Record<string, { title?: string }>;
+      dataType?: string;
+      inputType?: string;
+      connectedTo?: unknown[];
     }>({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/description-types",
       pathParams: { repositoryId },
-      body,
+      body: normalized,
     });
     return {
       data: {
         uuid: created.uuid,
         title: pickTitle(created.titles as never),
         titles: created.titles,
+        dataType: created.dataType,
+        inputType: created.inputType,
+        connectedTo: created.connectedTo,
       },
       methodologyNotes: [
+        "Minimal body: titles + dataType se.conciliate.rich.text + inputType rich-text-editor + connectedTo[{type,position,hidden}].",
+        "Do not send `entries` (API rejects it). Missing connectedTo → 400 Entries cannot be null.",
         "New repos may lack description types until the 2c8 client opens them — create before update_*_description.",
       ],
       nextSuggestedTools: [
@@ -634,4 +756,35 @@ export class DocumentsService {
       ],
     };
   }
+}
+
+const DEFAULT_DESCRIPTION_CONNECTED_TO = [
+  { type: "PROCESS", position: 1, hidden: "" },
+  { type: "ACTIVITY", position: 1, hidden: "" },
+  { type: "BUSINESS_OBJECT", position: 1, hidden: "" },
+];
+
+/** Ensure POST body matches live 2c8 contract (rich-text field on process/activity/BO). */
+export function normalizeDescriptionTypeBody(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...body };
+  // Agent mistake from MCP-FEEDBACK — strip illegal key
+  delete out.entries;
+  if (!out.dataType || out.dataType === "STRING" || out.dataType === "TEXT") {
+    out.dataType = "se.conciliate.rich.text";
+  }
+  if (
+    !out.inputType ||
+    out.inputType === "TEXTAREA" ||
+    out.inputType === "TEXT" ||
+    out.inputType === "STRING"
+  ) {
+    out.inputType = "rich-text-editor";
+  }
+  const connected = out.connectedTo;
+  if (!Array.isArray(connected) || connected.length === 0) {
+    out.connectedTo = DEFAULT_DESCRIPTION_CONNECTED_TO;
+  }
+  return out;
 }
