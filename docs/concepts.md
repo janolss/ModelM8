@@ -48,7 +48,7 @@ Pattern: `activity → BO → or → next activity`.
 - Process-wide policies: on the process symbol / documents panel, not fan-out onto every step.
 - MT documents: `type: URL|file`; link via `{ id, source: "mt.documents" }`.
 - `showInPanel`: omit by default (new tab). `true` = open in web-2c8 panel/iframe.
-- Document roots: `create_document_root` (`key` + folder/`file:///`/`https` value — MCP normalizes/encodes). Links store **full absolute URLs** (`link_document(documentRootKey, relativePath, …)` joins `root.value` + encoded relative path). API `prefix` is **not** a root FK. After mass create, the user matches paths to the root in the 2c8 UI. Empty plan `DOC_BASE_URL` → still create a root from the source folder.
+- Document roots: `create_document_root` (`key` + folder/`file:///`/`https` value — MCP normalizes/encodes). Links store **full absolute URLs** (`link_document(documentRootKey, relativePath, …)` joins `root.value` + encoded relative path; relative paths may not contain `.` / `..`). API `prefix` is **not** a root FK. After mass create, the user matches paths to the root in the 2c8 UI. Empty plan `DOC_BASE_URL` → still create a root from the source folder. `get_document_content` reads `file://` only under those roots (plus optional `TWO_C8_DOCUMENT_READ_ROOTS`) and blocks private/loopback HTTP fetches.
 - **`languages.<languageId>.content` (URL) is language-specific**, same as titles. Creating with only the default language leaves secondary languages with empty/non-clickable links. Prefer `link_document(…, titles: { [enId]: "…", [svId]: "…" })` so the same absolute URL is written to every language. `verify_document_links` without `languageId` checks all repo languages.
 
 ## Activity descriptions

@@ -5,8 +5,10 @@
 | Symptom | Action |
 |---|---|
 | No tools / auth errors | Restart modelM8; reconnect the MCP client |
+| HTTP `401 Unauthorized` on `/mcp` | `MCP_HTTP_AUTH_TOKEN` is set — send `Authorization: Bearer <token>` from the client |
 | `list_repositories` fails | Check `TWO_C8_BASE_URL`, API key, network |
 | Write tools missing | `TWO_C8_ALLOW_WRITES=true` and restart |
+| Security warning about non-loopback HOST | Set `MCP_HTTP_AUTH_TOKEN` or bind `HOST=127.0.0.1` |
 
 ## Empty HTTP 200
 
@@ -29,6 +31,9 @@ Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`
 | `verify_document_links` `relative-without-absolute-url` | Stored path is not absolute; recreate with full URL (`documentRootKey` + `relativePath` joins root.value) |
 | Empty URL in secondary language (SV) while EN works | `content` is per language. Re-link with `titles` map or `updateDocumentBody` setting `languages.<svId>.content` to the same absolute URL. Re-run `verify_document_links` **without** `languageId` |
 | `verify_document_links` allPass but GUI empty on SV | You verified only EN. Omit `languageId` (checks all languages) |
+| `get_document_content` refuses `file://` / “outside allowed document roots” | Path must sit under a repo document root (`file:///…`) or `TWO_C8_DOCUMENT_READ_ROOTS`. Create/match roots first |
+| `get_document_content` refuses private/loopback HTTP host | Expected SSRF guard — use a public URL or host the file under an allowed `file:///` root |
+| `relativePath must not contain '.' or '..'` | Do not use `../` in `link_document` relative paths |
 
 ## Translations / globes in the 2c8 UI
 

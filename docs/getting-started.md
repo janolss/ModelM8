@@ -35,6 +35,8 @@ TWO_C8_WRITE_MODE=direct
 | `TWO_C8_WRITE_MODE` | `draft` (safer) or `direct` (sandbox/dev) |
 | `TWO_C8_ALLOW_DELETES` | Leave `false` unless you truly need `delete_model` |
 | `PORT` / `HOST` | HTTP listen address (default `127.0.0.1:3000`) |
+| `MCP_HTTP_AUTH_TOKEN` | Optional. When set, `POST /mcp` requires `Authorization: Bearer <token>`. **Set this** if you bind `HOST` beyond loopback |
+| `TWO_C8_DOCUMENT_READ_ROOTS` | Optional. Extra absolute dirs for `get_document_content` `file://` reads (in addition to repo document roots) |
 
 ## Build and start
 
@@ -48,7 +50,7 @@ npm run start:http
 npm start
 ```
 
-Health check: `GET http://127.0.0.1:3000/health`
+Health check: `GET http://127.0.0.1:3000/health` → `{ "ok": true }` (no write-scope or policy fields).
 
 ## Next steps
 
@@ -58,12 +60,13 @@ Health check: `GET http://127.0.0.1:3000/health`
 
 ### Docker (optional)
 
-HTTP `/mcp` has **no authentication**. Set `HOST=0.0.0.0` only when you need port publishing, and do not expose it on untrusted networks.
+`POST /mcp` has **no auth unless** `MCP_HTTP_AUTH_TOKEN` is set. Default `HOST` is loopback. Set `HOST=0.0.0.0` only when you need port publishing, and always set a token (and/or a reverse proxy) on untrusted networks. The server logs a security warning if you bind beyond loopback without a token.
 
 ```bash
 docker build -t modelm8 .   # base: node:26-alpine
 docker run --rm -p 3000:3000 \
   -e HOST=0.0.0.0 \
+  -e MCP_HTTP_AUTH_TOKEN=change-me \
   -e TWO_C8_BASE_URL=https://host/mt-backend \
   -e TWO_C8_API_KEY=... \
   -e TWO_C8_ALLOW_WRITES=true \

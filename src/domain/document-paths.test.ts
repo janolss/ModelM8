@@ -22,6 +22,13 @@ describe("document-paths", () => {
     );
   });
 
+  it("rejects .. and . path segments (including encoded)", () => {
+    expect(() => encodeRelativeDocumentPath("../etc/passwd")).toThrow(/\.\./);
+    expect(() => encodeRelativeDocumentPath("a/../../b")).toThrow(/\.\./);
+    expect(() => encodeRelativeDocumentPath("%2e%2e/secret")).toThrow(/\.\./);
+    expect(() => encodeRelativeDocumentPath("foo/./bar")).toThrow(/\./);
+  });
+
   it("normalizes filesystem root to file:///…/", () => {
     const value = normalizeDocumentRootValue(
       "/Users/jan/github_repo/2c8-mcp-server-1/Inera/Dokumentbibliotek",

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `verify_process_coverage`: match `title` / `titleContains` / `code` against **all** language titles by default (optional `languageId`); fixes SV register vs EN default after translation (Inera loop3)
+- `create_process_map` threeBand: `layout.coreProcessIds` — peer L1/areas as core-band chevrons without FLOW (no shared BO); band-append + create-only supported
+- `propose_model_from_text`: multi-output → `secondaryOutputs`; Nej-side `Output:` → `branches[].outputTitle` (no Consecutive-BO fail); Inera INC fixture
+- Exported `layoutBottomSatellites` (`satellite-layout.ts`) + nest-right unit tests for side-branch packing
 - TechSeed loop 3 workspace (`TechSeed-IMS-loop3/`) with plan KPIs after körning 2 analysis
 - `propose_model_from_text`: `repairHints` + `suggestedPrefixedText` on alternation failure; strict prefix mode skips free prose
 - `apply_model_proposal` / proposal: `reuseHints` `{ title → symbolId }` + `chain[].symbolId` (CATALOG reuse, fewer ZZ_ orphans)

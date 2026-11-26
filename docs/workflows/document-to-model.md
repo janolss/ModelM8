@@ -8,7 +8,7 @@ You have a practice, procedure, or similar text and want to extract a process mo
 
 - Writes on
 - `repositoryId` + `languageId`
-- Document text available (pasted, a file the agent can read, or via `get_document_content` if the document already exists in 2c8)
+- Document text available (pasted, a file the agent can read, or via `get_document_content` if the document already exists in 2c8). For `file://` extraction, the path must be under a repository document root or `TWO_C8_DOCUMENT_READ_ROOTS`; private/loopback `http(s)` URLs are blocked.
 
 ## Agent prompt
 

@@ -32,6 +32,17 @@ export function encodeRelativeDocumentPath(relativePath: string): string {
   if (/^(https?:|file:)/i.test(cleaned)) {
     throw new Error("relativePath must be relative to the document root base, not an absolute URL");
   }
+  for (const segment of cleaned.split("/")) {
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      // keep raw segment
+    }
+    if (decoded === ".." || decoded === "." || decoded.includes("\0")) {
+      throw new Error("relativePath must not contain '.' or '..' path segments");
+    }
+  }
   return encodeUrlPath(cleaned);
 }
 

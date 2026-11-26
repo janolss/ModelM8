@@ -110,7 +110,7 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
     "verify_process_coverage",
     {
       description:
-        "Map expected process register rows (code / title / titleContains) to models. Optional rootModelId checks reachability via get_navigation_tree. Agent supplies expected[] from the register — tool does not parse documents.",
+        "Map expected process register rows (code / title / titleContains) to models. Title matching defaults to ALL language titles (not only default) — after EN translation SV register rows still match. Optional languageId pins one language; matchAnyLanguage:false + languageId for strict. Optional rootModelId checks reachability via get_navigation_tree. Agent supplies expected[] from the register — tool does not parse documents.",
       inputSchema: {
         repositoryId,
         expected: z
@@ -123,6 +123,17 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
           )
           .min(1),
         rootModelId: uuid.optional(),
+        languageId: uuid
+          .optional()
+          .describe(
+            "Optional: match only this language's titles map. Omit (default) to match any language title.",
+          ),
+        matchAnyLanguage: z
+          .boolean()
+          .optional()
+          .describe(
+            "Default true when languageId omitted. Set false with languageId to pin one language only.",
+          ),
       },
     },
     async (args) => runTool(() => ctx.quality.verifyProcessCoverage(args)),

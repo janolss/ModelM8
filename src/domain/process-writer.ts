@@ -17,6 +17,7 @@ import { applySoftBreaks, stripSoftBreaks } from "../util/soft-breaks.js";
 import { pickTitle } from "../util/titles.js";
 import { ProcessReader } from "./process-reader.js";
 import { type ModelProposal, normalizeProposal } from "./proposals.js";
+import { layoutBottomSatellites } from "./satellite-layout.js";
 
 const DEFAULT_WIDTH = 75;
 const DEFAULT_HEIGHT = 50;
@@ -1417,11 +1418,13 @@ export class ProcessWriter {
     /**
      * Layout mode. threeBand = L0-style: management (top, no FLOW) /
      * core spine (middle) / support (bottom, no FLOW).
+     * coreProcessIds = peer L1 chevrons on the core band without FLOW (no shared BO).
      */
     layout?: {
       mode?: "linear" | "parallelTracks" | "threeBand" | "peerRows";
       managementProcessIds?: string[];
       coreDetailModelIds?: string[];
+      coreProcessIds?: string[];
       supportProcessIds?: string[];
     };
     permissionGroup?: string;
@@ -1445,10 +1448,11 @@ export class ProcessWriter {
 
     const managementProcessIds = args.layout?.managementProcessIds ?? [];
     const supportProcessIds = args.layout?.supportProcessIds ?? [];
-    const bandOnlyIds = [...managementProcessIds, ...supportProcessIds];
+    const coreProcessIds = args.layout?.coreProcessIds ?? [];
+    const bandOnlyIds = [...managementProcessIds, ...supportProcessIds, ...coreProcessIds];
     /**
-     * L0 band append: place management/support chevrons without FLOW and without
-     * requiring a linear handoff chain between peers (Inera G-014 friction).
+     * L0 band append: place management/support/core-peer chevrons without FLOW and without
+     * requiring a linear handoff chain between peers (Inera G-014 / loop3 friction).
      * Trigger: threeBand + existing modelId + band ids + no new core detailModelIds.
      * Accidental process-only `chain` is ignored (agents often pass support as chain).
      */
@@ -1465,13 +1469,13 @@ export class ProcessWriter {
       if (chain.length > 0 && !processOnlyChain) {
         throw new Error(
           "create_process_map threeBand band-append: omit chain (or pass only process stubs). " +
-            "Place ledning/stöd via layout.managementProcessIds / supportProcessIds — no FLOW, no shared BO required. " +
-            "Core spine uses coreDetailModelIds / detailModelIds on create (not on band-only append).",
+            "Place ledning/stöd via layout.managementProcessIds / supportProcessIds; peer L1 on core via coreProcessIds — no FLOW, no shared BO required. " +
+            "Linear FLOW spine uses coreDetailModelIds / detailModelIds on create (not on band-only append).",
         );
       }
       if (chain.length > 0 && processOnlyChain) {
         lockNotes.push(
-          "threeBand band-append: ignored process-only chain; using managementProcessIds/supportProcessIds only (no FLOW).",
+          "threeBand band-append: ignored process-only chain; using management/support/coreProcessIds only (no FLOW).",
         );
       }
       return this.appendThreeBandBands({
@@ -1482,8 +1486,62 @@ export class ProcessWriter {
         group: args.group,
         managementProcessIds,
         supportProcessIds,
+        coreProcessIds,
         lockNotes,
       });
+    }
+
+    /**
+     * threeBand create with only peer coreProcessIds (no linear handoff spine):
+     * place core-band chevrons without FLOW + optional management/support bands.
+     */
+    if (
+      layoutMode === "threeBand" &&
+      !args.modelId &&
+      coreProcessIds.length > 0 &&
+      !detailModelIds?.length &&
+      chain.length === 0
+    ) {
+      const created = await this.createProcessModel({
+        repositoryId: args.repositoryId,
+        title: args.title,
+        languageId: args.languageId,
+        modelType: "process",
+        permissionGroup: args.permissionGroup,
+        owner: args.owner,
+        group: args.group,
+      });
+      const modelId =
+        (created.data as { uuid?: string })?.uuid ??
+        (created.data as { model?: { uuid?: string } })?.model?.uuid;
+      if (!modelId) {
+        throw new Error(
+          "create_process_map: could not resolve modelId for threeBand coreProcessIds.",
+        );
+      }
+      try {
+        return await this.appendThreeBandBands({
+          repositoryId: args.repositoryId,
+          modelId,
+          languageId: args.languageId,
+          owner: args.owner,
+          group: args.group,
+          managementProcessIds,
+          supportProcessIds,
+          coreProcessIds,
+          lockNotes: [
+            ...lockNotes,
+            "threeBand: created with coreProcessIds only (peer chevrons without FLOW; no linear handoff spine).",
+          ],
+        });
+      } catch (err) {
+        const note = await this.rollbackCreatedModel({
+          repositoryId: args.repositoryId,
+          modelId,
+        });
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`${msg}${note ? ` (${note})` : ""}`);
+      }
     }
 
     // peerRows: independent rows from each detail scope — no shared BO between peers
@@ -1552,7 +1610,7 @@ export class ProcessWriter {
             built.uncertainLinks.join("\n") +
             `\nIf peers have distinct inputs (no shared BO), use layout: { mode: "peerRows" } with the same detailModelIds.` +
             (layoutMode === "threeBand"
-              ? `\nL0 tip: put only a linear core on coreDetailModelIds (shared BO handoffs); place peer L1/areas as sideLoops or leave L1 without L0-upward; append ledning/stöd later via managementProcessIds/supportProcessIds (band-only, no FLOW).`
+              ? `\nL0 tip: put only a linear core on coreDetailModelIds (shared BO handoffs); place peer L1/areas on layout.coreProcessIds (core-band chevrons without FLOW); ledning/stöd via managementProcessIds/supportProcessIds.`
               : ""),
         );
       }
@@ -2001,6 +2059,7 @@ export class ProcessWriter {
       mode?: "linear" | "parallelTracks" | "threeBand" | "peerRows";
       managementProcessIds?: string[];
       coreDetailModelIds?: string[];
+      coreProcessIds?: string[];
       supportProcessIds?: string[];
     };
   }) {
@@ -2539,6 +2598,7 @@ export class ProcessWriter {
         spineMidY,
         managementProcessIds: args.layout.managementProcessIds ?? [],
         supportProcessIds: args.layout.supportProcessIds ?? [],
+        coreProcessIds: args.layout.coreProcessIds ?? [],
         symbolCache,
         reserved,
         gapX,
@@ -2597,6 +2657,7 @@ export class ProcessWriter {
     group?: string;
     managementProcessIds: string[];
     supportProcessIds: string[];
+    coreProcessIds?: string[];
     lockNotes: string[];
   }) {
     const canvas = (await this.client.request({
@@ -2649,6 +2710,7 @@ export class ProcessWriter {
       spineMidY,
       managementProcessIds: args.managementProcessIds,
       supportProcessIds: args.supportProcessIds,
+      coreProcessIds: args.coreProcessIds ?? [],
       symbolCache,
       reserved,
       gapX,
@@ -2669,9 +2731,10 @@ export class ProcessWriter {
         bandAppend: true,
       },
       methodologyNotes: [
-        "threeBand band-append: management/support chevrons placed without FLOW and without inventing bridge BOs.",
-        "Peers without shared handoff BO belong in peerRows L1 (or sideLoops from a state BO) — not on the L0 FLOW spine.",
-        "L1 without L0-upward is an approved exception when core uses shared-BO L2 only (document in STATE).",
+        "threeBand band-append: management/support/coreProcessIds chevrons placed without FLOW and without inventing bridge BOs.",
+        "coreProcessIds = peer L1/areas on the core band without shared handoff BO (prefer over putting kärna in support band).",
+        "Linear FLOW spine still uses coreDetailModelIds when peers share BOs; otherwise coreProcessIds + optional linear core.",
+        "L1 without L0-upward is an approved exception when documented in STATE.",
         ...notes,
       ],
       nextSuggestedTools: ["review_process_model", "get_navigation_tree", "describe_process_map"],
@@ -2691,6 +2754,8 @@ export class ProcessWriter {
     spineMidY: number;
     managementProcessIds: string[];
     supportProcessIds: string[];
+    /** Peer L1 on core midline without FLOW (no shared BO required). */
+    coreProcessIds?: string[];
     symbolCache: Map<string, string>;
     reserved: Array<{ x: number; y: number; width: number; height: number }>;
     gapX: number;
@@ -2728,16 +2793,26 @@ export class ProcessWriter {
     const breakdowns: unknown[] = [];
     const notes: string[] = [];
 
-    const placeBand = async (modelIds: string[], band: "management" | "support") => {
+    const placeBand = async (modelIds: string[], band: "management" | "support" | "core") => {
       if (!modelIds.length) return;
       // Clamp: 2c8 API rejects Vertex y < 0 (FB-001).
       const y = Math.max(
         MIN_VERTEX_Y,
         band === "management"
           ? Math.round(args.spineMidY - bandGap - procSize.height / 2)
-          : Math.round(args.spineMidY + bandGap - procSize.height / 2),
+          : band === "support"
+            ? Math.round(args.spineMidY + bandGap - procSize.height / 2)
+            : Math.round(args.spineMidY - procSize.height / 2),
       );
+      // Core-band peers: start to the right of existing reserved content when appending to a FLOW spine
       let x = SPINE_START_X;
+      if (band === "core" && args.reserved.length) {
+        let maxRight = SPINE_START_X;
+        for (const r of args.reserved) {
+          maxRight = Math.max(maxRight, r.x + r.width);
+        }
+        x = Math.round(maxRight + args.gapX);
+      }
       for (const detailModelId of modelIds) {
         let title = "Process";
         let symbolId: string | undefined;
@@ -2812,9 +2887,12 @@ export class ProcessWriter {
     };
 
     await placeBand(args.managementProcessIds, "management");
+    await placeBand(args.coreProcessIds ?? [], "core");
     await placeBand(args.supportProcessIds, "support");
     if (placed.length) {
-      notes.push(`threeBand placed ${placed.length} band chevron(s) without FLOW to core spine.`);
+      notes.push(
+        `threeBand placed ${placed.length} band chevron(s) without FLOW (ledning/stöd/coreProcessIds peers).`,
+      );
     }
     return { placed, breakdowns, notes };
   }
@@ -3292,71 +3370,11 @@ export class ProcessWriter {
     return this.routeOrthogonal(p0, pN);
   }
 
-  /**
-   * Bottom layout: primary role centered under activity; side satellites nest
-   * tightly against the primary icon (not label width) with a slight diagonal
-   * stagger — close to center, not under neighbouring FLOW I/O objects.
-   */
-  private layoutBottomSatellites(args: {
-    activity: { x: number; y: number; width: number; height: number };
-    roles: Array<{ title: string; width: number; height: number; packWidth: number }>;
-    others: Array<{ title: string; width: number; height: number; packWidth: number }>;
-    gap: number;
-  }): Map<string, { x: number; y: number }> {
-    const { activity, roles, others, gap } = args;
-    // Clearance under activity; nest/stagger keep side symbols clustered
-    const y = activity.y + activity.height + gap;
-    const nestGap = 16;
-    const staggerY = 14;
-    const result = new Map<string, { x: number; y: number }>();
-    const actCx = activity.x + Math.floor(activity.width / 2);
-
-    const placeSideCluster = (
-      center: { title: string; width: number; height: number },
-      sideItems: Array<{ title: string; width: number; height: number }>,
-      /** Applications/docs always nest to the RIGHT of the primary role (TechSeed QA). */
-      preferRight = true,
-    ): void => {
-      const centerX = actCx - Math.floor(center.width / 2);
-      result.set(center.title, { x: centerX, y });
-      let leftEdge = centerX;
-      let rightEdge = centerX + center.width;
-      let placeRight = preferRight;
-      let ring = 0;
-      for (const item of sideItems) {
-        const itemY = y + staggerY + ring * Math.floor(staggerY / 2);
-        if (placeRight || preferRight) {
-          const x = rightEdge + nestGap;
-          result.set(item.title, { x, y: itemY });
-          rightEdge = x + item.width;
-          if (!preferRight) placeRight = false;
-        } else {
-          const x = leftEdge - nestGap - item.width;
-          result.set(item.title, { x, y: itemY });
-          leftEdge = x;
-          placeRight = true;
-        }
-        if (!preferRight) {
-          placeRight = !placeRight;
-        }
-        ring += 1;
-      }
-    };
-
-    const primary = roles[0];
-    if (primary) {
-      // Extra roles may alternate; applications/others always to the right of primary
-      const extraRoles = roles.slice(1);
-      placeSideCluster(primary, [...extraRoles, ...others], true);
-      return result;
-    }
-
-    if (others.length === 0) {
-      return result;
-    }
-    const first = others[0]!;
-    placeSideCluster(first, others.slice(1));
-    return result;
+  /** @see layoutBottomSatellites in satellite-layout.ts */
+  private layoutBottomSatellites(
+    args: Parameters<typeof layoutBottomSatellites>[0],
+  ): Map<string, { x: number; y: number }> {
+    return layoutBottomSatellites(args);
   }
 
   /**
@@ -4889,6 +4907,67 @@ export class ProcessWriter {
       cursorX = usedX + size.width + distance.left;
     }
 
+    // Process-level secondaryOutputs: stack under primary terminal BO (multi-output)
+    const spineSecondary = proposal.secondaryOutputs ?? [];
+    if (spineSecondary.length) {
+      const lastBo = [...placed]
+        .reverse()
+        .find((p) => p.kind === "businessObject" || p.objectType === "businessObject");
+      const lastAct = [...chain].reverse().find((n) => n.kind === "activity");
+      const actPlacement = lastAct ? activityVertices.get(lastAct.title.toLowerCase()) : undefined;
+      if (lastBo && actPlacement) {
+        const boSize = this.sizeFor(repoConfig, "businessObject");
+        const stackGap = Math.max(distance.bottom, 24);
+        const primaryV = vertexByTitle.get(lastBo.title.toLowerCase());
+        const baseX = primaryV?.x ?? 0;
+        const baseY = (primaryV?.y ?? Y_BO) + boSize.height + stackGap;
+        for (let i = 0; i < spineSecondary.length; i++) {
+          const outTitle = spineSecondary[i]!;
+          const ox = baseX;
+          const oy = baseY + i * (boSize.height + stackGap);
+          const outSymbolId = await this.resolveOrCreateSymbol({
+            repositoryId: args.repositoryId,
+            languageId: args.languageId,
+            title: outTitle,
+            objectType: "businessObject",
+            owner: args.owner,
+            group: args.group,
+            cache: symbolCache,
+          });
+          const outVertex = await this.placeVertex({
+            repositoryId: args.repositoryId,
+            modelId,
+            symbolId: outSymbolId,
+            languageId: args.languageId,
+            title: outTitle,
+            objectType: "businessObject",
+            x: ox,
+            y: oy,
+            width: boSize.width,
+            height: boSize.height,
+            reserved,
+          });
+          const outId = String(outVertex.uuid);
+          placed.push({
+            title: outTitle,
+            objectType: "businessObject",
+            symbolId: outSymbolId,
+            vertexId: outId,
+            kind: "businessObject",
+          });
+          await this.createCanvasEdge({
+            repositoryId: args.repositoryId,
+            modelId,
+            fromVertexId: actPlacement.vertexId,
+            toVertexId: outId,
+            edgeType: "flow",
+            languageId: args.languageId,
+          });
+          results.push({ secondaryOutputBo: outTitle });
+        }
+      }
+    }
+
     // Side branches from gateways — only for targets NOT already ahead on the spine
     let branchSlot = 0;
     for (const b of branches) {
@@ -4990,50 +5069,62 @@ export class ProcessWriter {
             width: size.width,
             height: size.height,
           });
-          // Dead-end branch activities need an output BO (value artefact)
-          const outTitle = `${b.toTitle} result`;
+          // Dead-end branch activities need an output BO (value artefact).
+          // Prefer branch.outputTitle / secondaryOutputs from propose (Nej-side Output:).
+          const outTitles = [b.outputTitle, ...(b.secondaryOutputs ?? [])].filter(
+            (t): t is string => Boolean(t?.trim()),
+          );
+          if (outTitles.length === 0) {
+            outTitles.push(`${b.toTitle} result`);
+          }
           const boSize = this.sizeFor(repoConfig, "businessObject");
-          const outSymbolId = await this.resolveOrCreateSymbol({
-            repositoryId: args.repositoryId,
-            languageId: args.languageId,
-            title: outTitle,
-            objectType: "businessObject",
-            owner: args.owner,
-            group: args.group,
-            cache: symbolCache,
-          });
-          const ox = Math.round(usedX + size.width + distance.left);
-          const oy = Math.round(usedY + Math.floor((size.height - boSize.height) / 2));
-          const outVertex = await this.placeVertex({
-            repositoryId: args.repositoryId,
-            modelId,
-            symbolId: outSymbolId,
-            languageId: args.languageId,
-            title: outTitle,
-            objectType: "businessObject",
-            x: ox,
-            y: oy,
-            width: boSize.width,
-            height: boSize.height,
-            reserved,
-          });
-          const outId = String(outVertex.uuid);
-          placed.push({
-            title: outTitle,
-            objectType: "businessObject",
-            symbolId: outSymbolId,
-            vertexId: outId,
-            kind: "businessObject",
-          });
-          await this.createCanvasEdge({
-            repositoryId: args.repositoryId,
-            modelId,
-            fromVertexId: vertexId,
-            toVertexId: outId,
-            edgeType: "flow",
-            languageId: args.languageId,
-          });
-          results.push({ branchOutputBo: outTitle });
+          const primaryOx = Math.round(usedX + size.width + distance.left);
+          const primaryOy = Math.round(usedY + Math.floor((size.height - boSize.height) / 2));
+          const stackGap = Math.max(distance.bottom, 24);
+          for (let i = 0; i < outTitles.length; i++) {
+            const outTitle = outTitles[i]!;
+            const ox = primaryOx;
+            const oy = primaryOy + i * (boSize.height + stackGap);
+            const outSymbolId = await this.resolveOrCreateSymbol({
+              repositoryId: args.repositoryId,
+              languageId: args.languageId,
+              title: outTitle,
+              objectType: "businessObject",
+              owner: args.owner,
+              group: args.group,
+              cache: symbolCache,
+            });
+            const outVertex = await this.placeVertex({
+              repositoryId: args.repositoryId,
+              modelId,
+              symbolId: outSymbolId,
+              languageId: args.languageId,
+              title: outTitle,
+              objectType: "businessObject",
+              x: ox,
+              y: oy,
+              width: boSize.width,
+              height: boSize.height,
+              reserved,
+            });
+            const outId = String(outVertex.uuid);
+            placed.push({
+              title: outTitle,
+              objectType: "businessObject",
+              symbolId: outSymbolId,
+              vertexId: outId,
+              kind: "businessObject",
+            });
+            await this.createCanvasEdge({
+              repositoryId: args.repositoryId,
+              modelId,
+              fromVertexId: vertexId,
+              toVertexId: outId,
+              edgeType: "flow",
+              languageId: args.languageId,
+            });
+            results.push({ branchOutputBo: outTitle });
+          }
         }
       }
 

@@ -742,7 +742,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     "create_process_map",
     {
       description:
-        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. Peers without shared BO → layout.mode=peerRows (not parallelTracks/linear). threeBand L0: coreDetailModelIds = linear shared-BO spine only; managementProcessIds/supportProcessIds = chevrons without FLOW (no handoff chain). Append bands to existing L0: modelId + supportProcessIds/managementProcessIds, omit detailModelIds/chain. Do NOT invent overview BOs.",
+        "Create a process map / overview. PREFERRED: detailModelIds (or layout.coreDetailModelIds for threeBand) — server derives BO↔process chain from detail scopes. Peers without shared BO → layout.mode=peerRows (not parallelTracks/linear). threeBand L0: coreDetailModelIds = linear shared-BO spine; coreProcessIds = peer L1/areas as core-band chevrons without FLOW (no shared BO); managementProcessIds/supportProcessIds = ledning/stöd bands without FLOW. Append bands: modelId + support/management/coreProcessIds, omit detailModelIds/chain. Do NOT invent overview BOs.",
       inputSchema: {
         repositoryId,
         languageId,
@@ -831,6 +831,12 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
               .optional()
               .describe(
                 "Middle FLOW spine only — must share handoff BOs. Used as detailModelIds when that is omitted",
+              ),
+            coreProcessIds: z
+              .array(uuid)
+              .optional()
+              .describe(
+                "Peer L1/area models as core-band chevrons without FLOW (no shared BO required). Prefer over putting kärna in support band. Band-append OK with modelId alone.",
               ),
             supportProcessIds: z
               .array(uuid)

@@ -27,6 +27,8 @@ function withBaseEnv() {
   delete process.env.MCP_TRANSPORT;
   delete process.env.PORT;
   delete process.env.HOST;
+  delete process.env.MCP_HTTP_AUTH_TOKEN;
+  delete process.env.TWO_C8_DOCUMENT_READ_ROOTS;
 }
 
 describe("loadConfig", () => {
@@ -40,6 +42,14 @@ describe("loadConfig", () => {
     expect(cfg.transport).toBe("stdio");
     expect(cfg.port).toBe(3000);
     expect(cfg.host).toBe("127.0.0.1");
+    expect(cfg.httpAuthToken).toBeUndefined();
+  });
+
+  it("loads MCP_HTTP_AUTH_TOKEN", () => {
+    withBaseEnv();
+    process.env.MCP_HTTP_AUTH_TOKEN = " secret-token ";
+    const cfg = loadConfig(["--http"]);
+    expect(cfg.httpAuthToken).toBe("secret-token");
   });
 
   it("enables http via --http and bool env flags", () => {

@@ -192,12 +192,46 @@ Output: Stängd incident
     expect(proposal.chain?.some((n) => n.title === "Åtgärda på 1st line")).toBe(false);
     expect(proposal.chain?.some((n) => n.title === "Stängd incident")).toBe(false);
     expect(proposal.chain?.map((n) => n.title)).toContain("Återställd tjänst");
+    const nej = proposal.branches?.find((b) => b.label === "Nej");
+    expect(nej?.outputTitle).toBe("Stängd incident");
     const altFails = (proposal.namingChecks ?? []).filter(
       (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
     );
     expect(altFails).toEqual([]);
     const side = proposal.activities?.find((a) => a.title === "Åtgärda på 1st line");
     expect(side?.performers).toContain("Servicedesk");
+  });
+
+  it("Inera INC loop3 dialect: multi-output + Nej Output → secondaryOutputs / branch.outputTitle (no Consecutive)", () => {
+    // Mirrors the 2nd reject in loop3 TOOL-FRICTION (Stängd incident + Problembehov)
+    const text = `
+Process: Hantera incident
+Input: Incidentanmälan
+Activity: Registrera incident — Performer: Servicedesk
+Output: Incidentrecord
+Activity: Klassificera allvarlighetsgrad — Performer: Incident Manager
+Output: Klassificerad incident
+Vägval: Krävs eskalering?
+Ja: Eskalera till 2nd line — Performer: Incident Manager
+Output: Eskalerad incident
+Activity: Åtgärda och återställa — Performer: 2nd line
+Output: Återställd tjänst
+Output: Problembehov
+Nej: Åtgärda på 1st line — Performer: Servicedesk
+Output: Stängd incident
+`.trim();
+    const proposal = proposeModelFromText(pack, text, "process");
+    expect(proposal.chain?.map((n) => n.title)).toContain("Återställd tjänst");
+    expect(proposal.chain?.some((n) => n.title === "Problembehov")).toBe(false);
+    expect(proposal.secondaryOutputs).toContain("Problembehov");
+    expect(proposal.chain?.some((n) => n.title === "Stängd incident")).toBe(false);
+    const nej = proposal.branches?.find((b) => b.label === "Nej");
+    expect(nej?.toTitle).toBe("Åtgärda på 1st line");
+    expect(nej?.outputTitle).toBe("Stängd incident");
+    const altFails = (proposal.namingChecks ?? []).filter(
+      (c) => !c.pass && /Consecutive/i.test(c.hint ?? ""),
+    );
+    expect(altFails).toEqual([]);
   });
 
   it("RACI_RESPONSIBLE: standalone line becomes performer, not Activity", () => {

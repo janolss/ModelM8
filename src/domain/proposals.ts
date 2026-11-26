@@ -39,6 +39,10 @@ export interface ProposedBranch {
   toTitle: string;
   toKind?: "businessObject" | "activity" | "gateway" | "and" | "process";
   objectType?: string;
+  /** Primary value artefact for a side-branch activity (from Output: while suppressSpineOutputs). */
+  outputTitle?: string;
+  /** Extra branch terminals stacked under the primary (not on FLOW spine). */
+  secondaryOutputs?: string[];
 }
 
 /** Legacy step shape kept for backward-compatible apply/Zod. */
@@ -65,6 +69,11 @@ export interface ModelProposal {
   activities?: ProposedActivityDetail[];
   /** Vägval/gateway branch edges (optional Ja/Nej labels). */
   branches?: ProposedBranch[];
+  /**
+   * Extra terminal BOs stacked under the primary spine output (multi-output).
+   * Not part of chain alternation — apply places them as secondaryOutputs.
+   */
+  secondaryOutputs?: string[];
   /** Derived/legacy linear steps (compat). */
   steps: ProposedStep[];
   /**
@@ -420,6 +429,7 @@ function finalizeProposal(
   activities: ProposedActivityDetail[],
   extraNotes: string[] = [],
   branches: ProposedBranch[] = [],
+  secondaryOutputs: string[] = [],
 ): ModelProposal {
   const steps = stepsFromChain(chain, activities);
   const hasGateway =
@@ -482,6 +492,7 @@ function finalizeProposal(
     chain,
     activities,
     branches: branches.length ? branches : undefined,
+    ...(secondaryOutputs.length ? { secondaryOutputs } : {}),
     steps,
     ...(repairHints ? { repairHints } : {}),
     ...(suggestedPrefixedText ? { suggestedPrefixedText } : {}),
@@ -491,6 +502,7 @@ function finalizeProposal(
       "Proposal includes FLOW chain (business objects + activities), RACI performers, CONTROLS and IS_USED_BY.",
       "FLOW business objects name value created (artefact/capability/outcome), not status echoes of the activity.",
       "Chain must alternate BO ↔ activity (vägval/or may sit between). Fix failing namingChecks — do not hand-build JSON as first response; re-propose corrected text (MCP_DEBUG → TOOL-FRICTION if you still bypass).",
+      "Extra Output: after the primary terminal (or under Nej) become secondaryOutputs / branch.outputTitle — not consecutive spine BOs.",
       ...(hasGateway
         ? [
             ...methodologyNotesForObject(pack, "gateway"),
@@ -901,9 +913,26 @@ function proposeFromPrefixedLines(
   /**
    * After a side branch (2nd+ Ja/Nej answer), suppress Output:/BO on the spine
    * so Nej-side artefacts do not flatten as consecutive BOs after the Ja terminal.
+   * Instead attach them to the last side branch as outputTitle / secondaryOutputs.
    */
   let suppressSpineOutputs = false;
+  /** Index into branches[] of the last side-branch (gatewayBranchCount > 1). */
+  let lastSideBranchIndex: number | undefined;
+  /** Process-level extras after the primary spine terminal (multi-output). */
+  const secondaryOutputs: string[] = [];
   const strictPrefixed = hasPrefixedStructure(lines);
+
+  const attachBranchOutput = (t: string) => {
+    if (lastSideBranchIndex === undefined) return false;
+    const b = branches[lastSideBranchIndex];
+    if (!b) return false;
+    if (!b.outputTitle) {
+      b.outputTitle = t;
+    } else {
+      b.secondaryOutputs = [...(b.secondaryOutputs ?? []), t];
+    }
+    return true;
+  };
 
   const flushBo = (t: string) => {
     chain.push({
@@ -1047,9 +1076,19 @@ function proposeFromPrefixedLines(
     }
     // Explicit "Business object:" → spine BO immediately (document order)
     if (BO_HINTS.test(line)) {
-      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
-      if (t) flushBo(t);
+      if (!t) continue;
+      if (suppressSpineOutputs) {
+        attachBranchOutput(t);
+        continue;
+      }
+      // Multi-output: second+ BO after a spine BO → secondaryOutputs (not consecutive-BO fail)
+      const last = chain[chain.length - 1];
+      if (last?.kind === "businessObject") {
+        secondaryOutputs.push(t);
+        continue;
+      }
+      flushBo(t);
       continue;
     }
     if (INPUT_HINTS.test(line)) {
@@ -1060,9 +1099,18 @@ function proposeFromPrefixedLines(
     }
     // Output: flush immediately after the preceding activity — never buffer past the next one
     if (OUTPUT_HINTS.test(line)) {
-      if (suppressSpineOutputs) continue;
       const t = cleanTitle(line);
-      if (t) flushBo(t);
+      if (!t) continue;
+      if (suppressSpineOutputs) {
+        attachBranchOutput(t);
+        continue;
+      }
+      const last = chain[chain.length - 1];
+      if (last?.kind === "businessObject") {
+        secondaryOutputs.push(t);
+        continue;
+      }
+      flushBo(t);
       continue;
     }
 
@@ -1133,6 +1181,7 @@ function proposeFromPrefixedLines(
       } else {
         // Side branch: never on main chain; suppress following Output:/BO until next spine Activity
         suppressSpineOutputs = true;
+        lastSideBranchIndex = branches.length - 1;
         if (target.kind === "activity") {
           const already = activities.some(
             (a) => a.title.toLowerCase() === activityTitle.toLowerCase(),
@@ -1228,9 +1277,19 @@ function proposeFromPrefixedLines(
       // Keep lastExclusiveGatewayTitle so a late Nej: still attaches
       pendingGatewayTitle = undefined;
     } else if (objectType === "businessObject") {
-      if (suppressSpineOutputs) continue;
       const stepTitle = cleanTitle(line);
-      if (stepTitle) flushBo(stepTitle);
+      if (stepTitle) {
+        if (suppressSpineOutputs) {
+          attachBranchOutput(stepTitle);
+        } else {
+          const last = chain[chain.length - 1];
+          if (last?.kind === "businessObject") {
+            secondaryOutputs.push(stepTitle);
+          } else {
+            flushBo(stepTitle);
+          }
+        }
+      }
       // Do not clear lastExclusiveGatewayTitle — Nej: may follow Outputs on the Ja path
       pendingGatewayTitle = undefined;
     } else if (objectType === "role") {
@@ -1289,8 +1348,14 @@ function proposeFromPrefixedLines(
             `Skipped ${skippedProse.length} unprefixed prose line(s) in strict prefix mode (use Activity:/Output: or omit).`,
           ]
         : []),
+      ...(secondaryOutputs.length
+        ? [
+            `secondaryOutputs=[${secondaryOutputs.join(", ")}] — stacked under primary terminal, not on spine alternation.`,
+          ]
+        : []),
     ],
     branches,
+    secondaryOutputs,
   );
 }
 

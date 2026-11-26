@@ -461,10 +461,10 @@ export function reviewProcessCanvas(args: {
           severity: bandException ? "info" : "error",
           category: "methodology",
           message: bandException
-            ? `Process "${p.title ?? "?"}" has no FLOW input (approved three-band / L0 management-support exception).`
+            ? `Process "${p.title ?? "?"}" has no FLOW input (approved threeBand L0 band exception — ledning/stöd/coreProcessIds).`
             : `Process "${p.title ?? "?"}" on the map has no FLOW business-object input.`,
           suggestion: bandException
-            ? "Expected for threeBand top/bottom bands — do not invent side-loop BOs."
+            ? "Expected for threeBand management/support/coreProcessIds chevrons without FLOW — do not invent bridge BOs."
             : isSideLoop
               ? "Side loop must FLOW from a state business object on the map (fromBoTitle)."
               : multiRowLayout
