@@ -1,6 +1,6 @@
 {
   "name": "modelm8",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "modelM8 — methodology-driven MCP server for consuming and creating 2c8 process models",
   "type": "module",
   "main": "dist/index.js",
