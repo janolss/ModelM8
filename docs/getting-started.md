@@ -32,7 +32,8 @@ TWO_C8_WRITE_MODE=direct
 | Variable | Meaning |
 |---|---|
 | `TWO_C8_ALLOW_WRITES` | `true` to create/change models |
-| `TWO_C8_WRITE_MODE` | `draft` (safer) or `direct` (sandbox/dev) |
+| `TWO_C8_WRITE_MODE` | `draft` (safer; still needs write-scope lock) or `direct` (sandbox/dev) |
+| `TWO_C8_WRITE_REQUIRE_LOCK` | Default `true` — call `lock_write_repository` before writes |
 | `TWO_C8_ALLOW_DELETES` | Leave `false` unless you truly need `delete_model` |
 | `PORT` / `HOST` | HTTP listen address (default `127.0.0.1:3000`) |
 | `MCP_HTTP_AUTH_TOKEN` | Optional. When set, `POST /mcp` requires `Authorization: Bearer <token>`. **Set this** if you bind `HOST` beyond loopback |

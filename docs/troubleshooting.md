@@ -9,6 +9,9 @@
 | `list_repositories` fails | Check `TWO_C8_BASE_URL`, API key, network |
 | Write tools missing | `TWO_C8_ALLOW_WRITES=true` and restart |
 | Security warning about non-loopback HOST | Set `MCP_HTTP_AUTH_TOKEN` or bind `HOST=127.0.0.1` |
+| Write blocked: write scope is unlocked / draft requires a locked write scope | Call `lock_write_repository` (or `create_repository` when unlocked) then retry |
+| Cannot create_repository while write scope is locked | Unlock first (`unlock_write_repository` per policy), then create |
+| Write blocked: repositoryId … outside write scope | Wrong repo — use `get_write_scope`; do not invent other UUIDs |
 
 ## Empty HTTP 200
 

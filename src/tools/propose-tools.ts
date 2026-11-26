@@ -9,6 +9,7 @@ import {
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
+import { runMutatingTool } from "./write-guard.js";
 
 const proposedStepSchema = z.object({
   title: z.string(),
@@ -167,7 +168,7 @@ export function registerProposeTools(server: McpServer, ctx: ToolContext): void 
         },
       },
       async (args) =>
-        runTool(() => {
+        runMutatingTool(ctx, args.repositoryId, () => {
           const proposal = normalizeProposal({
             ...(args.proposal as ModelProposal),
             reuseHints: {

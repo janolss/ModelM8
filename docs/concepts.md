@@ -24,8 +24,10 @@ All content belongs to a **repository** in 2c8. Create with `create_repository` 
 
 | `TWO_C8_WRITE_MODE` | Behaviour |
 |---|---|
-| `draft` | Models are created via draft; `accept_draft_model` to bring them in |
+| `draft` | Models are created via the draft API; `accept_draft_model` brings them into the target repo. Draft creates still require an active write-scope lock (same as other writes). Failed populate rolls back via `DELETE …/repositories/draft/models/{id}`. |
 | `direct` | Writes directly into the target repo (good for sandboxes) |
+
+Write scope: every mutating tool (including deletes) asserts the locked `repositoryId` before running. `create_repository` is only allowed while unlocked (then auto-lock may apply).
 
 ## Reuse-first
 

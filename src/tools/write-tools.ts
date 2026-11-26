@@ -5,7 +5,7 @@ import { extractCreatedRepositoryId, WriteScopeError } from "../domain/write-sco
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { jsonBody, languageId, permissionGroupHeader, repositoryId, uuid } from "./schemas.js";
-import { requireWritableRepo } from "./write-guard.js";
+import { runMutatingTool } from "./write-guard.js";
 
 export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   if (!ctx.writer) {
@@ -40,6 +40,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     },
     async (args) =>
       runTool(async () => {
+        ctx.writeScope.assertCanCreateRepository();
         if (ctx.writeScope.isDeniedName(args.name)) {
           throw new WriteScopeError(
             "denied",
@@ -110,7 +111,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
+      runMutatingTool(ctx, args.repositoryId, () =>
         writer.createProcessModel({
           ...args,
           body: args.body,
@@ -136,7 +137,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         label: z.string().optional().describe("Edge label text, e.g. Ja / Nej on vägval branches"),
       },
     },
-    async (args) => runTool(() => writer.createCanvasEdge(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.createCanvasEdge(args)),
   );
 
   server.registerTool(
@@ -164,7 +165,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .describe("Default true — rebuild orthogonal routes for attached edges"),
       },
     },
-    async (args) => runTool(() => writer.moveCanvasVertices(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.moveCanvasVertices(args)),
   );
 
   server.registerTool(
@@ -180,7 +181,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         languageId,
       },
     },
-    async (args) => runTool(() => writer.retargetVertexSymbol(args)),
+    async (args) =>
+      runMutatingTool(ctx, args.repositoryId, () => writer.retargetVertexSymbol(args)),
   );
 
   server.registerTool(
@@ -198,7 +200,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(async () => {
+      runMutatingTool(ctx, args.repositoryId, async () => {
         let body = args.body;
         if (!body) {
           if (!args.title || !args.languageId) {
@@ -249,7 +251,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(async () => {
+      runMutatingTool(ctx, args.repositoryId, async () => {
         let body = args.body ? { ...args.body } : undefined;
         if (!body) {
           if (!args.key || !args.value || !args.title || !args.languageId) {
@@ -309,7 +311,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(async () => {
+      runMutatingTool(ctx, args.repositoryId, async () => {
         let body = args.body ? { ...args.body } : undefined;
         if (!body) {
           if (!args.title || !args.languageId) {
@@ -351,7 +353,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .min(1),
       },
     },
-    async (args) => runTool(() => writer.updateCanvasEdges(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.updateCanvasEdges(args)),
   );
 
   server.registerTool(
@@ -365,7 +367,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         edgeIds: z.array(uuid).min(1).describe("One or more edge UUIDs"),
       },
     },
-    async (args) => runTool(() => writer.deleteCanvasEdges(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.deleteCanvasEdges(args)),
   );
 
   server.registerTool(
@@ -379,7 +381,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         vertexIds: z.array(uuid).min(1),
       },
     },
-    async (args) => runTool(() => writer.deleteCanvasVertices(args)),
+    async (args) =>
+      runMutatingTool(ctx, args.repositoryId, () => writer.deleteCanvasVertices(args)),
   );
 
   server.registerTool(
@@ -394,16 +397,15 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ repositoryId: id, modelId, permissionGroup, body }) =>
-      runTool(() => {
-        requireWritableRepo(ctx, id);
-        return ctx.client.request({
+      runMutatingTool(ctx, id, () =>
+        ctx.client.request({
           method: "POST",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions/accept",
           pathParams: { repositoryId: id, modelId },
           headers: { "2c8-Permission-Group": permissionGroup },
           body,
-        });
-      }),
+        }),
+      ),
   );
 
   server.registerTool(
@@ -420,7 +422,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
+      runMutatingTool(ctx, args.repositoryId, () =>
         ctx.client.request({
           method: "POST",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions",
@@ -450,7 +452,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
+      runMutatingTool(ctx, args.repositoryId, () =>
         ctx.client.request({
           method: "PATCH",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/versions",
@@ -480,7 +482,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
+      runMutatingTool(ctx, args.repositoryId, () =>
         ctx.client.request({
           method: "POST",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers",
@@ -508,7 +510,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ repositoryId: id, modelId, layerTypeId }) =>
-      runTool(() =>
+      runMutatingTool(ctx, id, () =>
         ctx.client.request({
           method: "DELETE",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers/{layerTypeId}",
@@ -529,7 +531,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
+      runMutatingTool(ctx, args.repositoryId, () =>
         ctx.client.request({
           method: "PATCH",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
@@ -571,7 +573,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           .describe("Skip reuse search and always create a new symbol"),
       },
     },
-    async (args) => runTool(() => writer.addProcessStep(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.addProcessStep(args)),
   );
 
   server.registerTool(
@@ -593,7 +595,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         y: z.number().optional(),
       },
     },
-    async (args) => runTool(() => writer.reuseSymbol(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.reuseSymbol(args)),
   );
 
   server.registerTool(
@@ -613,7 +615,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         y: z.number().optional(),
       },
     },
-    async (args) => runTool(() => writer.setActivityPerformer(args)),
+    async (args) =>
+      runMutatingTool(ctx, args.repositoryId, () => writer.setActivityPerformer(args)),
   );
 
   server.registerTool(
@@ -637,7 +640,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         y: z.number().optional(),
       },
     },
-    async (args) => runTool(() => writer.setActivityUsedBy(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.setActivityUsedBy(args)),
   );
 
   server.registerTool(
@@ -657,7 +660,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         y: z.number().optional(),
       },
     },
-    async (args) => runTool(() => writer.setActivityControls(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.setActivityControls(args)),
   );
 
   server.registerTool(
@@ -673,7 +676,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         edgeType: z.string().optional(),
       },
     },
-    async (args) => runTool(() => writer.setStepIo(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.setStepIo(args)),
   );
 
   server.registerTool(
@@ -689,7 +692,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         y: z.number(),
       },
     },
-    async (args) => runTool(() => writer.placeInSwimlane(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.placeInSwimlane(args)),
   );
 
   server.registerTool(
@@ -705,7 +708,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         ),
       },
     },
-    async (args) => runTool(() => writer.createBreakdown(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.createBreakdown(args)),
   );
 
   server.registerTool(
@@ -721,7 +724,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         ),
       },
     },
-    async (args) => runTool(() => writer.linkBreakdown(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.linkBreakdown(args)),
   );
 
   server.registerTool(
@@ -735,7 +738,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         breakdownId: uuid,
       },
     },
-    async (args) => runTool(() => writer.deleteBreakdown(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.deleteBreakdown(args)),
   );
 
   server.registerTool(
@@ -852,7 +855,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         modelId: uuid.optional().describe("Append to existing model; otherwise creates new"),
       },
     },
-    async (args) => runTool(() => writer.createProcessMap(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.createProcessMap(args)),
   );
 
   server.registerTool(
@@ -916,7 +919,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(async () => {
+      runMutatingTool(ctx, args.repositoryId, async () => {
         const results: Record<string, unknown> = {};
         let linked = false;
 
@@ -1044,7 +1047,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() =>
+      runMutatingTool(ctx, args.repositoryId, () =>
         ctx.documents.unlinkDocumentsFromSymbol({
           repositoryId: args.repositoryId,
           symbolId: args.symbolId,
@@ -1065,7 +1068,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         maxSymbols: z.number().int().positive().optional(),
       },
     },
-    async (args) => runTool(() => writer.confirmTranslations(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.confirmTranslations(args)),
   );
 
   server.registerTool(
@@ -1103,7 +1106,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           ),
       },
     },
-    async (args) => runTool(() => writer.updateTitles(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.updateTitles(args)),
   );
 
   server.registerTool(
@@ -1118,7 +1121,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ repositoryId: id, modelId, descriptionTypeId, body }) =>
-      runTool(() =>
+      runMutatingTool(ctx, id, () =>
         ctx.client.request({
           method: "PATCH",
           path: "/api/v1/repositories/{repositoryId}/models/{modelId}/descriptions/{descriptionTypeId}",
@@ -1141,7 +1144,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ repositoryId: id, symbolId, descriptionTypeId, body }) =>
-      runTool(() =>
+      runMutatingTool(ctx, id, () =>
         ctx.client.request({
           method: "PATCH",
           path: "/api/v1/repositories/{repositoryId}/symbols/{symbolId}/descriptions/{descriptionTypeId}",

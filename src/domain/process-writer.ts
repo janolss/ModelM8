@@ -4474,11 +4474,13 @@ export class ProcessWriter {
     repositoryId: string;
     modelId: string;
   }): Promise<string | undefined> {
+    // Draft creates live under the draft alias, not the target repositoryId.
+    const deleteRepoId = this.writeMode === "draft" ? "draft" : args.repositoryId;
     try {
-      await this.deleteModel(args);
-      return `Rolled back empty model ${args.modelId} after failed populate.`;
+      await this.deleteModel({ repositoryId: deleteRepoId, modelId: args.modelId });
+      return `Rolled back empty model ${args.modelId} after failed populate (repo=${deleteRepoId}).`;
     } catch (err) {
-      return `Failed to roll back model ${args.modelId}: ${
+      return `Failed to roll back model ${args.modelId} (repo=${deleteRepoId}): ${
         err instanceof Error ? err.message : String(err)
       }`;
     }

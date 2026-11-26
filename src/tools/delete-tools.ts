@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
 import { repositoryId, uuid } from "./schemas.js";
+import { runMutatingTool } from "./write-guard.js";
 
 export function registerDeleteTools(server: McpServer, ctx: ToolContext): void {
   if (!ctx.writer) {
@@ -21,7 +21,7 @@ export function registerDeleteTools(server: McpServer, ctx: ToolContext): void {
         modelId: uuid.describe("Model UUID to delete"),
       },
     },
-    async (args) => runTool(() => writer.deleteModel(args)),
+    async (args) => runMutatingTool(ctx, args.repositoryId, () => writer.deleteModel(args)),
   );
 
   server.registerTool(
@@ -36,7 +36,7 @@ export function registerDeleteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() => {
+      runMutatingTool(ctx, args.repositoryId, () => {
         const symbolIds = [...(args.symbolIds ?? []), ...(args.symbolId ? [args.symbolId] : [])];
         if (symbolIds.length === 0) {
           throw new Error("Provide symbolId or symbolIds");
@@ -64,7 +64,7 @@ export function registerDeleteTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async (args) =>
-      runTool(() => {
+      runMutatingTool(ctx, args.repositoryId, () => {
         const documentIds = [
           ...(args.documentIds ?? []),
           ...(args.documentId ? [args.documentId] : []),
