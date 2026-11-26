@@ -13,9 +13,18 @@ guidance:
   - "Title Eller-rules as questions ('Finns X?'); put Ja/Nej on FLOW edge labels"
   - "Semantics: vägval is a reader aid, not work — nothing changes by passing the diamond. The deciding activity emits the BO that carries the choice; that BO is the basis for the next real activity/process."
   - "Pattern: activity → BO → or → real next activity. Never vägval → BO. Never invent filler activities after the or just to emit a BO. If no in-model fork to different real steps, omit the diamond and keep the decision in the BO."
+  - "Layout: Ja continues on the FLOW spine. Nej/side activities sit BELOW the main-path activity (same X as that activity — usually the Ja successor, else the deciding activity), NOT centered under the diamond. Leave vertical room under the upper activity for RACI role and applications before the side activity."
+  - "Avoid placing the side activity directly under the Regel symbol — FLOW then often routes backward through the diamond."
   - "search_symbols with objectType=or (or vägval/decision) to reuse existing diamonds"
   - "FORBIDDEN: gateway (as create type), join, förbinda"
 rules:
+  - id: side-branch-under-main-activity
+    severity: warning
+    description: >
+      Side-branch (Nej) activities should align vertically with the main-path
+      activity and sit below it with space for performers/apps — not under the
+      or/vägval diamond.
+
   - id: use-or-not-gateway
     severity: error
     description: >

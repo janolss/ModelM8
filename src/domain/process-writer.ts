@@ -30,8 +30,11 @@ const Y_BO = 135;
 const Y_ACTIVITY = 119;
 /** Gateway/decision diamond — centered on activity midline (30×30). */
 const Y_GATEWAY = 129;
-/** Vertical offset for side branches off a gateway. */
-const BRANCH_Y_OFFSET = 160;
+/**
+ * Vertical gap from main-path activity.y to side-branch activity.y.
+ * Leaves room under the upper activity for RACI role + apps before the Nej path.
+ */
+const BRANCH_BELOW_ACTIVITY_GAP = 200;
 /** Shared vertical midline for FLOW spine (BO + process/activity). */
 const SPINE_MID_Y = 178;
 /**
@@ -3879,6 +3882,43 @@ export class ProcessWriter {
   }
 
   /**
+   * Anchor for a vägval side-branch activity: prefer the main-path activity
+   * after the diamond (Ja continuation on spine), else the deciding activity
+   * before the diamond. Falls back to the gateway itself.
+   */
+  private sideBranchAnchorPlacement(args: {
+    gatewayTitle: string;
+    chain: Array<{ kind: string; title: string }>;
+    vertexByTitle: Map<
+      string,
+      { vertexId: string; x: number; y: number; width: number; height: number; kind: string }
+    >;
+    gatewayPlacement: { x: number; y: number; width: number; height: number };
+  }): { x: number; y: number; width: number; height: number } {
+    const gKey = args.gatewayTitle.toLowerCase();
+    const gi = args.chain.findIndex((n) => n.title.toLowerCase() === gKey);
+    const pickActivity = (start: number, dir: 1 | -1) => {
+      for (let i = start; i >= 0 && i < args.chain.length; i += dir) {
+        const n = args.chain[i]!;
+        if (dir === 1 && (n.kind === "gateway" || n.kind === "and") && i !== gi) {
+          break;
+        }
+        if (n.kind !== "activity") continue;
+        const v = args.vertexByTitle.get(n.title.toLowerCase());
+        if (v) return v;
+      }
+      return undefined;
+    };
+    if (gi >= 0) {
+      const after = pickActivity(gi + 1, 1);
+      if (after) return after;
+      const before = pickActivity(gi - 1, -1);
+      if (before) return before;
+    }
+    return args.gatewayPlacement;
+  }
+
+  /**
    * Resolve or create a symbol by title (reuse-first), return symbolId.
    * preferredSymbolId / cache (reuseHints) win over search+create.
    */
@@ -4631,9 +4671,19 @@ export class ProcessWriter {
                 ? "and"
                 : "activity");
         const size = this.sizeFor(repoConfig, toOt);
-        const rawX = from.x + Math.floor((from.width - size.width) / 2);
-        const x = Math.max(MAP_LEFT_MARGIN, from.x, rawX);
-        const y = from.y + BRANCH_Y_OFFSET + branchSlot * (size.height + distance.bottom);
+        // Align under main-path activity (Ja successor, else deciding activity) — not under the diamond.
+        // Centering on the gateway makes FLOW exit left/back through the rule symbol.
+        const anchor = this.sideBranchAnchorPlacement({
+          gatewayTitle: b.fromTitle,
+          chain,
+          vertexByTitle,
+          gatewayPlacement: from,
+        });
+        const rawX = Math.round(anchor.x + (anchor.width - size.width) / 2);
+        const x = Math.max(MAP_LEFT_MARGIN, rawX);
+        const y =
+          Math.round(anchor.y + BRANCH_BELOW_ACTIVITY_GAP) +
+          branchSlot * (size.height + Math.max(distance.bottom, 24));
         branchSlot += 1;
         const symbolId = await this.resolveOrCreateSymbol({
           repositoryId: args.repositoryId,
@@ -4930,7 +4980,7 @@ export class ProcessWriter {
         "Multiple FLOW I/O BOs: primary on spine; extras stacked below with edges to activity left / from activity right.",
         ...(branches.length
           ? [
-              "Applied gateway branches with FLOW edge labels (Ja/Nej). Side targets not on the spine are placed below the gateway.",
+              "Applied gateway branches with FLOW edge labels (Ja/Nej). Side targets align under the main-path activity (not under the diamond) with space for RACI/apps.",
             ]
           : []),
         ...(missingBos
