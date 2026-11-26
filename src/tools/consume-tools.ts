@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { runTool } from "../util/tool-result.js";
 import type { ToolContext } from "./context.js";
-import { pagination, repositoryId, uuid } from "./schemas.js";
+import { MAX_RESOLVE_SYMBOL_IDS, pagination, repositoryId, uuid } from "./schemas.js";
 
 export function registerConsumeTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
@@ -217,7 +217,11 @@ export function registerConsumeTools(server: McpServer, ctx: ToolContext): void 
         "Batch-resolve symbol UUIDs to { uuid, title, objectType, documents }. Prefer this over N× get_object_documents when enriching a flow.",
       inputSchema: {
         repositoryId,
-        symbolIds: z.array(uuid).min(1).describe("Symbol UUIDs to resolve"),
+        symbolIds: z
+          .array(uuid)
+          .min(1)
+          .max(MAX_RESOLVE_SYMBOL_IDS)
+          .describe(`Symbol UUIDs to resolve (max ${MAX_RESOLVE_SYMBOL_IDS})`),
       },
     },
     async (args) =>
@@ -231,11 +235,25 @@ export function registerConsumeTools(server: McpServer, ctx: ToolContext): void 
     "find_symbol_usage",
     {
       description:
-        "Where is this symbol used? Scans process models for a role/object (symbolId or titleQuery) and lists activities it is RACI-responsible for. Prefer this over calling get_roles_and_responsibilities on many models. enrich=full adds same-model inputs/outputs/controlledBy refs per activity.",
+        "Where is this symbol used? Scans process models for a role/object (symbolId or titleQuery) and lists activities it is RACI-responsible for. Prefer this over calling get_roles_and_responsibilities on many models. enrich=full adds same-model inputs/outputs/controlledBy refs per activity. Default maxModels=80 (hard max 200).",
       inputSchema: {
         repositoryId,
         symbolId: uuid.optional(),
         titleQuery: z.string().optional().describe("e.g. Däckmontör — used if symbolId omitted"),
+        maxModels: z
+          .number()
+          .int()
+          .positive()
+          .max(200)
+          .optional()
+          .describe("Max models to scan (default 80, max 200)"),
+        maxUsages: z
+          .number()
+          .int()
+          .positive()
+          .max(200)
+          .optional()
+          .describe("Stop after this many placements"),
         enrich: z
           .enum(["basic", "full"])
           .optional()

@@ -60,6 +60,9 @@ Many PATCH responses return an empty body. modelM8 treats that as `{ ok: true }`
 | `move_canvas_vertices` fallback incomplete | Combined PATCH failed; delete→recreate did not restore all edges. Error lists `missing` edge metadata — recreate with `create_canvas_edge`, then `review_process_model`. |
 | `retarget_vertex_symbol` incomplete | Vertex already swapped; some edges missing. Use `missing` in the error + `create_canvas_edge`. |
 | `verify_handoffs` no exact title | Pass `symbolId` or an **exact** BO title — first search hit is never used. |
+| `verify_handoffs` autoDiscover truncated | Max 20 `modelIds` — use `contract[]` for larger sets. |
+| Huge MCP tool response / truncated JSON | Narrow query / lower `maxResults` (cap 500); `jsonResult` truncates ~400k chars. |
+| `find_symbol_usage` truncated | Raise `maxModels` (default 80, max 200) or `maxUsages`. |
 | 400 after moving symbols (`Control point end must lie within the to-vertex bounds`) | Use `move_canvas_vertices` only — it patches **vertices + attached edges together**. Do not `update_canvas_edges` before/after a separate move; that chicken-and-egg fails validation. |
 
 ## Developer docs

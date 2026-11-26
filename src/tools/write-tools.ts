@@ -1100,9 +1100,10 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
               titles: z.record(z.string(), z.string()).optional(),
             }),
           )
+          .max(100)
           .optional()
           .describe(
-            "Batch: [{ symbolId, title }] | [{ modelId, title }] | [{ modelId, edgeId, title }] — one call for all translations",
+            "Batch: [{ symbolId, title }] | [{ modelId, title }] | [{ modelId, edgeId, title }] — max 100 items",
           ),
       },
     },

@@ -83,7 +83,11 @@ export function registerQualityTools(server: McpServer, ctx: ToolContext): void 
           .describe("IMS handoff-contract alias for handoffs[]"),
         autoDiscover: z
           .object({
-            modelIds: z.array(uuid).min(2),
+            modelIds: z
+              .array(uuid)
+              .min(2)
+              .max(20)
+              .describe("Max 20 modelIds — prefer contract[] for larger sets"),
             checkIo: z.boolean().optional().describe("Default true for discovered pairs"),
           })
           .optional()

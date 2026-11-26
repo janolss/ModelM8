@@ -11,6 +11,7 @@ import type {
   VertexView,
 } from "../api/types.js";
 import { extractQuickdrawDistance, loadRepoConfiguration } from "../methodology/rules-engine.js";
+import { mapWithConcurrency } from "../util/concurrency.js";
 import {
   GATEWAY_SEARCH_HINT,
   isForbiddenJoinType,
@@ -19,6 +20,11 @@ import {
 } from "../util/object-types.js";
 import { pickTitle, titleMatches } from "../util/titles.js";
 import { reviewProcessCanvas } from "./process-review.js";
+
+/** Default scan budget for find_symbol_usage (models checked for canvas placement). */
+const DEFAULT_USAGE_MAX_MODELS = 80;
+const USAGE_SCAN_CONCURRENCY = 6;
+const HR_MODEL_QUERY_CONCURRENCY = 4;
 
 const PROCESS_TYPE_HINTS = ["process", "swimlane", "simbane"];
 
@@ -156,6 +162,33 @@ export class ProcessReader {
 
   constructor(private readonly client: TwoC8Client) {}
 
+  /** Shared model+canvas fetch — avoids double GETs when overview and flow run together. */
+  private async loadModelAndCanvas(args: {
+    repositoryId: string;
+    modelId: string;
+  }): Promise<{ model: ModelView | null; canvas: CanvasDto }> {
+    const [model, canvas] = await Promise.all([
+      this.client
+        .request<ModelView>({
+          path: "/api/v1/repositories/{repositoryId}/models/{modelId}",
+          pathParams: {
+            repositoryId: args.repositoryId,
+            modelId: args.modelId,
+          },
+          query: { projection: "ALL" },
+        })
+        .catch(() => null),
+      this.client.request<CanvasDto>({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+        pathParams: {
+          repositoryId: args.repositoryId,
+          modelId: args.modelId,
+        },
+      }),
+    ]);
+    return { model, canvas };
+  }
+
   async findModels(args: {
     repositoryId: string;
     query?: string;
@@ -224,36 +257,28 @@ export class ProcessReader {
     };
   }
 
-  async getOverview(args: {
-    repositoryId: string;
-    modelId: string;
-  }): Promise<Record<string, unknown>> {
-    const [model, canvas, layers] = await Promise.all([
-      this.client.request<ModelView>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}",
+  async getOverview(
+    args: {
+      repositoryId: string;
+      modelId: string;
+    },
+    preloaded?: { model: ModelView | null; canvas: CanvasDto },
+  ): Promise<Record<string, unknown>> {
+    const loaded = preloaded ?? (await this.loadModelAndCanvas(args));
+    const model = loaded.model;
+    const canvas = loaded.canvas;
+    if (!model) {
+      throw new Error(`Model ${args.modelId} not found`);
+    }
+    const layers = await this.client
+      .request({
+        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers",
         pathParams: {
           repositoryId: args.repositoryId,
           modelId: args.modelId,
         },
-        query: { projection: "ALL" },
-      }),
-      this.client.request<CanvasDto>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-        pathParams: {
-          repositoryId: args.repositoryId,
-          modelId: args.modelId,
-        },
-      }),
-      this.client
-        .request({
-          path: "/api/v1/repositories/{repositoryId}/models/{modelId}/layers",
-          pathParams: {
-            repositoryId: args.repositoryId,
-            modelId: args.modelId,
-          },
-        })
-        .catch(() => null),
-    ]);
+      })
+      .catch(() => null);
 
     return {
       uuid: model.uuid,
@@ -269,35 +294,20 @@ export class ProcessReader {
     };
   }
 
-  async getFlow(args: {
-    repositoryId: string;
-    modelId: string;
-    includeDocuments?: boolean;
-  }): Promise<{
+  async getFlow(
+    args: {
+      repositoryId: string;
+      modelId: string;
+      includeDocuments?: boolean;
+    },
+    preloaded?: { model: ModelView | null; canvas: CanvasDto },
+  ): Promise<{
     steps: FlowStep[];
     edges: Array<Record<string, unknown>>;
     swimlaneSettings: unknown;
     modelTitle?: string;
   }> {
-    const [model, canvas] = await Promise.all([
-      this.client
-        .request<ModelView>({
-          path: "/api/v1/repositories/{repositoryId}/models/{modelId}",
-          pathParams: {
-            repositoryId: args.repositoryId,
-            modelId: args.modelId,
-          },
-          query: { projection: "ALL" },
-        })
-        .catch(() => null),
-      this.client.request<CanvasDto>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-        pathParams: {
-          repositoryId: args.repositoryId,
-          modelId: args.modelId,
-        },
-      }),
-    ]);
+    const { model, canvas } = preloaded ?? (await this.loadModelAndCanvas(args));
 
     const vertices = canvas.vertices ?? [];
     const edges = canvas.edges ?? [];
@@ -547,9 +557,10 @@ export class ProcessReader {
     repositoryId: string;
     modelId: string;
   }): Promise<Record<string, unknown>> {
+    const loaded = await this.loadModelAndCanvas(args);
     const [overview, flow] = await Promise.all([
-      this.getOverview(args),
-      this.getFlow({ ...args, includeDocuments: true }),
+      this.getOverview(args, loaded),
+      this.getFlow({ ...args, includeDocuments: true }, loaded),
     ]);
 
     const steps = flow.steps;
@@ -748,17 +759,12 @@ export class ProcessReader {
     detailModelIds?: string[];
     layoutMode?: "linear" | "parallelTracks" | "peerRows" | "threeBand" | "auto";
   }): Promise<Record<string, unknown>> {
-    const [flow, canvas, repoConfig] = await Promise.all([
-      this.getFlow({ ...args, includeDocuments: true }),
-      this.client.request<CanvasDto>({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-        pathParams: {
-          repositoryId: args.repositoryId,
-          modelId: args.modelId,
-        },
-      }),
+    const loaded = await this.loadModelAndCanvas(args);
+    const [flow, repoConfig] = await Promise.all([
+      this.getFlow({ ...args, includeDocuments: true }, loaded),
       loadRepoConfiguration(this.client, args.repositoryId),
     ]);
+    const canvas = loaded.canvas;
 
     const activities = flow.steps.filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)));
     const processes = flow.steps.filter((s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)));
@@ -855,9 +861,10 @@ export class ProcessReader {
      */
     detailModelIds?: string[];
   }): Promise<Record<string, unknown>> {
+    const loaded = await this.loadModelAndCanvas(args);
     const [overview, flow, breakdownsResult] = await Promise.all([
-      this.getOverview(args),
-      this.getFlow({ ...args, includeDocuments: true }),
+      this.getOverview(args, loaded),
+      this.getFlow({ ...args, includeDocuments: true }, loaded),
       this.getBreakdowns(args).catch(() => ({ breakdowns: [] })),
     ]);
 
@@ -1021,19 +1028,37 @@ export class ProcessReader {
         const orderedPeers = mainProcesses.toSorted(
           (a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0),
         );
-        for (let i = 0; i < orderedPeers.length; i++) {
-          const p = orderedPeers[i]!;
-          const detailId = args.detailModelIds[i];
+        const peerPairs = orderedPeers.map((p, i) => ({
+          p,
+          i,
+          detailId: args.detailModelIds![i],
+        }));
+        const peerScopes = await mapWithConcurrency(
+          peerPairs,
+          USAGE_SCAN_CONCURRENCY,
+          async (pair) => {
+            if (!pair.detailId)
+              return {
+                ...pair,
+                scope: null as Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>> | null,
+              };
+            return {
+              ...pair,
+              scope: await this.getDetailProcessScope({
+                repositoryId: args.repositoryId,
+                modelId: pair.detailId,
+              }),
+            };
+          },
+        );
+        for (const { p, i, detailId, scope } of peerScopes) {
           if (!detailId) {
             scopeViolations.push(
               `Peer process "${p.title}" has no detailModelIds[${i}] — pass one detail id per row.`,
             );
             continue;
           }
-          const scope = await this.getDetailProcessScope({
-            repositoryId: args.repositoryId,
-            modelId: detailId,
-          });
+          if (!scope) continue;
           const inTitles = new Set(
             (p.inputs ?? [])
               .filter((x) => BUSINESS_OBJECT_TYPES.has(normType(x.objectType)))
@@ -1244,6 +1269,70 @@ export class ProcessReader {
    * Canonical scope of a detail process model: its process chevron + FLOW inputs/outputs.
    * Overview maps must reuse these same BO symbols — never invent overview-only I/O.
    */
+  /**
+   * Derive process I/O scope from a flow (no narrative / no extra overview fetch).
+   */
+  private scopeFromFlow(
+    modelId: string,
+    flow: {
+      steps: FlowStep[];
+      modelTitle?: string;
+    },
+  ): {
+    modelId: string;
+    processTitle: string;
+    processSymbolId?: string;
+    inputs: Array<{ title: string; symbolId?: string }>;
+    outputs: Array<{ title: string; symbolId?: string }>;
+    secondaryOutputs: Array<{ title: string; symbolId?: string }>;
+  } {
+    const steps = flow.steps;
+    const businessObjects = steps.filter((s) => BUSINESS_OBJECT_TYPES.has(normType(s.objectType)));
+    const continuesFlow = (o: { objectType?: string }) => {
+      const t = normType(o.objectType);
+      return (
+        ACTIVITY_TYPES.has(t) ||
+        DECISION_TYPES.has(t) ||
+        BUSINESS_OBJECT_TYPES.has(t) ||
+        PROCESS_OBJECT_TYPES.has(t)
+      );
+    };
+    const processInputs = businessObjects.filter(
+      (bo) => !(bo.inputs ?? []).some((i) => ACTIVITY_TYPES.has(normType(i.objectType))),
+    );
+    const terminalOutputs = businessObjects.filter((bo) => {
+      const fromActivity = (bo.inputs ?? []).some((i) =>
+        ACTIVITY_TYPES.has(normType(i.objectType)),
+      );
+      const noFurther = !(bo.outputs ?? []).some((o) => continuesFlow(o));
+      return fromActivity && noFurther;
+    });
+    const sortedTerminals = terminalOutputs
+      .slice()
+      .sort((a, b) => (b.x ?? 0) - (a.x ?? 0) || (a.y ?? 0) - (b.y ?? 0));
+    const primaryX = sortedTerminals[0]?.x ?? 0;
+    const processOutputs = sortedTerminals.filter((bo) => Math.abs((bo.x ?? 0) - primaryX) < 40);
+    const secondaryOutputs = sortedTerminals.filter((bo) => Math.abs((bo.x ?? 0) - primaryX) >= 40);
+    const processChevron = steps.find(
+      (s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)) && (s.x ?? 999) < 100,
+    );
+    const processTitle = processChevron?.title ?? flow.modelTitle ?? "Okänd process";
+    return {
+      modelId,
+      processTitle,
+      processSymbolId: processChevron?.symbolId,
+      inputs: processInputs
+        .filter((i): i is FlowStep & { title: string } => Boolean(i.title))
+        .map((i) => ({ title: i.title!, symbolId: i.symbolId })),
+      outputs: processOutputs
+        .filter((o): o is FlowStep & { title: string } => Boolean(o.title))
+        .map((o) => ({ title: o.title!, symbolId: o.symbolId })),
+      secondaryOutputs: secondaryOutputs
+        .filter((o): o is FlowStep & { title: string } => Boolean(o.title))
+        .map((o) => ({ title: o.title!, symbolId: o.symbolId })),
+    };
+  }
+
   async getDetailProcessScope(args: { repositoryId: string; modelId: string }): Promise<{
     modelId: string;
     processTitle: string;
@@ -1257,40 +1346,13 @@ export class ProcessReader {
     methodologyNotes: string[];
     nextSuggestedTools: string[];
   }> {
-    const described = (await this.describeProcess(args)) as {
-      overview?: { title?: string };
-      inputs?: Array<{ title?: string; symbolId?: string }>;
-      outputs?: Array<{ title?: string; symbolId?: string }>;
-      secondaryOutputs?: Array<{ title?: string; symbolId?: string }>;
-      steps?: Array<{
-        objectType?: string;
-        title?: string;
-        symbolId?: string;
-        x?: number;
-        y?: number;
-      }>;
-    };
-    const processChevron = (described.steps ?? []).find(
-      (s) => PROCESS_OBJECT_TYPES.has(normType(s.objectType)) && (s.x ?? 999) < 100,
-    );
-    const processTitle = processChevron?.title ?? described.overview?.title ?? "Okänd process";
-    const inputs = (described.inputs ?? [])
-      .filter((i): i is { title: string; symbolId?: string } => Boolean(i.title))
-      .map((i) => ({ title: i.title, symbolId: i.symbolId }));
-    const outputs = (described.outputs ?? [])
-      .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
-      .map((o) => ({ title: o.title, symbolId: o.symbolId }));
-    const secondaryOutputs = (described.secondaryOutputs ?? [])
-      .filter((o): o is { title: string; symbolId?: string } => Boolean(o.title))
-      .map((o) => ({ title: o.title, symbolId: o.symbolId }));
+    // Scope only needs FLOW I/O — skip full describe_process narrative.
+    const flow = await this.getFlow(args);
+    const scoped = this.scopeFromFlow(args.modelId, flow);
+    const { processTitle, inputs, outputs, secondaryOutputs } = scoped;
 
     return {
-      modelId: args.modelId,
-      processTitle,
-      processSymbolId: processChevron?.symbolId,
-      inputs,
-      outputs,
-      secondaryOutputs,
+      ...scoped,
       rule:
         "On an overview, this process chevron MUST have the same primary input(s) and output(s) " +
         "as listed here (same symbol UUID). secondaryOutputs are branch terminals — stack, do not use as handoffs.",
@@ -1351,15 +1413,12 @@ export class ProcessReader {
     uncertainLinks: string[];
     readyForCreate: boolean;
   }> {
-    const scopes: Array<Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>> = [];
-    for (const modelId of args.modelIds) {
-      scopes.push(
-        await this.getDetailProcessScope({
-          repositoryId: args.repositoryId,
-          modelId,
-        }),
-      );
-    }
+    const scopes = await mapWithConcurrency(args.modelIds, USAGE_SCAN_CONCURRENCY, (modelId) =>
+      this.getDetailProcessScope({
+        repositoryId: args.repositoryId,
+        modelId,
+      }),
+    );
 
     let ordered = [...scopes];
     if (!args.preserveOrder) {
@@ -1579,7 +1638,24 @@ export class ProcessReader {
     errors: string[];
     methodologyNotes: string[];
   }> {
-    const cache = new Map<string, Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>>>();
+    const detailIds = [
+      ...new Set(
+        args.chain
+          .filter((n) => n.kind === "process" && n.detailModelId)
+          .map((n) => n.detailModelId!),
+      ),
+    ];
+    const cache = new Map(
+      (
+        await mapWithConcurrency(detailIds, USAGE_SCAN_CONCURRENCY, async (modelId) => {
+          const scope = await this.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId,
+          });
+          return [modelId, scope] as const;
+        })
+      ).map((pair) => pair),
+    );
     const loadScope = async (modelId: string) => {
       const hit = cache.get(modelId);
       if (hit) return hit;
@@ -1994,10 +2070,16 @@ export class ProcessReader {
     symbolId?: string;
     titleQuery?: string;
     enrich?: "basic" | "full";
+    /** Max models to scan for canvas placement (default 80, hard max 200). */
+    maxModels?: number;
+    /** Stop after this many usages (default: no early exit beyond maxModels). */
+    maxUsages?: number;
   }): Promise<Record<string, unknown>> {
     const enrich = args.enrich ?? "basic";
     let symbolId = args.symbolId;
     let symbolMeta: Record<string, unknown> | undefined;
+    const maxModels = Math.min(200, Math.max(1, args.maxModels ?? DEFAULT_USAGE_MAX_MODELS));
+    const maxUsages = args.maxUsages !== undefined ? Math.max(1, args.maxUsages) : undefined;
 
     if (!symbolId && args.titleQuery) {
       const found = await this.searchSymbols({
@@ -2036,16 +2118,23 @@ export class ProcessReader {
 
     const models = await this.findModels({
       repositoryId: args.repositoryId,
-      maxResults: "200",
+      maxResults: String(maxModels),
     });
 
     const usages: Array<Record<string, unknown>> = [];
-    const modelList = models.models;
-    const concurrency = 6;
-    for (let i = 0; i < modelList.length; i += concurrency) {
-      const chunk = modelList.slice(i, i + concurrency);
+    const modelList = models.models.slice(0, maxModels);
+    const truncated = modelList.length < (models.total ?? modelList.length);
+    let stoppedEarly = false;
+
+    for (let i = 0; i < modelList.length; i += USAGE_SCAN_CONCURRENCY) {
+      if (maxUsages !== undefined && usages.length >= maxUsages) {
+        stoppedEarly = true;
+        break;
+      }
+      const chunk = modelList.slice(i, i + USAGE_SCAN_CONCURRENCY);
       await Promise.all(
         chunk.map(async (model) => {
+          if (maxUsages !== undefined && usages.length >= maxUsages) return;
           const canvas = await this.client.request<CanvasDto>({
             path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
             pathParams: {
@@ -2059,11 +2148,15 @@ export class ProcessReader {
             return;
           }
 
-          const flow = await this.getFlow({
-            repositoryId: args.repositoryId,
-            modelId: String(model.uuid),
-            includeDocuments: enrich === "full",
-          });
+          // Reuse already-fetched canvas — avoids a second canvas GET inside getFlow.
+          const flow = await this.getFlow(
+            {
+              repositoryId: args.repositoryId,
+              modelId: String(model.uuid),
+              includeDocuments: enrich === "full",
+            },
+            { model: null, canvas },
+          );
           const roleStep = flow.steps.find((s) => s.symbolId === symbolId);
           const responsibleFor = flow.steps
             .filter((s) => (s.responsible ?? []).some((r) => r.symbolId === symbolId))
@@ -2094,6 +2187,7 @@ export class ProcessReader {
               return base;
             });
 
+          if (maxUsages !== undefined && usages.length >= maxUsages) return;
           usages.push({
             modelId: model.uuid,
             modelTitle: model.title,
@@ -2108,11 +2202,18 @@ export class ProcessReader {
         }),
       );
     }
+    if (maxUsages !== undefined && usages.length > maxUsages) {
+      usages.length = maxUsages;
+      stoppedEarly = true;
+    }
 
     return {
       symbol: symbolMeta,
       usageCount: usages.length,
       enrich,
+      scannedModels: modelList.length,
+      maxModels,
+      truncated: truncated || stoppedEarly,
       usages,
       methodologyNotes: [
         "Usages are process/swimlane models where the symbol is placed on the canvas.",
@@ -2120,6 +2221,12 @@ export class ProcessReader {
         enrich === "full"
           ? "enrich=full adds inputs/outputs/controlledBy refs from the same model only (no cross-model chain inference)."
           : "Pass enrich=full for per-activity inputs/outputs in the same model.",
+        `Scan budget: maxModels=${maxModels}${maxUsages !== undefined ? `, maxUsages=${maxUsages}` : ""}.`,
+        ...(truncated || stoppedEarly
+          ? [
+              "Scan truncated — raise maxModels/maxUsages if you need a fuller catalogue (hard maxModels=200).",
+            ]
+          : []),
       ],
       nextSuggestedTools: ["describe_role_introduction", "describe_role", "describe_process"],
     };
@@ -2129,8 +2236,10 @@ export class ProcessReader {
     repositoryId: string;
     symbolId?: string;
     titleQuery?: string;
+    /** Reuse a prior findSymbolUsage result (avoids a second full repo scan). */
+    usage?: Record<string, unknown>;
   }): Promise<Record<string, unknown>> {
-    const usage = await this.findSymbolUsage(args);
+    const usage = args.usage ?? (await this.findSymbolUsage(args));
     const symbol = usage.symbol as Record<string, unknown> | null;
     const usages = (usage.usages as Array<Record<string, unknown>>) ?? [];
 
@@ -2289,11 +2398,12 @@ export class ProcessReader {
     }
 
     const roleTitle = String(symbol.title ?? args.titleQuery ?? "Roll");
+    // Single usage pass — do not re-scan via describeRole.
     const operational = await this.describeRole({
       repositoryId: args.repositoryId,
       symbolId: String(symbol.uuid),
+      usage,
     });
-    // Re-attach enriched usages from the usage call
     operational.processes = (usage.usages as Array<Record<string, unknown>>).map((u) => ({
       modelId: u.modelId,
       modelTitle: u.modelTitle,
@@ -2303,12 +2413,14 @@ export class ProcessReader {
 
     const hrQueries = ["rekrytera", "anställa", "introduktion", "onboarding", "personal"];
     const hrModelsMap = new Map<string, Record<string, unknown>>();
-    for (const q of hrQueries) {
-      const found = await this.findModels({
+    const hrFinds = await mapWithConcurrency(hrQueries, HR_MODEL_QUERY_CONCURRENCY, async (q) =>
+      this.findModels({
         repositoryId: args.repositoryId,
         query: q,
         maxResults: "20",
-      });
+      }),
+    );
+    for (const found of hrFinds) {
       for (const m of found.models) {
         if (m.uuid) {
           hrModelsMap.set(String(m.uuid), m);

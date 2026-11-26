@@ -13,11 +13,45 @@ import {
   validateProposedSymbol,
 } from "../methodology/rules-engine.js";
 import { withControlPointBoundsHint } from "../util/canvas-layout-hints.js";
+import { mapWithConcurrency } from "../util/concurrency.js";
 import { applySoftBreaks, stripSoftBreaks } from "../util/soft-breaks.js";
 import { pickTitle } from "../util/titles.js";
 import { ProcessReader } from "./process-reader.js";
 import { type ModelProposal, normalizeProposal } from "./proposals.js";
 import { layoutBottomSatellites } from "./satellite-layout.js";
+
+/** Soft cap for parallel title/scope I/O during batch writes. */
+const WRITE_IO_CONCURRENCY = 4;
+
+type CachedCanvasVertex = {
+  uuid?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  zOrder?: number;
+  objectType?: string;
+  symbol?: string | { uuid?: string; objectType?: string };
+  breakdowns?: unknown[];
+};
+
+type CachedCanvas = {
+  vertices?: CachedCanvasVertex[];
+  edges?: Array<{
+    uuid?: string;
+    fromVertex?: string;
+    toVertex?: string;
+    edgeType?: string;
+    points?: Array<{ x?: number; y?: number }>;
+    breakdowns?: unknown[];
+    labels?: Record<
+      string,
+      { x?: number; y?: number; width?: number; height?: number; title?: string }
+    >;
+  }>;
+  swimlaneSettings?: unknown;
+  workflowState?: unknown;
+};
 
 const DEFAULT_WIDTH = 75;
 const DEFAULT_HEIGHT = 50;
@@ -140,6 +174,10 @@ export class ProcessWriter {
   private readonly configCache = new Map<string, unknown | null>();
   /** repositoryId → default language UUID (null = unresolved). */
   private readonly defaultLanguageCache = new Map<string, string | null>();
+  /** repositoryId → language UUIDs */
+  private readonly languageIdsCache = new Map<string, string[]>();
+  /** `${repositoryId}:${modelId}` → last fetched/updated canvas (collision + edge routing). */
+  private readonly canvasCache = new Map<string, CachedCanvas>();
 
   constructor(
     private readonly client: TwoC8Client,
@@ -147,6 +185,51 @@ export class ProcessWriter {
     private readonly writeMode: WriteMode,
   ) {
     this.reader = new ProcessReader(client);
+  }
+
+  private canvasCacheKey(repositoryId: string, modelId: string): string {
+    return `${repositoryId}:${modelId}`;
+  }
+
+  private invalidateCanvas(repositoryId: string, modelId: string): void {
+    this.canvasCache.delete(this.canvasCacheKey(repositoryId, modelId));
+  }
+
+  private async getCanvas(
+    repositoryId: string,
+    modelId: string,
+    opts?: { force?: boolean },
+  ): Promise<CachedCanvas> {
+    const key = this.canvasCacheKey(repositoryId, modelId);
+    if (!opts?.force) {
+      const hit = this.canvasCache.get(key);
+      if (hit) return hit;
+    }
+    const canvas = (await this.client.request({
+      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
+      pathParams: { repositoryId, modelId },
+    })) as CachedCanvas;
+    this.canvasCache.set(key, canvas);
+    return canvas;
+  }
+
+  private rememberPlacedVertex(
+    repositoryId: string,
+    modelId: string,
+    vertex: CachedCanvasVertex,
+  ): void {
+    const key = this.canvasCacheKey(repositoryId, modelId);
+    const cur = this.canvasCache.get(key);
+    if (!cur) return;
+    const vertices = [...(cur.vertices ?? [])];
+    if (vertex.uuid) {
+      const idx = vertices.findIndex((v) => v.uuid === vertex.uuid);
+      if (idx >= 0) vertices[idx] = { ...vertices[idx], ...vertex };
+      else vertices.push(vertex);
+    } else {
+      vertices.push(vertex);
+    }
+    this.canvasCache.set(key, { ...cur, vertices });
   }
 
   private async getRepoConfig(repositoryId: string): Promise<unknown | null> {
@@ -180,13 +263,17 @@ export class ProcessWriter {
 
   /** All language UUIDs in the repository (for edge-label mirrors). */
   private async languageIds(repositoryId: string): Promise<string[]> {
+    const cached = this.languageIdsCache.get(repositoryId);
+    if (cached) return cached;
     const page = (await this.client.request({
       path: "/api/v1/repositories/{repositoryId}/languages",
       pathParams: { repositoryId },
     })) as {
       data?: Array<{ uuid?: string }>;
     };
-    return (page.data ?? []).map((l) => l.uuid).filter((id): id is string => Boolean(id));
+    const ids = (page.data ?? []).map((l) => l.uuid).filter((id): id is string => Boolean(id));
+    this.languageIdsCache.set(repositoryId, ids);
+    return ids;
   }
 
   /**
@@ -583,50 +670,39 @@ export class ProcessWriter {
             },
           ];
 
-    const updated: Array<{
-      modelId?: string;
-      symbolId?: string;
-      edgeId?: string;
-      ok: boolean;
-      error?: string;
-    }> = [];
-
-    for (const item of batch) {
+    // Bounded concurrency — sequential PATCH was the bottleneck for translation batches.
+    const updated = await mapWithConcurrency(batch, WRITE_IO_CONCURRENCY, async (item) => {
       if (!item.modelId && !item.symbolId && !item.edgeId) {
-        updated.push({
-          ok: false,
+        return {
+          ok: false as const,
           error: "item requires modelId, symbolId, and/or edgeId",
-        });
-        continue;
+        };
       }
       if (item.edgeId && !item.modelId) {
-        updated.push({
+        return {
           edgeId: item.edgeId,
-          ok: false,
+          ok: false as const,
           error: "edgeId requires modelId (canvas edge lives on a model)",
-        });
-        continue;
+        };
       }
       const languageId = item.languageId ?? args.languageId;
       if (!languageId) {
-        updated.push({
+        return {
           modelId: item.modelId,
           symbolId: item.symbolId,
           edgeId: item.edgeId,
-          ok: false,
+          ok: false as const,
           error: "languageId required (top-level or per item)",
-        });
-        continue;
+        };
       }
       if (!item.title?.trim()) {
-        updated.push({
+        return {
           modelId: item.modelId,
           symbolId: item.symbolId,
           edgeId: item.edgeId,
-          ok: false,
+          ok: false as const,
           error: "title required",
-        });
-        continue;
+        };
       }
       try {
         if (item.edgeId && item.modelId) {
@@ -638,8 +714,8 @@ export class ProcessWriter {
             title: item.title,
             titles: item.titles,
           });
+          this.invalidateCanvas(args.repositoryId, item.modelId);
         } else if (item.modelId) {
-          // Models reject rawTitle — title + translated:true only.
           const modelTitles: Record<string, { title: string; translated: true }> = {
             [languageId]: this.modelTitleEntryConfirmed(item.title),
           };
@@ -657,7 +733,6 @@ export class ProcessWriter {
           });
         }
         if (item.symbolId) {
-          // Symbols need title + rawTitle; translated:true clears GUI globe.
           const symbolTitles: Record<
             string,
             { title: string; rawTitle: string; translated: true }
@@ -677,22 +752,22 @@ export class ProcessWriter {
             body: { titles: symbolTitles },
           });
         }
-        updated.push({
+        return {
           modelId: item.modelId,
           symbolId: item.symbolId,
           edgeId: item.edgeId,
-          ok: true,
-        });
+          ok: true as const,
+        };
       } catch (err) {
-        updated.push({
+        return {
           modelId: item.modelId,
           symbolId: item.symbolId,
           edgeId: item.edgeId,
-          ok: false,
+          ok: false as const,
           error: err instanceof Error ? err.message : String(err),
-        });
+        };
       }
-    }
+    });
 
     const okCount = updated.filter((u) => u.ok).length;
     return {
@@ -1755,12 +1830,19 @@ export class ProcessWriter {
     const boSize = this.sizeFor(repoConfig, "businessObject");
     const procSize = this.sizeFor(repoConfig, "process");
 
-    for (let ri = 0; ri < args.detailModelIds.length; ri++) {
-      const detailModelId = args.detailModelIds[ri]!;
-      const scope = await this.reader.getDetailProcessScope({
-        repositoryId: args.repositoryId,
-        modelId: detailModelId,
-      });
+    const peerScopes = await mapWithConcurrency(
+      args.detailModelIds,
+      WRITE_IO_CONCURRENCY,
+      async (detailModelId) => ({
+        detailModelId,
+        scope: await this.reader.getDetailProcessScope({
+          repositoryId: args.repositoryId,
+          modelId: detailModelId,
+        }),
+      }),
+    );
+    for (let ri = 0; ri < peerScopes.length; ri++) {
+      const { detailModelId, scope } = peerScopes[ri]!;
       const rowMidY = spineMidY + ri * rowGap;
       let cursorX = SPINE_START_X;
       let prevVertexId: string | null = null;
@@ -2813,24 +2895,36 @@ export class ProcessWriter {
         }
         x = Math.round(maxRight + args.gapX);
       }
-      for (const detailModelId of modelIds) {
-        let title = "Process";
-        let symbolId: string | undefined;
-        try {
-          const scope = await this.reader.getDetailProcessScope({
-            repositoryId: args.repositoryId,
-            modelId: detailModelId,
-          });
-          title = scope.processTitle || title;
-          symbolId = scope.processSymbolId;
-        } catch (err) {
-          notes.push(
-            `${band} model ${detailModelId}: scope failed (${
-              err instanceof Error ? err.message : String(err)
-            }) — skipped`,
-          );
+      const bandScopes = await mapWithConcurrency(
+        modelIds,
+        WRITE_IO_CONCURRENCY,
+        async (detailModelId) => {
+          try {
+            return {
+              detailModelId,
+              scope: await this.reader.getDetailProcessScope({
+                repositoryId: args.repositoryId,
+                modelId: detailModelId,
+              }),
+              error: null as string | null,
+            };
+          } catch (err) {
+            return {
+              detailModelId,
+              scope: null,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        },
+      );
+      for (const entry of bandScopes) {
+        const detailModelId = entry.detailModelId;
+        if (!entry.scope) {
+          notes.push(`${band} model ${detailModelId}: scope failed (${entry.error}) — skipped`);
           continue;
         }
+        const title = entry.scope.processTitle || "Process";
+        let symbolId: string | undefined = entry.scope.processSymbolId;
         if (!symbolId) {
           symbolId = await this.resolveOrCreateSymbol({
             repositoryId: args.repositoryId,
@@ -2938,14 +3032,31 @@ export class ProcessWriter {
       .filter((p) => p.kind === "process" || p.kind === "businessObject")
       .toSorted((a, b) => a.x - b.x || a.y - b.y);
 
+    const detailIds = [
+      ...new Set(
+        spineOrdered
+          .filter((p) => p.kind === "process" && p.detailModelId)
+          .map((p) => p.detailModelId!),
+      ),
+    ];
+    const scopeByDetail = new Map(
+      (
+        await mapWithConcurrency(detailIds, WRITE_IO_CONCURRENCY, async (detailModelId) => {
+          const scope = await this.reader.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId: detailModelId,
+          });
+          return [detailModelId, scope] as const;
+        })
+      ).map((pair) => pair),
+    );
+
     for (let i = 0; i < spineOrdered.length; i++) {
       const proc = spineOrdered[i]!;
       if (proc.kind !== "process" || !proc.detailModelId) continue;
 
-      const scope = await this.reader.getDetailProcessScope({
-        repositoryId: args.repositoryId,
-        modelId: proc.detailModelId,
-      });
+      const scope = scopeByDetail.get(proc.detailModelId);
+      if (!scope) continue;
 
       const leftBo = spineOrdered
         .slice(0, i)
@@ -3433,22 +3544,7 @@ export class ProcessWriter {
     label?: string;
   }) {
     const edgeType = this.toApiEdgeType(args.edgeType);
-    const canvas = (await this.client.request({
-      path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-      pathParams: {
-        repositoryId: args.repositoryId,
-        modelId: args.modelId,
-      },
-    })) as {
-      vertices?: Array<{
-        uuid?: string;
-        x?: number;
-        y?: number;
-        width?: number;
-        height?: number;
-        objectType?: string;
-      }>;
-    };
+    const canvas = await this.getCanvas(args.repositoryId, args.modelId);
     const from = (canvas.vertices ?? []).find((v) => v.uuid === args.fromVertexId);
     const to = (canvas.vertices ?? []).find((v) => v.uuid === args.toVertexId);
     const points = this.orthogonalPoints(from ?? {}, to ?? {}, edgeType);
@@ -3495,6 +3591,7 @@ export class ProcessWriter {
         labels,
       },
     });
+    // Keep vertex cache for subsequent placeVertex collision checks; edges are not needed there.
     return {
       data: edge,
       methodologyNotes: [
@@ -3534,6 +3631,7 @@ export class ProcessWriter {
     if (!args.vertices.length) {
       throw new Error("move_canvas_vertices requires at least one vertex");
     }
+    this.invalidateCanvas(args.repositoryId, args.modelId);
     type CanvasVert = {
       uuid?: string;
       x?: number;
@@ -3832,6 +3930,7 @@ export class ProcessWriter {
     newSymbolId: string;
     languageId: string;
   }) {
+    this.invalidateCanvas(args.repositoryId, args.modelId);
     const canvas = (await this.client.request({
       path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
       pathParams: {
@@ -4122,6 +4221,7 @@ export class ProcessWriter {
     if (!args.edgeIds.length) {
       throw new Error("delete_canvas_edge requires edgeIds");
     }
+    this.invalidateCanvas(args.repositoryId, args.modelId);
     const deleted: string[] = [];
     const errors: Array<{ edgeId: string; error: string }> = [];
     for (const edgeId of args.edgeIds) {
@@ -4161,6 +4261,7 @@ export class ProcessWriter {
     if (!args.vertexIds.length) {
       throw new Error("delete_canvas_vertex requires vertexIds");
     }
+    this.invalidateCanvas(args.repositoryId, args.modelId);
     const deleted: string[] = [];
     const errors: Array<{ vertexId: string; error: string }> = [];
     for (const vertexId of args.vertexIds) {
@@ -4482,20 +4583,7 @@ export class ProcessWriter {
     let x = Math.round(args.x);
     let y = Math.round(args.y);
     if (!args.allowOverlap) {
-      const canvas = (await this.client.request({
-        path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas",
-        pathParams: {
-          repositoryId: args.repositoryId,
-          modelId: args.modelId,
-        },
-      })) as {
-        vertices?: Array<{
-          x?: number;
-          y?: number;
-          width?: number;
-          height?: number;
-        }>;
-      };
+      const canvas = await this.getCanvas(args.repositoryId, args.modelId);
       const occupied = [
         ...(canvas.vertices ?? []).map((v) => ({
           x: v.x ?? 0,
@@ -4529,7 +4617,7 @@ export class ProcessWriter {
     });
     // 2c8 requires bounds for the repo default language even when writing another languageId.
     const labels = await this.labelsForLanguages(args.repositoryId, args.languageId, label);
-    return (await this.client.request({
+    const created = (await this.client.request({
       method: "POST",
       path: "/api/v1/repositories/{repositoryId}/models/{modelId}/canvas/vertices",
       pathParams: {
@@ -4547,6 +4635,16 @@ export class ProcessWriter {
         labels,
       },
     })) as { uuid?: string; x?: number; y?: number; width?: number; height?: number };
+    this.rememberPlacedVertex(args.repositoryId, args.modelId, {
+      uuid: created.uuid,
+      x: created.x ?? x,
+      y: created.y ?? y,
+      width: created.width ?? width,
+      height: created.height ?? height,
+      objectType: args.objectType,
+      symbol: args.symbolId,
+    });
+    return created;
   }
 
   /** Best-effort delete of a model we just created when later steps fail. */

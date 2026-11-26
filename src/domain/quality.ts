@@ -10,6 +10,7 @@ import type {
   Page,
   SymbolView,
 } from "../api/types.js";
+import { mapWithConcurrency } from "../util/concurrency.js";
 import { pickTitle } from "../util/titles.js";
 import { classifyResolvedDocumentLink, expandRelativeLinkAgainstRoots } from "./document-paths.js";
 import type { DocumentsService } from "./documents.js";
@@ -422,25 +423,30 @@ export class QualityService {
     }> = [];
 
     if (args.autoDiscover?.modelIds?.length) {
-      const ids = [...new Set(args.autoDiscover.modelIds)];
-      const checkIo = args.autoDiscover.checkIo;
-      const scopeCache = new Map<
-        string,
-        Awaited<ReturnType<ProcessReader["getDetailProcessScope"]>> | null
-      >();
-      for (const id of ids) {
-        try {
-          scopeCache.set(
-            id,
-            await this.reader.getDetailProcessScope({
-              repositoryId: args.repositoryId,
-              modelId: id,
-            }),
-          );
-        } catch {
-          scopeCache.set(id, null);
-        }
+      const AUTO_DISCOVER_MAX = 20;
+      const uniqueIds = [...new Set(args.autoDiscover.modelIds)];
+      const ids = uniqueIds.slice(0, AUTO_DISCOVER_MAX);
+      if (uniqueIds.length > AUTO_DISCOVER_MAX) {
+        // Prefer contract[] for large sets — pairwise scope fan-out is O(n²).
+        emptyIntersections.push({
+          fromModelId: ids[0] ?? "",
+          toModelId: ids[1] ?? ids[0] ?? "",
+          reason: `autoDiscover truncated to ${AUTO_DISCOVER_MAX} modelIds (got ${uniqueIds.length}) — prefer contract[]`,
+        });
       }
+      const checkIo = args.autoDiscover.checkIo;
+      const scopeEntries = await mapWithConcurrency(ids, 4, async (id) => {
+        try {
+          const scope = await this.reader.getDetailProcessScope({
+            repositoryId: args.repositoryId,
+            modelId: id,
+          });
+          return [id, scope] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      });
+      const scopeCache = new Map(scopeEntries);
 
       for (const fromId of ids) {
         for (const toId of ids) {
