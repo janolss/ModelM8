@@ -7,8 +7,8 @@ import {
 
 /** Node on the main FLOW spine (business object, activity, or rule/gateway). */
 export interface ProposedChainNode {
-  /** gateway kind = exclusive Regel (Eller); create objectType is "or". */
-  kind: "businessObject" | "activity" | "gateway" | "and";
+  /** kind "or" = exclusive Regel (Eller); create objectType is "or". */
+  kind: "businessObject" | "activity" | "or" | "and";
   title: string;
   objectType: string;
   /** Optional existing symbol UUID (handoff / CATALOG reuse). Prefer over create. */
@@ -37,7 +37,7 @@ export interface ProposedBranch {
   /** Answer on the FLOW edge label, e.g. Ja / Nej. */
   label?: string;
   toTitle: string;
-  toKind?: "businessObject" | "activity" | "gateway" | "and" | "process";
+  toKind?: "businessObject" | "activity" | "or" | "and" | "process";
   objectType?: string;
   /** Primary value artefact for a side-branch activity (from Output: while suppressSpineOutputs). */
   outputTitle?: string;
@@ -254,7 +254,7 @@ function gatewayKind(objectType: string): ProposedChainNode["kind"] {
   const t = objectType.toLowerCase();
   if (t === "and" || t === "och") return "and";
   // kind "gateway" in proposals = exclusive; objectType must be "or"
-  return "gateway";
+  return "or";
 }
 
 function stepsFromChain(
@@ -299,7 +299,7 @@ function buildNamingChecks(
         pass: c.pass,
         hint: c.hint,
       });
-    } else if (node.kind === "gateway" || node.kind === "and") {
+    } else if (node.kind === "or" || node.kind === "and") {
       const c = checkNaming(pack, node.objectType, node.title);
       checks.push({
         title: node.title,
@@ -320,7 +320,7 @@ function buildNamingChecks(
   }
   for (const b of branches) {
     const ot = b.objectType ?? (b.toKind === "businessObject" ? "businessObject" : "activity");
-    if (ot === "or" || ot === "gateway" || ot === "decision" || b.toKind === "gateway") {
+    if (ot === "or" || ot === "gateway" || ot === "decision" || b.toKind === "or") {
       const c = checkNaming(pack, "or", b.toTitle);
       checks.push({
         title: b.toTitle,
@@ -366,10 +366,7 @@ export function chainAlternationIssues(chain: ProposedChainNode[]): string[] {
   const issues: string[] = [];
   const spine = chain.filter(
     (n) =>
-      n.kind === "businessObject" ||
-      n.kind === "activity" ||
-      n.kind === "gateway" ||
-      n.kind === "and",
+      n.kind === "businessObject" || n.kind === "activity" || n.kind === "or" || n.kind === "and",
   );
   for (let i = 1; i < spine.length; i++) {
     const prev = spine[i - 1]!;
@@ -405,7 +402,7 @@ function suggestedPrefixedFromChain(
   for (const n of chain) {
     if (n.kind === "activity") lines.push(`Activity: ${n.title}`);
     else if (n.kind === "businessObject") lines.push(`Output: ${n.title}`);
-    else if (n.kind === "gateway" || n.kind === "and") {
+    else if (n.kind === "or" || n.kind === "and") {
       lines.push(`Vägval: ${n.title}`);
     }
   }
@@ -432,8 +429,7 @@ function finalizeProposal(
   secondaryOutputs: string[] = [],
 ): ModelProposal {
   const steps = stepsFromChain(chain, activities);
-  const hasGateway =
-    chain.some((n) => n.kind === "gateway" || n.kind === "and") || branches.length > 0;
+  const hasGateway = chain.some((n) => n.kind === "or" || n.kind === "and") || branches.length > 0;
   const alternation = chainAlternationIssues(chain);
   const namingChecks = buildNamingChecks(pack, chain, activities, branches);
   for (const msg of alternation) {
@@ -456,7 +452,7 @@ function finalizeProposal(
     }
   }
   const gatewayTitles = new Set(
-    chain.filter((n) => n.kind === "gateway").map((n) => n.title.toLowerCase()),
+    chain.filter((n) => n.kind === "or").map((n) => n.title.toLowerCase()),
   );
   const incompleteVagval: string[] = [];
   for (const gw of gatewayTitles) {
@@ -973,7 +969,7 @@ function proposeFromPrefixedLines(
   ): { title: string; kind: ProposedChainNode["kind"]; objectType: string } => {
     const t = raw.trim();
     if (/\?\s*$/.test(t)) {
-      return { title: t, kind: "gateway", objectType: "or" };
+      return { title: t, kind: "or", objectType: "or" };
     }
     // Explicit BO / Output: on a branch → treat as BO (will fail naming check; prefer activity)
     if (BO_HINTS.test(t) || OUTPUT_HINTS.test(t) || INPUT_HINTS.test(t)) {
@@ -1130,8 +1126,8 @@ function proposeFromPrefixedLines(
       const stepTitle = cleanTitle(line);
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
-      pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
-      if (kind === "gateway") {
+      pendingGatewayTitle = kind === "or" || kind === "and" ? stepTitle : undefined;
+      if (kind === "or") {
         lastExclusiveGatewayTitle = stepTitle;
       }
       gatewayBranchCount = 0;
@@ -1171,11 +1167,14 @@ function proposeFromPrefixedLines(
       // First answer continues on the main spine; further answers are side branches only
       if (gatewayBranchCount === 1) {
         suppressSpineOutputs = false;
-        if (target.kind === "gateway" || target.kind === "and") {
+        if (target.kind === "or" || target.kind === "and") {
           chain.push({
             kind: target.kind,
             title: activityTitle,
-            objectType: target.objectType === "gateway" ? "or" : target.objectType,
+            objectType:
+              target.objectType === "gateway" || target.objectType === "or"
+                ? "or"
+                : target.objectType,
           });
           pendingGatewayTitle = activityTitle;
           lastExclusiveGatewayTitle = activityTitle;
@@ -1238,13 +1237,13 @@ function proposeFromPrefixedLines(
     if (objectType === "or" || objectType === "and" || objectType === "gateway") {
       for (const inp of inputs) flushBo(inp);
       inputs.length = 0;
-      const ot = objectType === "gateway" ? "or" : objectType;
+      const ot = objectType === "gateway" || objectType === "or" ? "or" : objectType;
       const kind = gatewayKind(ot);
       const stepTitle = cleanTitle(line);
       if (!stepTitle) continue;
       chain.push({ kind, title: stepTitle, objectType: ot });
-      pendingGatewayTitle = kind === "gateway" || kind === "and" ? stepTitle : undefined;
-      if (kind === "gateway") {
+      pendingGatewayTitle = kind === "or" || kind === "and" ? stepTitle : undefined;
+      if (kind === "or") {
         lastExclusiveGatewayTitle = stepTitle;
       }
       gatewayBranchCount = 0;
@@ -1510,7 +1509,7 @@ export function normalizeProposal(proposal: ModelProposal, pack?: MethodologyPac
         ot === "xor"
       ) {
         chain.push({
-          kind: "gateway",
+          kind: "or",
           title: step.title,
           objectType: "or",
         });

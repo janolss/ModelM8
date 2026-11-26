@@ -13,6 +13,18 @@ import type {
 import { extractQuickdrawDistance, loadRepoConfiguration } from "../methodology/rules-engine.js";
 import { mapWithConcurrency } from "../util/concurrency.js";
 import {
+  ACTIVITY_TYPES,
+  APPLICATION_TYPES,
+  BUSINESS_OBJECT_TYPES,
+  DECISION_TYPES,
+  FLOW_EDGE_TYPES,
+  isControlsEdgeType,
+  isFlowEdgeType,
+  isRaciEdgeType,
+  PROCESS_OBJECT_TYPES,
+  RESPONSIBILITY_TYPES,
+} from "../util/model-type-sets.js";
+import {
   GATEWAY_SEARCH_HINT,
   isForbiddenJoinType,
   isGatewayAlias,
@@ -28,57 +40,13 @@ const HR_MODEL_QUERY_CONCURRENCY = 4;
 
 const PROCESS_TYPE_HINTS = ["process", "swimlane", "simbane"];
 
-const RESPONSIBILITY_TYPES = new Set([
-  "role",
-  "position",
-  "organisation",
-  "organization",
-  "befattning",
-  "roll",
-  "stakeholder",
-  "intressent",
+const APPLICATION_EDGE_TYPES = new Set([
+  "is_used_by",
+  "uses",
+  "used_by",
+  "application",
+  "isusedby",
 ]);
-
-/** Executable steps in a process model (excludes PROCESS map objects). */
-const ACTIVITY_TYPES = new Set(["activity", "aktivitet"]);
-
-/** Process chevrons on overview / process-map canvases. */
-const PROCESS_OBJECT_TYPES = new Set(["process"]);
-
-/** Vägval = Regel (Eller)=or; also and; legacy DECISION. */
-const DECISION_TYPES = new Set([
-  "decision",
-  "or",
-  "eller",
-  "and",
-  "och",
-  "gateway",
-  "regel",
-  "vägval",
-  "vagval",
-]);
-
-const APPLICATION_TYPES = new Set(["application", "applikation", "it", "system"]);
-
-const BUSINESS_OBJECT_TYPES = new Set([
-  "businessobject",
-  "business_object",
-  "verksamhetsobjekt",
-  "document",
-  "message",
-  "meddelande",
-]);
-
-const FLOW_EDGE_TYPES = new Set(["flow", "sequence"]);
-const RESPONSIBLE_EDGE_TYPES = new Set([
-  "raci_responsible",
-  "responsible",
-  "ansvarig",
-  "performs",
-  "utför",
-]);
-const APPLICATION_EDGE_TYPES = new Set(["is_used_by", "uses", "used_by", "application"]);
-const CONTROLS_EDGE_TYPES = new Set(["controls", "control", "styr"]);
 
 function isProcessLike(modelType: string | undefined): boolean {
   const t = (modelType ?? "").toLowerCase();
@@ -350,16 +318,16 @@ export class ProcessReader {
       toOt: string | undefined,
     ): "flow" | "responsible" | "application" | "controls" | "other" => {
       const et = normType(edgeType);
-      if (RESPONSIBLE_EDGE_TYPES.has(et)) {
+      if (isRaciEdgeType(edgeType)) {
         return "responsible";
       }
       if (APPLICATION_EDGE_TYPES.has(et)) {
         return "application";
       }
-      if (CONTROLS_EDGE_TYPES.has(et)) {
+      if (isControlsEdgeType(edgeType)) {
         return "controls";
       }
-      if (FLOW_EDGE_TYPES.has(et) || !et) {
+      if (isFlowEdgeType(edgeType)) {
         return "flow";
       }
       // Heuristic fallback from endpoint types

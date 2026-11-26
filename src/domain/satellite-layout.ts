@@ -4,6 +4,8 @@
  */
 
 export type SatelliteBox = {
+  /** Unique Map key (prefer symbolId / stable id — titles can collide). */
+  id: string;
   title: string;
   width: number;
   height: number;
@@ -15,6 +17,8 @@ export type SatelliteBox = {
  * Bottom layout: primary role centered under activity; side satellites nest
  * tightly against the primary icon (not label width) with a slight diagonal
  * stagger — close to center, not under neighbouring FLOW I/O objects.
+ *
+ * Result is keyed by SatelliteBox.id (not title).
  */
 export function layoutBottomSatellites(args: {
   activity: { x: number; y: number; width: number; height: number };
@@ -30,13 +34,13 @@ export function layoutBottomSatellites(args: {
   const actCx = activity.x + Math.floor(activity.width / 2);
 
   const placeSideCluster = (
-    center: { title: string; width: number; height: number },
-    sideItems: Array<{ title: string; width: number; height: number }>,
+    center: SatelliteBox,
+    sideItems: SatelliteBox[],
     /** Applications/docs always nest to the RIGHT of the primary role. */
     preferRight = true,
   ): void => {
     const centerX = actCx - Math.floor(center.width / 2);
-    result.set(center.title, { x: centerX, y });
+    result.set(center.id, { x: centerX, y });
     let leftEdge = centerX;
     let rightEdge = centerX + center.width;
     let placeRight = preferRight;
@@ -45,12 +49,12 @@ export function layoutBottomSatellites(args: {
       const itemY = y + staggerY + ring * Math.floor(staggerY / 2);
       if (placeRight || preferRight) {
         const x = rightEdge + nestGap;
-        result.set(item.title, { x, y: itemY });
+        result.set(item.id, { x, y: itemY });
         rightEdge = x + item.width;
         if (!preferRight) placeRight = false;
       } else {
         const x = leftEdge - nestGap - item.width;
-        result.set(item.title, { x, y: itemY });
+        result.set(item.id, { x, y: itemY });
         leftEdge = x;
         placeRight = true;
       }

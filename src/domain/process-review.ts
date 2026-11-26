@@ -1,5 +1,22 @@
 import type { CanvasDto, EdgeView, FlowStep, VertexView } from "../api/types.js";
 import { isCompoundPerformerTitle, type QuickdrawDistance } from "../methodology/rules-engine.js";
+import {
+  ACTIVITY_TYPES,
+  APPLICATION_TYPES as APPLICATION_OBJECT_TYPES,
+  compactIds,
+  DECISION_TYPES,
+  DOCUMENT_OBJECT_TYPES,
+  isControlsEdgeType,
+  isDecisionType,
+  isDocLinkEdgeType,
+  isFlowEdgeType,
+  isRaciEdgeType,
+  isValueBusinessObject,
+  lightNormType,
+  PROCESS_OBJECT_TYPES,
+  RESPONSIBILITY_TYPES,
+  VALUE_BUSINESS_OBJECT_TYPES,
+} from "../util/model-type-sets.js";
 import { isForbiddenJoinType } from "../util/object-types.js";
 
 export type ReviewSeverity = "error" | "warning" | "info";
@@ -15,86 +32,35 @@ export interface ReviewFinding {
   vertexIds?: string[];
 }
 
-const ACTIVITY_TYPES = new Set(["activity", "aktivitet"]);
-const PROCESS_OBJECT_TYPES = new Set(["process"]);
-const BUSINESS_OBJECT_TYPES = new Set([
-  "businessobject",
-  "business_object",
-  "verksamhetsobjekt",
-  "document",
-  "message",
-  "meddelande",
-]);
-const DECISION_TYPES = new Set([
-  "decision",
-  "or",
-  "eller",
-  "and",
-  "och",
-  "gateway",
-  "regel",
-  "vägval",
-  "vagval",
-]);
-const RESPONSIBILITY_TYPES = new Set([
-  "role",
-  "position",
-  "organisation",
-  "organization",
-  "befattning",
-  "roll",
-  "stakeholder",
-  "intressent",
-]);
-const FLOW_EDGE_TYPES = new Set(["flow", "sequence"]);
-const RESPONSIBLE_EDGE_TYPES = new Set([
-  "raci_responsible",
-  "responsible",
-  "ansvarig",
-  "performs",
-  "utför",
-]);
-const DOC_LINK_EDGE_TYPES = new Set([
-  "controls",
-  "control",
-  "styr",
-  "isusedby",
-  "usedby",
-  "anvandsav",
-]);
-const DOCUMENT_OBJECT_TYPES = new Set(["coredocument", "document", "dokument", "styrdokument"]);
-const APPLICATION_OBJECT_TYPES = new Set(["application", "applikation"]);
+/** Spine / value-stream BOs only — documents are not FLOW value objects (Q4-11). */
+const BUSINESS_OBJECT_TYPES = VALUE_BUSINESS_OBJECT_TYPES;
+
 const MAP_LEFT_MARGIN = 80;
+const DEFAULT_VERTEX_WIDTH = 75;
+const DEFAULT_VERTEX_HEIGHT = 50;
+const OVERLAP_PAD = 4;
+const SPINE_ALIGN_TOL = 8;
+const SIDE_BRANCH_MIDY_SKIP = 40;
+const PEER_ROW_MIDY_SKIP = 70;
 
 function normType(value: string | undefined): string {
-  return (value ?? "").toLowerCase().replace(/[\s_-]+/g, "");
+  return lightNormType(value);
 }
 
 function isFlowEdge(et: string | undefined): boolean {
-  const n = normType(et);
-  return !n || FLOW_EDGE_TYPES.has(n);
+  return isFlowEdgeType(et);
 }
 
 function isRaciEdge(et: string | undefined): boolean {
-  const n = normType(et);
-  // Compare normalized forms so "raciresponsible" matches "raci_responsible"
-  for (const t of RESPONSIBLE_EDGE_TYPES) {
-    if (normType(t) === n) return true;
-  }
-  return false;
+  return isRaciEdgeType(et);
 }
 
 function isControlsEdge(et: string | undefined): boolean {
-  const n = normType(et);
-  return n === "controls" || n === "control" || n === "styr";
+  return isControlsEdgeType(et);
 }
 
 function isDocLinkEdge(et: string | undefined): boolean {
-  const n = normType(et);
-  for (const t of DOC_LINK_EDGE_TYPES) {
-    if (normType(t) === n) return true;
-  }
-  return false;
+  return isDocLinkEdgeType(et);
 }
 
 function symbolIdOf(v: VertexView): string {
@@ -115,8 +81,8 @@ function vertexTitle(v: VertexView): string {
   return "?";
 }
 
-function objectTypeOf(v: VertexView, steps: FlowStep[]): string {
-  const step = steps.find((s) => s.vertexId === v.uuid);
+function objectTypeOf(v: VertexView, stepById: Map<string, FlowStep>): string {
+  const step = v.uuid ? stepById.get(v.uuid) : undefined;
   if (step?.objectType) return step.objectType;
   if (typeof v.objectType === "string") return v.objectType;
   const sym = v.symbol;
@@ -129,7 +95,7 @@ function objectTypeOf(v: VertexView, steps: FlowStep[]): string {
 function boxesOverlap(
   a: { x: number; y: number; width: number; height: number },
   b: { x: number; y: number; width: number; height: number },
-  pad = 4,
+  pad = OVERLAP_PAD,
 ): boolean {
   return !(
     a.x + a.width + pad <= b.x ||
@@ -140,11 +106,11 @@ function boxesOverlap(
 }
 
 function midY(v: { y?: number; height?: number }): number {
-  return (v.y ?? 0) + (v.height ?? 50) / 2;
+  return (v.y ?? 0) + (v.height ?? DEFAULT_VERTEX_HEIGHT) / 2;
 }
 
 function midX(v: { x?: number; width?: number }): number {
-  return (v.x ?? 0) + (v.width ?? 75) / 2;
+  return (v.x ?? 0) + (v.width ?? DEFAULT_VERTEX_WIDTH) / 2;
 }
 
 function median(nums: number[]): number {
@@ -276,6 +242,7 @@ export function reviewProcessCanvas(args: {
   const vertices = args.canvas.vertices ?? [];
   const edges = args.canvas.edges ?? [];
   const byId = new Map(vertices.filter((v) => v.uuid).map((v) => [v.uuid!, v]));
+  const stepById = new Map(steps.filter((s) => s.vertexId).map((s) => [s.vertexId!, s] as const));
   const gapX = Math.max(args.distance?.left ?? 40, args.distance?.right ?? 40, 30);
 
   const activities = steps.filter((s) => ACTIVITY_TYPES.has(normType(s.objectType)));
@@ -369,7 +336,7 @@ export function reviewProcessCanvas(args: {
           suggestion:
             "Vägval is a reader aid: activity → BO → or → real next activity. The BO before the or carries the decision; do not emit a new BO from the vägval, and do not invent filler activities after it.",
           titles: [d.title ?? "", out.title ?? ""],
-          vertexIds: [d.vertexId, out.vertexId].filter(Boolean) as string[],
+          vertexIds: compactIds(d.vertexId, out.vertexId),
         });
       }
     }
@@ -384,7 +351,7 @@ export function reviewProcessCanvas(args: {
           message: `FLOW from business object "${bo.title ?? "?"}" directly to business object "${out.title ?? "?"}" — insert an activity (or vägval) between them.`,
           suggestion: "Value stream is BO → activity → BO, never BO → BO.",
           titles: [bo.title ?? "", out.title ?? ""],
-          vertexIds: [bo.vertexId, out.vertexId].filter(Boolean) as string[],
+          vertexIds: compactIds(bo.vertexId, out.vertexId),
         });
       }
     }
@@ -400,7 +367,7 @@ export function reviewProcessCanvas(args: {
           suggestion:
             "Remove the activity→activity edge; keep BO → activity → BO (e.g. output BO of the first as input of the next).",
           titles: [a.title ?? "", out.title ?? ""],
-          vertexIds: [a.vertexId, out.vertexId].filter(Boolean) as string[],
+          vertexIds: compactIds(a.vertexId, out.vertexId),
         });
       }
     }
@@ -528,8 +495,8 @@ export function reviewProcessCanvas(args: {
         : (from as { objectType?: string }).objectType,
     );
     // objectType may live on symbol; use step map
-    const fromStep = steps.find((s) => s.vertexId === from.uuid);
-    const toStep = steps.find((s) => s.vertexId === to.uuid);
+    const fromStep = from.uuid ? stepById.get(from.uuid) : undefined;
+    const toStep = to.uuid ? stepById.get(to.uuid) : undefined;
     if (!RESPONSIBILITY_TYPES.has(normType(fromStep?.objectType ?? fromOt))) {
       continue;
     }
@@ -542,7 +509,7 @@ export function reviewProcessCanvas(args: {
   for (const [vid, acts] of roleToActivities) {
     const uniq = [...new Set(acts)];
     if (uniq.length > 1) {
-      const role = steps.find((s) => s.vertexId === vid);
+      const role = stepById.get(vid);
       findings.push({
         id: "role-fan-out",
         severity: "error",
@@ -565,9 +532,9 @@ export function reviewProcessCanvas(args: {
   }
   for (const v of vertices) {
     if (!v.uuid) continue;
-    const ot = normType(objectTypeOf(v, steps));
+    const ot = normType(objectTypeOf(v, stepById));
     if (!RESPONSIBILITY_TYPES.has(ot)) continue;
-    const title = steps.find((s) => s.vertexId === v.uuid)?.title ?? vertexTitle(v);
+    const title = (v.uuid ? stepById.get(v.uuid) : undefined)?.title ?? vertexTitle(v);
 
     if (isCompoundPerformerTitle(title)) {
       findings.push({
@@ -601,16 +568,17 @@ export function reviewProcessCanvas(args: {
     const from = byId.get(e.fromVertex ?? "");
     const to = byId.get(e.toVertex ?? "");
     if (!from || !to) continue;
-    const fromOt = normType(objectTypeOf(from, steps));
-    const toOt = normType(objectTypeOf(to, steps));
+    const fromOt = normType(objectTypeOf(from, stepById));
+    const toOt = normType(objectTypeOf(to, stepById));
     const fromIsPerformer = RESPONSIBILITY_TYPES.has(fromOt);
     const toIsPerformer = RESPONSIBILITY_TYPES.has(toOt);
     if (!fromIsPerformer && !toIsPerformer) continue;
     const performer = fromIsPerformer ? from : to;
     const other = fromIsPerformer ? to : from;
     const performerTitle =
-      steps.find((s) => s.vertexId === performer.uuid)?.title ?? vertexTitle(performer);
-    const otherTitle = steps.find((s) => s.vertexId === other.uuid)?.title ?? vertexTitle(other);
+      (performer.uuid ? stepById.get(performer.uuid) : undefined)?.title ?? vertexTitle(performer);
+    const otherTitle =
+      (other.uuid ? stepById.get(other.uuid) : undefined)?.title ?? vertexTitle(other);
     findings.push({
       id: "role-controls-document",
       severity: "error",
@@ -619,7 +587,7 @@ export function reviewProcessCanvas(args: {
       suggestion:
         "delete_canvas_edge the role CONTROLS link; attach step-specific CONTROLS on the activity (set_activity_controls) or process-wide docs on the process/model Documents panel.",
       titles: [performerTitle, otherTitle],
-      vertexIds: [performer.uuid, other.uuid].filter(Boolean) as string[],
+      vertexIds: compactIds(performer.uuid, other.uuid),
     });
   }
 
@@ -639,8 +607,8 @@ export function reviewProcessCanvas(args: {
       const from = byId.get(e.fromVertex ?? "");
       const to = byId.get(e.toVertex ?? "");
       if (!from || !to) continue;
-      const fromOt = normType(objectTypeOf(from, steps));
-      const toOt = normType(objectTypeOf(to, steps));
+      const fromOt = normType(objectTypeOf(from, stepById));
+      const toOt = normType(objectTypeOf(to, stepById));
       if (!ACTIVITY_TYPES.has(toOt)) continue;
       const isDoc = DOCUMENT_OBJECT_TYPES.has(fromOt);
       const isApp = APPLICATION_OBJECT_TYPES.has(fromOt);
@@ -649,7 +617,7 @@ export function reviewProcessCanvas(args: {
       if (!sid) continue;
       const edgeNorm = normType(e.edgeType);
       const key = `${sid}|${edgeNorm}|${isDoc ? "doc" : "app"}`;
-      const toTitle = steps.find((s) => s.vertexId === to.uuid)?.title ?? vertexTitle(to);
+      const toTitle = (to.uuid ? stepById.get(to.uuid) : undefined)?.title ?? vertexTitle(to);
       const cur = bySymbol.get(key) ?? {
         title: vertexTitle(from),
         objectType: isDoc ? "document" : "application",
@@ -713,8 +681,8 @@ export function reviewProcessCanvas(args: {
         height: b.height ?? 50,
       };
       if (boxesOverlap(boxA, boxB)) {
-        const ta = steps.find((s) => s.vertexId === a.uuid)?.title ?? a.uuid;
-        const tb = steps.find((s) => s.vertexId === b.uuid)?.title ?? b.uuid;
+        const ta = (a.uuid ? stepById.get(a.uuid) : undefined)?.title ?? a.uuid;
+        const tb = (b.uuid ? stepById.get(b.uuid) : undefined)?.title ?? b.uuid;
         findings.push({
           id: "overlapping-vertices",
           severity: "error",
@@ -816,8 +784,8 @@ export function reviewProcessCanvas(args: {
   // Zigzag FLOW: only within the same Y-band (skip cross-row peer edges)
   for (const e of edges) {
     if (!isFlowEdge(e.edgeType)) continue;
-    const fromStep = steps.find((s) => s.vertexId === e.fromVertex);
-    const toStep = steps.find((s) => s.vertexId === e.toVertex);
+    const fromStep = e.fromVertex ? stepById.get(e.fromVertex) : undefined;
+    const toStep = e.toVertex ? stepById.get(e.toVertex) : undefined;
     if (!fromStep || !toStep) continue;
     const fromOt = normType(fromStep.objectType);
     const toOt = normType(toStep.objectType);
@@ -826,19 +794,13 @@ export function reviewProcessCanvas(args: {
     if (!spineTypes(fromOt) || !spineTypes(toOt)) continue;
     if ((toStep.x ?? 0) <= (fromStep.x ?? 0)) continue;
     const dyMid = Math.abs(midY(fromStep) - midY(toStep));
-    if (dyMid <= 8) continue;
-    if (multiRowLayout && dyMid > 70) continue; // different peer rows
+    if (dyMid <= SPINE_ALIGN_TOL) continue;
+    if (multiRowLayout && dyMid > PEER_ROW_MIDY_SKIP) continue; // different peer rows
     // Side-branch / stacked secondary BO under vägval-Nej: intentional midY offset
-    const involvesBo = BUSINESS_OBJECT_TYPES.has(fromOt) || BUSINESS_OBJECT_TYPES.has(toOt);
-    if (involvesBo && dyMid > 40) continue;
-    const involvesGateway =
-      fromOt === "or" ||
-      fromOt === "and" ||
-      fromOt === "decision" ||
-      toOt === "or" ||
-      toOt === "and" ||
-      toOt === "decision";
-    if (involvesGateway && dyMid > 40) continue;
+    const involvesBo = isValueBusinessObject(fromOt) || isValueBusinessObject(toOt);
+    if (involvesBo && dyMid > SIDE_BRANCH_MIDY_SKIP) continue;
+    const involvesGateway = isDecisionType(fromOt) || isDecisionType(toOt);
+    if (involvesGateway && dyMid > SIDE_BRANCH_MIDY_SKIP) continue;
     findings.push({
       id: "flow-spine-zigzag",
       severity: "warning",
@@ -846,7 +808,7 @@ export function reviewProcessCanvas(args: {
       message: `FLOW "${fromStep.title}" → "${toStep.title}" zigzags (midY delta ${Math.round(dyMid)}px) — spine symbols should share one midline.`,
       suggestion: "Align BO and activity midY, then update_canvas_edges with reorthogonalize:true.",
       titles: [fromStep.title ?? "", toStep.title ?? ""],
-      vertexIds: [fromStep.vertexId, toStep.vertexId].filter(Boolean) as string[],
+      vertexIds: compactIds(fromStep.vertexId, toStep.vertexId),
     });
   }
 
@@ -870,7 +832,7 @@ export function reviewProcessCanvas(args: {
         message: `Tight horizontal gap (${Math.round(gap)}px) between "${a.title}" and "${b.title}".`,
         suggestion: `Use ~${gapX}px quickdraw spacing between spine symbols.`,
         titles: [a.title ?? "", b.title ?? ""],
-        vertexIds: [a.vertexId, b.vertexId].filter(Boolean) as string[],
+        vertexIds: compactIds(a.vertexId, b.vertexId),
       });
     } else if (gap > wideGapThreshold) {
       findings.push({
@@ -880,7 +842,7 @@ export function reviewProcessCanvas(args: {
         message: `Large horizontal gap (${Math.round(gap)}px) between "${a.title}" and "${b.title}".`,
         suggestion: `Tighten toward ~${Math.round(gapX)}–${Math.round(gapX * 1.2)}px (overview gold ≈32px with tight quickdraw).`,
         titles: [a.title ?? "", b.title ?? ""],
-        vertexIds: [a.vertexId, b.vertexId].filter(Boolean) as string[],
+        vertexIds: compactIds(a.vertexId, b.vertexId),
       });
     }
   }
@@ -915,7 +877,7 @@ export function reviewProcessCanvas(args: {
         suggestion:
           "Keep one primary BO on the midline; stack the other directly below (same X) with FLOW to process/activity left (or from right).",
         titles: [a.title ?? "", b.title ?? ""],
-        vertexIds: [a.vertexId, b.vertexId].filter(Boolean) as string[],
+        vertexIds: compactIds(a.vertexId, b.vertexId),
       });
     }
   }
@@ -928,8 +890,8 @@ export function reviewProcessCanvas(args: {
     const from = byId.get(e.fromVertex ?? "");
     const to = byId.get(e.toVertex ?? "");
     const pts = edgePoints(e, from, to);
-    const fromStep = steps.find((s) => s.vertexId === from?.uuid);
-    const toStep = steps.find((s) => s.vertexId === to?.uuid);
+    const fromStep = from?.uuid ? stepById.get(from.uuid) : undefined;
+    const toStep = to?.uuid ? stepById.get(to.uuid) : undefined;
     const fromOt = normType(fromStep?.objectType);
     const toOt = normType(toStep?.objectType);
 
@@ -944,7 +906,7 @@ export function reviewProcessCanvas(args: {
             message: `FLOW leaves "${fromStep?.title ?? "?"}" via ${side} — should leave on the RIGHT edge.`,
             suggestion: "Re-route FLOW: right-out from process/activity.",
             titles: [fromStep?.title ?? "", toStep?.title ?? ""],
-            vertexIds: [from?.uuid, to?.uuid].filter(Boolean) as string[],
+            vertexIds: compactIds(from?.uuid, to?.uuid),
           });
         }
       }
@@ -958,7 +920,7 @@ export function reviewProcessCanvas(args: {
             message: `FLOW enters "${toStep?.title ?? "?"}" via ${side} — should enter on the LEFT edge.`,
             suggestion: "Re-route FLOW: left-in to process/activity.",
             titles: [fromStep?.title ?? "", toStep?.title ?? ""],
-            vertexIds: [from?.uuid, to?.uuid].filter(Boolean) as string[],
+            vertexIds: compactIds(from?.uuid, to?.uuid),
           });
         }
       }
@@ -1011,7 +973,7 @@ export function reviewProcessCanvas(args: {
       const actBottom = (act.y ?? 0) + (act.height ?? 50);
       const sats = vertices.filter((v) => {
         if (!v.uuid || v.uuid === a.vertexId) return false;
-        const ot = normType(objectTypeOf(v, steps));
+        const ot = normType(objectTypeOf(v, stepById));
         if (!RESPONSIBILITY_TYPES.has(ot) && !APPLICATION_OBJECT_TYPES.has(ot)) return false;
         const cy = midY(v);
         return cy > actBottom - 10 && cy < actBottom + 120;
@@ -1034,8 +996,8 @@ export function reviewProcessCanvas(args: {
           };
           const sameCol = Math.abs(midX(sa) - midX(sb)) < 20;
           if (boxesOverlap(boxA, boxB) || sameCol) {
-            const ta = steps.find((s) => s.vertexId === sa.uuid)?.title ?? vertexTitle(sa);
-            const tb = steps.find((s) => s.vertexId === sb.uuid)?.title ?? vertexTitle(sb);
+            const ta = (sa.uuid ? stepById.get(sa.uuid) : undefined)?.title ?? vertexTitle(sa);
+            const tb = (sb.uuid ? stepById.get(sb.uuid) : undefined)?.title ?? vertexTitle(sb);
             findings.push({
               id: "satellite-column-overlap",
               severity: "warning",
@@ -1058,7 +1020,7 @@ export function reviewProcessCanvas(args: {
       const orX = d.x ?? 0;
       const outActs = (d.outputs ?? [])
         .filter((o) => ACTIVITY_TYPES.has(normType(o.objectType)))
-        .map((o) => steps.find((s) => s.vertexId === o.vertexId) ?? o)
+        .map((o) => (o.vertexId ? stepById.get(o.vertexId) : undefined) ?? o)
         .filter((s): s is FlowStep => Boolean(s.vertexId));
       if (outActs.length < 2) continue;
       const rightward = outActs.filter((o) => (o.x ?? 0) >= orX - 5);
@@ -1073,7 +1035,7 @@ export function reviewProcessCanvas(args: {
             suggestion:
               "Place Nej/side activities BELOW and to the RIGHT of the or (or at least not left of it); route FLOW or-bottom → down → activity left.",
             titles: [d.title ?? "", side.title ?? ""],
-            vertexIds: [d.vertexId, side.vertexId].filter(Boolean) as string[],
+            vertexIds: compactIds(d.vertexId, side.vertexId),
           });
         }
       }

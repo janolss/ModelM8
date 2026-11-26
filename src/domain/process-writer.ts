@@ -4355,7 +4355,7 @@ export class ProcessWriter {
     const pickActivity = (start: number, dir: 1 | -1) => {
       for (let i = start; i >= 0 && i < args.chain.length; i += dir) {
         const n = args.chain[i]!;
-        if (dir === 1 && (n.kind === "gateway" || n.kind === "and") && i !== gi) {
+        if (dir === 1 && (n.kind === "or" || n.kind === "and") && i !== gi) {
           break;
         }
         if (n.kind !== "activity") continue;
@@ -4865,7 +4865,7 @@ export class ProcessWriter {
 
     const spineY = (kind: string): number => {
       if (kind === "businessObject") return Y_BO;
-      if (kind === "gateway" || kind === "and") return Y_GATEWAY;
+      if (kind === "or" || kind === "and") return Y_GATEWAY;
       return Y_ACTIVITY;
     };
 
@@ -4938,7 +4938,7 @@ export class ProcessWriter {
 
         if (previousVertexId && previousTitle) {
           const label =
-            previousKind === "gateway" || previousKind === "and"
+            previousKind === "or" || previousKind === "and"
               ? branchLabel(previousTitle, primaryNode.title)
               : undefined;
           const edge = await this.createCanvasEdge({
@@ -4957,7 +4957,7 @@ export class ProcessWriter {
         const stackedIds: string[] = [];
         const prevWasStep =
           previousKind === "activity" ||
-          previousKind === "gateway" ||
+          previousKind === "or" ||
           previousKind === "and" ||
           previousKind === "process";
         for (let si = 1; si < items.length; si++) {
@@ -5037,12 +5037,12 @@ export class ProcessWriter {
 
       if (previousVertexId && previousTitle) {
         const label =
-          previousKind === "gateway" || previousKind === "and"
+          previousKind === "or" || previousKind === "and"
             ? branchLabel(previousTitle, node.title)
             : undefined;
         if (previousKind === "businessObject") {
           // BO → gateway locks the BO so we never also fan it to the next activity
-          if (node.kind === "gateway" || node.kind === "and") {
+          if (node.kind === "or" || node.kind === "and") {
             boLockedToGateway = previousVertexId;
           }
           if (node.kind === "activity" && boLockedToGateway === previousVertexId) {
@@ -5078,7 +5078,7 @@ export class ProcessWriter {
           });
           connectedPairs.add(`${previousTitle.toLowerCase()}→${node.title.toLowerCase()}`);
           results.push({ flow: edge });
-          if (previousKind === "gateway" || previousKind === "and") {
+          if (previousKind === "or" || previousKind === "and") {
             boLockedToGateway = undefined;
           }
         }
@@ -5191,7 +5191,7 @@ export class ProcessWriter {
           b.objectType ??
           (toKind === "businessObject"
             ? "businessObject"
-            : toKind === "gateway"
+            : toKind === "or"
               ? "or"
               : toKind === "and"
                 ? "and"
@@ -5479,21 +5479,28 @@ export class ProcessWriter {
       }
 
       // Bottom: primary role centered; apps/extra nest to the RIGHT (never stacked)
-      const withPack = (s: Sat) => ({
+      const withPack = (s: Sat, index: number) => ({
+        id: `${s.kind}:${s.title}:${index}`,
         title: s.title,
         width: s.width,
         height: s.height,
         packWidth: Math.max(s.width, this.measureOutsideLabel(s.title).width),
       });
+      const rolePacked = roleSats.map(withPack);
+      const otherPacked = otherBottomSats.map((s, i) => withPack(s, roleSats.length + i));
       const bottomPositions = this.layoutBottomSatellites({
         activity: activityBox,
-        roles: roleSats.map(withPack),
-        others: otherBottomSats.map(withPack),
+        roles: rolePacked,
+        others: otherPacked,
         gap: sideGap,
       });
-      for (const sat of [...roleSats, ...otherBottomSats]) {
-        const pos = bottomPositions.get(sat.title);
-        if (!pos) continue;
+      const orderedSats = [...roleSats, ...otherBottomSats];
+      const packedAll = [...rolePacked, ...otherPacked];
+      for (let i = 0; i < packedAll.length; i++) {
+        const packed = packedAll[i]!;
+        const sat = orderedSats[i];
+        const pos = bottomPositions.get(packed.id);
+        if (!sat || !pos) continue;
         await placeOne(sat, pos, "top");
       }
     }

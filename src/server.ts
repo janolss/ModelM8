@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { TwoC8Client } from "./api/twoc8-client.js";
 import type { AppConfig } from "./config.js";
@@ -17,6 +18,9 @@ import { loadMethodologyPack } from "./methodology/loader.js";
 import type { ToolContext } from "./tools/context.js";
 import { registerAllTools } from "./tools/index.js";
 
+const require = createRequire(import.meta.url);
+const packageJson = require("../package.json") as { version: string };
+
 export interface CreateServerOptions {
   /** Process-wide write scope. Required for HTTP so lock survives across requests. */
   writeScope?: WriteScope;
@@ -28,7 +32,7 @@ export function createServer(config: AppConfig, options: CreateServerOptions = {
   const server = new McpServer(
     {
       name: "modelM8",
-      version: "1.2.0",
+      version: packageJson.version,
     },
     {
       instructions: SERVER_INSTRUCTIONS,

@@ -58,6 +58,21 @@ export interface EdgeView {
   edgeType?: string;
   fromVertex?: string;
   toVertex?: string;
+  /** Orthogonal control points (canvas routing). */
+  points?: Array<{ x?: number; y?: number }>;
+  labels?: Record<
+    string,
+    {
+      title?: string;
+      rawTitle?: string;
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      translated?: boolean;
+    }
+  >;
+  breakdowns?: unknown[];
   [key: string]: unknown;
 }
 

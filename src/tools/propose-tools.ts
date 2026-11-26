@@ -23,8 +23,15 @@ const proposedStepSchema = z.object({
   usedBy: z.array(z.string()).optional(),
 });
 
+const chainKindSchema = z.preprocess(
+  (v) => (v === "gateway" ? "or" : v),
+  z
+    .enum(["businessObject", "activity", "or", "and"])
+    .describe('Exclusive choice is "or" (Regel Eller) — "gateway" is rejected/normalized to "or"'),
+);
+
 const chainNodeSchema = z.object({
-  kind: z.enum(["businessObject", "activity", "gateway", "and"]),
+  kind: chainKindSchema,
   title: z.string(),
   objectType: z.string(),
   symbolId: uuid.optional().describe("Reuse existing symbol UUID (handoff / CATALOG)"),
@@ -39,10 +46,13 @@ const activityDetailSchema = z.object({
 });
 
 const branchSchema = z.object({
-  fromTitle: z.string().describe("Vägval / gateway / decision title"),
+  fromTitle: z.string().describe("Vägval / or / decision title"),
   label: z.string().optional().describe("FLOW edge label, e.g. Ja / Nej"),
   toTitle: z.string(),
-  toKind: z.enum(["businessObject", "activity", "gateway", "and", "process"]).optional(),
+  toKind: z.preprocess(
+    (v) => (v === "gateway" ? "or" : v),
+    z.enum(["businessObject", "activity", "or", "and", "process"]).optional(),
+  ),
   objectType: z.string().optional(),
 });
 
